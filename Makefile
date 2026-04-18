@@ -3,13 +3,13 @@ GO     := go
 OS     := $(shell uname -s 2>/dev/null || echo Windows)
 
 ifeq ($(OS), Windows)
-  RM       := del /f /q
+  RM       := rmdir /s /q
   CLI_OUT  := bin/$(BINARY).exe
-  GUI_OUT  := bin/$(BINARY)-gui.exe
+  GUI_OUT  := build/bin/$(BINARY)-gui.exe
 else
-  RM       := rm -f
+  RM       := rm -rf
   CLI_OUT  := bin/$(BINARY)
-  GUI_OUT  := bin/$(BINARY)-gui
+  GUI_OUT  := build/bin/$(BINARY)-gui
 endif
 
 .PHONY: cli gui format lint test e2e clean setup
@@ -18,6 +18,7 @@ cli:
 	$(GO) build -o $(CLI_OUT) ./cmd/cli
 
 gui:
+	mkdir -p build/bin
 	cd cmd/gui && wails build -o ../../$(GUI_OUT)
 
 format:
@@ -36,7 +37,8 @@ e2e:
 	$(GO) test ./test/e2e/... -tags e2e -v
 
 clean:
-	$(RM) $(CLI_OUT) $(GUI_OUT)
+	-$(RM) ./bin
+	-$(RM) ./build
 
 setup:
 	npm install

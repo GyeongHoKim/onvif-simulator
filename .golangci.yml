@@ -199,6 +199,8 @@ linters:
         linters:
           - gochecknoinits
         text: "init function"
+    paths:
+      - frontend/
 
 formatters:
   enable:
