@@ -1,0 +1,65 @@
+version: 2
+
+project_name: onvif-simulator
+
+builds:
+  - id: cli
+    main: ./cmd/cli
+    binary: onvif-simulator
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/GyeongHoKim/onvif-simulator/internal/version.Version={{.Version}}
+      - -X github.com/GyeongHoKim/onvif-simulator/internal/version.Commit={{.Commit}}
+      - -X github.com/GyeongHoKim/onvif-simulator/internal/version.Date={{.Date}}
+
+archives:
+  - id: cli
+    ids:
+      - cli
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: "^feat"
+      order: 0
+    - title: Bug Fixes
+      regexp: "^fix"
+      order: 1
+    - title: Others
+      order: 999
+  filters:
+    exclude:
+      - "^docs"
+      - "^chore"
+      - "^ci"
+      - "Merge pull request"
+
+release:
+  github:
+    owner: GyeongHoKim
+    name: onvif-simulator
+  draft: false
+  prerelease: auto
+  name_template: "v{{.Version}}"

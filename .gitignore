@@ -1,0 +1,20 @@
+# Build output
+bin/
+
+# Environment
+.env*
+!.env.example
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Go
+vendor/
+
+# Web
+
+node_modules
