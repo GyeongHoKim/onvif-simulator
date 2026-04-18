@@ -1,21 +1,35 @@
-# React + TypeScript + Vite + shadcn/ui
+# Frontend (Wails GUI)
 
-This is a template for a new Vite project with React, TypeScript, and shadcn/ui.
+## Overview
 
-## Adding components
+Users pick **Device**, **Media**, or **Event** in the **sidebar**, then edit settings in the **main panel** (forms for Device/Media, actions such as buttons for Event). It mirrors the root `README.md` TUI: virtual device info, stream URIs, and event triggers—presented as a graphical shell.
 
-To add components to your app, run the following command:
+## Component hierarchy
 
-```bash
-npx shadcn@latest add button
+```
+ThemeProvider
+└── TooltipProvider
+    ├── Toaster
+    └── App
+        └── AppShell
+            ├── SidebarProvider · Sidebar … navigate Device | Media | Event
+            └── SettingsPanel
+                └── one active section only:
+                    ├── DeviceSettingsForm
+                    ├── MediaSettingsForm
+                    └── EventActionsPanel
 ```
 
-This will place the ui components in the `src/components` directory.
+Shared controls live under `src/components/ui/` (shadcn). Helpers use `src/lib/utils.ts`. Wails generates the Go bridge under **`src/lib/wails/`** (see `wailsjsdir` in `wails.json`).
 
-## Using components
+## Data sent through Wails
 
-To use the components in your app, import them as follows:
+Go **public methods** on the struct you pass to `Bind` are generated as TypeScript functions. The frontend calls them to send **configuration and commands**. Every call returns a **Promise**—use `async`/`await` as usual.
 
-```tsx
-import { Button } from "@/components/ui/button"
-```
+| Screen | What you pass to the backend (conceptually) |
+|--------|---------------------------------------------|
+| **Device** | Virtual device metadata exposed to ONVIF (manufacturer, model, firmware, etc.—match the actual Go method signatures). |
+| **Media** | **Stream URIs** for main/sub (and profile or token fields if your API needs them). |
+| **Event** | Test event type (e.g. motion) and any extra arguments your API defines. |
+
+Typical imports look like `@/lib/wails/go/main/App`; the `go/...` path segment depends on your Go package and struct names. Regenerate bindings from the repo root with **`wails dev`** (during development) or **`wails generate module`**. See [How does it work](https://wails.io/docs/howdoesitwork) and the [CLI reference](https://wails.io/docs/reference/cli).

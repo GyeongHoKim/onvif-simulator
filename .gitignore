@@ -1,6 +1,7 @@
 # Build output
 bin/
 build/
+!build/appicon.png
 
 # Environment
 .env*
