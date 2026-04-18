@@ -78,19 +78,22 @@ The features are the same as the TUI mode.
 
 ## Configuration
 
-### RTSP Endpoints (.env)
+### `onvif-simulator.json`
 
-onvif-simulator does not manage RTSP streams itself. You should provide pre-existing RTSP endpoints via a `.env` file in the working directory.
+onvif-simulator does not manage RTSP streams itself. You should provide pre-existing RTSP endpoints in a JSON config file in the working directory.
 
-Copy `.env.example` and fill in your values:
+Copy the example file and edit the URIs:
 
 ```bash
-cp .env.example .env
+cp onvif-simulator.example.json onvif-simulator.json
 ```
 
-```env
-MAIN_RTSP_URI=rtsp://localhost:8554/live
-SUB_RTSP_URI=rtsp://localhost:8554/live2
+```json
+{
+  "version": 1,
+  "main_rtsp_uri": "rtsp://localhost:8554/live",
+  "sub_rtsp_uri": "rtsp://localhost:8554/live2"
+}
 ```
 
 The RTSP URIs must be reachable at runtime — onvif-simulator forwards them as-is to ONVIF clients.
@@ -119,7 +122,7 @@ go install github.com/wailsapp/wails/v2/cmd/wails@latest
 git clone https://github.com/GyeongHoKim/onvif-simulator.git
 cd onvif-simulator
 go mod tidy
-cp .env.example .env  # fill in your RTSP URIs
+cp onvif-simulator.example.json onvif-simulator.json  # fill in your RTSP URIs
 make setup            # install git hooks and commitlint
 ```
 
