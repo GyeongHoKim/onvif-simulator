@@ -11,13 +11,15 @@ A cross-platform ONVIF device simulator written in Go. Supports CLI, TUI, and GU
 
 ## Installation
 
-### Linux / macOS
+### CLI / TUI
+
+**Linux / macOS**
 
 ```bash
 curl -fsSL https://github.com/GyeongHoKim/onvif-simulator/releases/latest/download/install.sh | bash
 ```
 
-### Windows (PowerShell)
+**Windows (PowerShell)**
 
 ```powershell
 iex (irm https://github.com/GyeongHoKim/onvif-simulator/releases/latest/download/install.ps1)
@@ -25,9 +27,17 @@ iex (irm https://github.com/GyeongHoKim/onvif-simulator/releases/latest/download
 
 After installation, the `onvif-simulator` command will be available in your terminal.
 
-### Manual Installation
+### GUI
 
-Download the binary for your platform from the [Releases](https://github.com/GyeongHoKim/onvif-simulator/releases) page and place it in your `PATH`.
+Download the installer for your platform from the [Releases](https://github.com/GyeongHoKim/onvif-simulator/releases) page:
+
+| Platform | File |
+|----------|------|
+| Windows  | `onvif-simulator-gui-windows-amd64.exe` |
+| macOS    | `onvif-simulator-gui-darwin-amd64.dmg` |
+| Linux    | `onvif-simulator-gui-linux-amd64.AppImage` |
+
+Run the installer and follow the on-screen instructions.
 
 ## Usage
 
@@ -65,11 +75,7 @@ Key bindings:
 
 ### GUI Mode
 
-Launches a native window with a web-based interface for full graphical management.
-
-```bash
-onvif-simulator gui
-```
+Download and run the installer for your platform from the [Releases](https://github.com/GyeongHoKim/onvif-simulator/releases) page. The GUI provides a native window with a web-based interface for full graphical management of virtual devices.
 
 ## Configuration
 

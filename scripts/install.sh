@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Installs the onvif-simulator CLI/TUI binary.
+# For the GUI application, download the installer from:
+# https://github.com/GyeongHoKim/onvif-simulator/releases
 set -euo pipefail
 
 REPO="GyeongHoKim/onvif-simulator"

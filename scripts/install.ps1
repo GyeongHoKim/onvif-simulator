@@ -1,4 +1,7 @@
 #Requires -Version 5.1
+# Installs the onvif-simulator CLI/TUI binary.
+# For the GUI application, download the installer from:
+# https://github.com/GyeongHoKim/onvif-simulator/releases
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 

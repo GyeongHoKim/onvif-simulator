@@ -29,28 +29,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  gui:
-    name: Release GUI (${{ matrix.os }})
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      matrix:
-        include:
-          - os: linux
-            runner: ubuntu-latest
-            output: onvif-simulator-gui
-            archive_cmd: tar -czf onvif-simulator-gui_linux_amd64.tar.gz onvif-simulator-gui
-            asset: onvif-simulator-gui_linux_amd64.tar.gz
-          - os: macos
-            runner: macos-latest
-            output: onvif-simulator-gui
-            archive_cmd: tar -czf onvif-simulator-gui_darwin_amd64.tar.gz onvif-simulator-gui.app
-            asset: onvif-simulator-gui_darwin_amd64.tar.gz
-          - os: windows
-            runner: windows-latest
-            output: onvif-simulator-gui.exe
-            archive_cmd: Compress-Archive -Path onvif-simulator-gui.exe -DestinationPath onvif-simulator-gui_windows_amd64.zip
-            asset: onvif-simulator-gui_windows_amd64.zip
-
+  gui-windows:
+    name: Release GUI (Windows)
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6.0.2
 
@@ -69,26 +50,105 @@ jobs:
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
-      - name: Install frontend dependencies (Linux)
-        if: matrix.os == 'linux'
-        run: sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
-
-      - name: Build GUI
+      - name: Build GUI (NSIS installer)
         working-directory: cmd/gui
-        run: wails build -o ../../${{ matrix.output }}
-
-      - name: Archive (Unix)
-        if: matrix.os != 'windows'
-        run: ${{ matrix.archive_cmd }}
-
-      - name: Archive (Windows)
-        if: matrix.os == 'windows'
-        shell: pwsh
-        run: ${{ matrix.archive_cmd }}
+        run: wails build -nsis -platform windows/amd64
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v3.0.0
         with:
-          files: ${{ matrix.asset }}
+          files: build/bin/*-amd64-installer.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  gui-macos:
+    name: Release GUI (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: actions/setup-go@v6.4.0
+        with:
+          go-version-file: .go-version
+          cache: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6.3.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Build GUI (.app)
+        working-directory: cmd/gui
+        run: wails build -platform darwin/amd64
+
+      - name: Package as .dmg
+        run: |
+          hdiutil create -volname "onvif-simulator" \
+            -srcfolder build/bin/onvif-simulator-gui.app \
+            -ov -format UDZO \
+            onvif-simulator-gui-darwin-amd64.dmg
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v3.0.0
+        with:
+          files: onvif-simulator-gui-darwin-amd64.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  gui-linux:
+    name: Release GUI (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: actions/setup-go@v6.4.0
+        with:
+          go-version-file: .go-version
+          cache: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6.3.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install system dependencies
+        run: sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Install AppImage tool
+        run: |
+          curl -fsSL -o appimagetool https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+
+      - name: Build GUI
+        working-directory: cmd/gui
+        run: wails build -platform linux/amd64
+
+      - name: Package as AppImage
+        run: |
+          mkdir -p AppDir/usr/bin
+          cp build/bin/onvif-simulator-gui AppDir/usr/bin/
+          cat > AppDir/onvif-simulator-gui.desktop <<EOF
+          [Desktop Entry]
+          Name=onvif-simulator
+          Exec=onvif-simulator-gui
+          Type=Application
+          Categories=Utility;
+          EOF
+          ARCH=x86_64 ./appimagetool AppDir onvif-simulator-gui-linux-amd64.AppImage
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v3.0.0
+        with:
+          files: onvif-simulator-gui-linux-amd64.AppImage
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
