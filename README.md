@@ -6,8 +6,11 @@ A cross-platform ONVIF device simulator written in Go. Supports CLI, TUI, and GU
 
 - ONVIF Profile S (camera streaming simulation)
 - Multiple interface modes: CLI, TUI, GUI
-- Configure multiple virtual devices
-- Lightweight and dependency-free installation
+- Configure multiple streams (main, sub)
+
+## Supported profiles
+
+- **Profile S**
 
 ## Installation
 
@@ -46,42 +49,38 @@ Run the installer and follow the on-screen instructions.
 Run a single virtual device directly from the command line.
 
 ```bash
-# Start a virtual device with default settings
+# Start a virtual device with default settings(cannot customize in CLI mode)
 onvif-simulator start
-
-# Start with custom options (overrides .env values)
-onvif-simulator start --port 8080 --name "Camera-01"
-
 # List available options
 onvif-simulator start --help
 ```
 
 ### TUI Mode
 
-Interactive terminal UI for managing multiple virtual devices.
+Interactive terminal UI for managing:
+
+- Device Service
+  - change device information
+- Media Service
+  - change stream uri
+- Event Service
+  - trigger motion detection
 
 ```bash
-onvif-simulator tui
+onvif-simulator
 ```
-
-Key bindings:
-
-| Key | Action |
-|-----|--------|
-| `n` | Add new device |
-| `d` | Delete selected device |
-| `Enter` | View device details |
-| `q` | Quit |
 
 ### GUI Mode
 
 Download and run the installer for your platform from the [Releases](https://github.com/GyeongHoKim/onvif-simulator/releases) page. The GUI provides a native window with a web-based interface for full graphical management of virtual devices.
 
+The features are the same as the TUI mode.
+
 ## Configuration
 
 ### RTSP Endpoints (.env)
 
-onvif-simulator does not manage RTSP streams itself. You provide pre-existing RTSP endpoints via a `.env` file in the working directory.
+onvif-simulator does not manage RTSP streams itself. You should provide pre-existing RTSP endpoints via a `.env` file in the working directory.
 
 Copy `.env.example` and fill in your values:
 
@@ -90,21 +89,8 @@ cp .env.example .env
 ```
 
 ```env
-# Number of virtual devices to simulate
-DEVICE_COUNT=2
-
-# Per-device settings (index starts at 1)
-DEVICE_1_NAME=Camera-01
-DEVICE_1_PORT=8080
-DEVICE_1_RTSP_URI=rtsp://localhost:8554/live
-DEVICE_1_MANUFACTURER=Acme
-DEVICE_1_MODEL=VirtualCam-1000
-
-DEVICE_2_NAME=Camera-02
-DEVICE_2_PORT=8081
-DEVICE_2_RTSP_URI=rtsp://localhost:8554/live2
-DEVICE_2_MANUFACTURER=Acme
-DEVICE_2_MODEL=VirtualCam-1000
+MAIN_RTSP_URI=rtsp://localhost:8554/live
+SUB_RTSP_URI=rtsp://localhost:8554/live2
 ```
 
 The RTSP URIs must be reachable at runtime — onvif-simulator forwards them as-is to ONVIF clients.
@@ -153,7 +139,7 @@ make setup            # install git hooks and commitlint
 ```bash
 # CLI / TUI
 go run . start
-go run . tui
+go run .
 
 # GUI (requires Wails)
 wails dev

@@ -63,3 +63,6 @@ release:
   draft: false
   prerelease: auto
   name_template: "v{{.Version}}"
+  extra_files:
+    - glob: ./install.sh
+    - glob: ./install.ps1
