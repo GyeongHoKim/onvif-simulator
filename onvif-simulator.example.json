@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "main_rtsp_uri": "rtsp://localhost:8554/live",
+  "sub_rtsp_uri": "rtsp://localhost:8554/live2"
+}

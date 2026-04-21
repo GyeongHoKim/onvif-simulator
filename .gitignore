@@ -3,9 +3,8 @@ bin/
 build/
 !build/appicon.png
 
-# Environment
-.env*
-!.env.example
+# Local configuration (copy from onvif-simulator.example.json)
+onvif-simulator.json
 
 # macOS
 .DS_Store

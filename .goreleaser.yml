@@ -64,5 +64,5 @@ release:
   prerelease: auto
   name_template: "v{{.Version}}"
   extra_files:
-    - glob: ./install.sh
-    - glob: ./install.ps1
+    - glob: ./scripts/install.sh
+    - glob: ./scripts/install.ps1

@@ -3,9 +3,14 @@
 // Package e2e contains end-to-end tests that verify ONVIF Profile S conformance
 // against a running onvif-simulator instance using use-go/onvif as the client.
 //
-// Test cases are derived from the official ONVIF test specifications:
+// Test cases are consolidated in profile_s_test.go (TestONVIF_ProfileS) and reference:
+//   - ONVIF Profile S Specification v1.3
+//   - ONVIF Core Specification
 //   - ONVIF Base Device Test Specification v21.12
 //   - ONVIF Media Configuration Device Test Specification
+//
+// WS-Discovery (UDP) required by Profile S §7.3 is not covered here; only Device-service
+// discovery configuration operations (HTTP) are tested.
 //
 // Run with:
 //

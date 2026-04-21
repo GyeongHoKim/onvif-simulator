@@ -1,54 +1,82 @@
 #!/usr/bin/env bash
-# Installs the onvif-simulator CLI/TUI binary.
-# For the GUI application, download the installer from:
-# https://github.com/GyeongHoKim/onvif-simulator/releases
+# Installs the latest onvif-simulator CLI binary from GitHub Releases.
+# Usage: curl -fsSL …/install.sh | bash
 set -euo pipefail
 
-REPO="GyeongHoKim/onvif-simulator"
-BINARY="onvif-simulator"
-INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
+REPO_OWNER="GyeongHoKim"
+REPO_NAME="onvif-simulator"
+API_LATEST="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest"
 
-# Detect OS
-OS="$(uname -s)"
-case "${OS}" in
-  Linux)  OS="linux" ;;
-  Darwin) OS="darwin" ;;
-  *)
-    echo "Unsupported OS: ${OS}" >&2
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "install.sh: required command not found: $1" >&2
     exit 1
-    ;;
+  }
+}
+
+need_cmd curl
+need_cmd uname
+
+OS=$(uname -s)
+ARCH=$(uname -m)
+
+case "$OS" in
+Linux) OS=linux ;;
+Darwin) OS=darwin ;;
+*)
+  echo "install.sh: unsupported OS: $OS (only Linux and macOS)" >&2
+  exit 1
+  ;;
 esac
 
-# Detect architecture
-ARCH="$(uname -m)"
-case "${ARCH}" in
-  x86_64)  ARCH="amd64" ;;
-  aarch64|arm64) ARCH="arm64" ;;
-  *)
-    echo "Unsupported architecture: ${ARCH}" >&2
-    exit 1
-    ;;
+case "$ARCH" in
+x86_64 | amd64) ARCH=amd64 ;;
+aarch64 | arm64) ARCH=arm64 ;;
+*)
+  echo "install.sh: unsupported architecture: $ARCH" >&2
+  exit 1
+  ;;
 esac
 
-# Fetch latest version tag
-VERSION="${VERSION:-$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')}"
+if command -v python3 >/dev/null 2>&1; then
+  TAG=$(curl -fsSL "$API_LATEST" | python3 -c 'import sys, json; print(json.load(sys.stdin)["tag_name"])')
+else
+  need_cmd grep
+  TAG=$(curl -fsSL "$API_LATEST" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+fi
 
-if [ -z "${VERSION}" ]; then
-  echo "Failed to fetch latest version." >&2
+VERSION="${TAG#v}"
+ARCHIVE="onvif-simulator_${VERSION}_${OS}_${ARCH}.tar.gz"
+URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${TAG}/${ARCHIVE}"
+
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
+echo "Downloading ${ARCHIVE} ..."
+if ! curl -fsSL "$URL" -o "$TMP/archive.tar.gz"; then
+  echo "install.sh: failed to download ${URL}" >&2
+  echo "install.sh: check that this release includes a build for ${OS}/${ARCH}." >&2
   exit 1
 fi
 
-ARCHIVE="${BINARY}_${VERSION#v}_${OS}_${ARCH}.tar.gz"
-URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE}"
+tar -xzf "$TMP/archive.tar.gz" -C "$TMP"
 
-echo "Installing ${BINARY} ${VERSION} (${OS}/${ARCH})..."
+BIN="$TMP/onvif-simulator"
+if [ ! -f "$BIN" ]; then
+  echo "install.sh: could not find onvif-simulator binary inside archive" >&2
+  exit 1
+fi
 
-TMP="$(mktemp -d)"
-trap 'rm -rf "${TMP}"' EXIT
+chmod +x "$BIN"
 
-curl -fsSL "${URL}" -o "${TMP}/${ARCHIVE}"
-tar -xzf "${TMP}/${ARCHIVE}" -C "${TMP}"
-
-install -m 755 "${TMP}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
-
-echo "${BINARY} ${VERSION} installed to ${INSTALL_DIR}/${BINARY}"
+if [ -w "/usr/local/bin" ] 2>/dev/null; then
+  DEST="/usr/local/bin/onvif-simulator"
+  mv "$BIN" "$DEST"
+  echo "Installed: ${DEST}"
+else
+  DEST_DIR="${HOME}/.local/bin"
+  mkdir -p "$DEST_DIR"
+  mv "$BIN" "${DEST_DIR}/onvif-simulator"
+  echo "Installed: ${DEST_DIR}/onvif-simulator"
+  echo "Ensure ${DEST_DIR} is on your PATH (e.g. export PATH=\"\${HOME}/.local/bin:\${PATH}\")."
+fi
