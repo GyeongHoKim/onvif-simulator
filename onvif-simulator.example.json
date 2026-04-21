@@ -1,5 +1,17 @@
 {
   "version": 1,
   "main_rtsp_uri": "rtsp://localhost:8554/live",
-  "sub_rtsp_uri": "rtsp://localhost:8554/live2"
+  "sub_rtsp_uri": "rtsp://localhost:8554/live2",
+  "discovery": {
+    "endpoint_address": "urn:uuid:00000000-0000-4000-8000-000000000001",
+    "types": ["tds:Device"],
+    "scopes": [
+      "onvif://www.onvif.org/Profile/Streaming",
+      "onvif://www.onvif.org/name/simulator",
+      "onvif://www.onvif.org/hardware/virtual"
+    ],
+    "xaddrs": ["http://127.0.0.1:8080/onvif/device_service"],
+    "instance_id": 1,
+    "metadata_version": 1
+  }
 }
