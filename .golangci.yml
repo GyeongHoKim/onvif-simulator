@@ -75,9 +75,6 @@ linters:
     dupl:
       threshold: 100
 
-    err113:
-      check-type-assertions: true
-
     errcheck:
       check-type-assertions: true
       check-blank: true
