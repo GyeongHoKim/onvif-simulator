@@ -38,7 +38,7 @@ func TestValidate(t *testing.T) {
 	}
 
 	discoveryOK := config.DiscoveryConfig{
-		EndpointAddress: "urn:uuid:11111111-2222-4333-8444-555555555555",
+		Address:         "urn:uuid:11111111-2222-4333-8444-555555555555",
 		Types:           []string{"tds:Device"},
 		Scopes:          []string{"onvif://www.onvif.org/name/test"},
 		XAddrs:          []string{"http://127.0.0.1:8080/onvif/device_service"},
@@ -71,7 +71,7 @@ func TestValidate(t *testing.T) {
 		MainRTSP: valid.MainRTSP,
 		SubRTSP:  valid.SubRTSP,
 		Discovery: config.DiscoveryConfig{
-			EndpointAddress: "not-a-uuid",
+			Address:         "not-a-uuid",
 			Types:           []string{"tds:Device"},
 			Scopes:          []string{"onvif://www.onvif.org/name/x"},
 			XAddrs:          []string{"http://127.0.0.1:8080/"},
@@ -92,7 +92,7 @@ func TestLoadSaveRoundTrip(t *testing.T) {
 		MainRTSP: "rtsp://127.0.0.1:8554/main",
 		SubRTSP:  "rtsp://127.0.0.1:8554/sub",
 		Discovery: config.DiscoveryConfig{
-			EndpointAddress: "urn:uuid:aaaaaaaa-bbbb-4ccc-dddd-eeeeeeeeeeee",
+			Address:         "urn:uuid:aaaaaaaa-bbbb-4ccc-dddd-eeeeeeeeeeee",
 			Types:           []string{"tds:Device"},
 			Scopes:          []string{"onvif://www.onvif.org/name/roundtrip"},
 			XAddrs:          []string{"https://127.0.0.1:8443/onvif/device_service"},

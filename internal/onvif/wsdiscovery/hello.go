@@ -1,4 +1,4 @@
-package discovery
+package wsdiscovery
 
 import (
 	"encoding/xml"
@@ -8,7 +8,7 @@ import (
 
 var (
 	errHelloMessageIDRequired  = errors.New("discovery: hello MessageID is required")
-	errHelloEndpointRequired   = errors.New("discovery: hello EndpointAddress is required")
+	errHelloEndpointRequired   = errors.New("discovery: hello Address is required")
 	errHelloMessageNumberRange = errors.New("discovery: hello MessageNumber must be >= 1")
 	errHelloParamsNil          = errors.New("discovery: nil HelloParams")
 )
@@ -17,7 +17,7 @@ var (
 // (see WS-Discovery §4.1; ONVIF Core §7.3.2 for Types, Scopes, XAddrs content).
 type HelloParams struct {
 	MessageID       string
-	EndpointAddress string
+	Address         string
 	Types           []string
 	Scopes          []string
 	XAddrs          []string
@@ -34,7 +34,7 @@ func (p *HelloParams) Validate() error {
 	switch {
 	case strings.TrimSpace(p.MessageID) == "":
 		return errHelloMessageIDRequired
-	case strings.TrimSpace(p.EndpointAddress) == "":
+	case strings.TrimSpace(p.Address) == "":
 		return errHelloEndpointRequired
 	case p.MessageNumber < 1:
 		return errHelloMessageNumberRange
@@ -63,7 +63,7 @@ func MarshalHello(p *HelloParams) ([]byte, error) {
 	}
 	b.WriteString(`<s:Body>`)
 	if err := writeHelloLikeBody(
-		&b, "d:Hello", p.EndpointAddress, p.Types, p.Scopes, p.XAddrs, p.MetadataVersion,
+		&b, "d:Hello", p.Address, p.Types, p.Scopes, p.XAddrs, p.MetadataVersion,
 	); err != nil {
 		return nil, err
 	}

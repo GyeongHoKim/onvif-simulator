@@ -1,4 +1,4 @@
-package discovery
+package wsdiscovery
 
 import (
 	"encoding/xml"
@@ -8,17 +8,17 @@ import (
 
 var (
 	errByeMessageIDRequired  = errors.New("discovery: bye MessageID is required")
-	errByeEndpointRequired   = errors.New("discovery: bye EndpointAddress is required")
+	errByeEndpointRequired   = errors.New("discovery: bye Address is required")
 	errByeMessageNumberRange = errors.New("discovery: bye MessageNumber must be >= 1")
 	errByeParamsNil          = errors.New("discovery: nil ByeParams")
 )
 
 // ByeParams is a WS-Discovery Bye one-way message (WS-Discovery §4.2, Table 7).
 type ByeParams struct {
-	MessageID       string
-	EndpointAddress string
-	InstanceID      uint32
-	MessageNumber   uint32
+	MessageID     string
+	Address       string
+	InstanceID    uint32
+	MessageNumber uint32
 }
 
 // Validate checks required Bye fields.
@@ -29,7 +29,7 @@ func (p *ByeParams) Validate() error {
 	switch {
 	case strings.TrimSpace(p.MessageID) == "":
 		return errByeMessageIDRequired
-	case strings.TrimSpace(p.EndpointAddress) == "":
+	case strings.TrimSpace(p.Address) == "":
 		return errByeEndpointRequired
 	case p.MessageNumber < 1:
 		return errByeMessageNumberRange
@@ -57,7 +57,7 @@ func MarshalBye(p *ByeParams) ([]byte, error) {
 	}
 	b.WriteString(`<s:Body><d:Bye>`)
 	b.WriteString(`<a:EndpointReference><a:Address>`)
-	if err := xmlEscape(&b, p.EndpointAddress); err != nil {
+	if err := xmlEscape(&b, p.Address); err != nil {
 		return nil, err
 	}
 	b.WriteString(`</a:Address></a:EndpointReference>`)

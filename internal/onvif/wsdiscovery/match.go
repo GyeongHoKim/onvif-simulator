@@ -1,4 +1,4 @@
-package discovery
+package wsdiscovery
 
 import (
 	"net/url"
@@ -20,12 +20,12 @@ func ProbeMatches(probe *IncomingProbe, deviceTypes, deviceScopes []string) bool
 
 // MatchResolve reports whether the Resolve request targets this device's endpoint address
 // (trimmed string equality; extend with WS-Addressing comparison if needed).
-func MatchResolve(resolve *IncomingResolve, deviceEndpointAddress string) bool {
+func MatchResolve(resolve *IncomingResolve, deviceAddress string) bool {
 	if resolve == nil {
 		return false
 	}
-	a := strings.TrimSpace(resolve.EndpointAddress)
-	b := strings.TrimSpace(deviceEndpointAddress)
+	a := strings.TrimSpace(resolve.Address)
+	b := strings.TrimSpace(deviceAddress)
 	return a != "" && strings.EqualFold(a, b)
 }
 

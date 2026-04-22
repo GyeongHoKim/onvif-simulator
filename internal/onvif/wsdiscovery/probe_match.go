@@ -1,4 +1,4 @@
-package discovery
+package wsdiscovery
 
 import (
 	"errors"
@@ -10,12 +10,12 @@ var (
 	errProbeMatchesRelatesToRequired  = errors.New("discovery: ProbeMatches RelatesTo is required")
 	errProbeMatchesMessageNumberRange = errors.New("discovery: ProbeMatches MessageNumber must be >= 1")
 	errProbeMatchesParamsNil          = errors.New("discovery: nil ProbeMatchesParams")
-	errProbeMatchEndpointRequired     = errors.New("discovery: ProbeMatch EndpointAddress is required")
+	errProbeMatchEndpointRequired     = errors.New("discovery: ProbeMatch Address is required")
 )
 
 // ProbeMatchContent is the body of a single d:ProbeMatch (WS-Discovery §5.3).
 type ProbeMatchContent struct {
-	EndpointAddress string
+	Address         string
 	Types           []string
 	Scopes          []string
 	XAddrs          []string
@@ -44,7 +44,7 @@ func (p *ProbeMatchesParams) Validate() error {
 		return errProbeMatchesRelatesToRequired
 	case p.MsgNumber < 1:
 		return errProbeMatchesMessageNumberRange
-	case strings.TrimSpace(p.Match.EndpointAddress) == "":
+	case strings.TrimSpace(p.Match.Address) == "":
 		return errProbeMatchEndpointRequired
 	default:
 		return nil
@@ -68,7 +68,7 @@ func MarshalProbeMatches(p *ProbeMatchesParams) ([]byte, error) {
 		"<d:ProbeMatches>", "</d:ProbeMatches>", "d:ProbeMatch",
 		p.MessageID, to, p.RelatesTo, p.InstanceID, p.MsgNumber,
 		p.Match.Types,
-		p.Match.EndpointAddress,
+		p.Match.Address,
 		p.Match.Scopes,
 		p.Match.XAddrs,
 		p.Match.MetadataVersion,
