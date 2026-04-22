@@ -1,4 +1,4 @@
-package discovery
+package wsdiscovery
 
 // SOAP 1.2 and WS-Discovery XML namespaces (WS-Discovery Table 3).
 const (
