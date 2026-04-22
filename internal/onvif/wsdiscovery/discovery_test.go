@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/discovery"
+	discovery "github.com/GyeongHoKim/onvif-simulator/internal/onvif/wsdiscovery"
 )
 
 func TestParseProbe_Table1Style(t *testing.T) {
