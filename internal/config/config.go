@@ -13,88 +13,123 @@ import (
 	"strings"
 )
 
-// FileName is the default on-disk config file name in the working directory (see README).
+// FileName is the default on-disk config file name in the working directory.
 const FileName = "onvif-simulator.json"
 
 // CurrentVersion is the only supported config schema version.
 const CurrentVersion = 1
 
-// Config is the on-disk JSON shape (see onvif-simulator.example.json).
+// Config is the on-disk JSON shape.
 type Config struct {
-	Version   int             `json:"version"`
-	MainRTSP  string          `json:"main_rtsp_uri"`
-	SubRTSP   string          `json:"sub_rtsp_uri"`
-	Discovery DiscoveryConfig `json:"discovery,omitempty"`
+	Version int           `json:"version"`
+	Device  DeviceConfig  `json:"device"`
+	Network NetworkConfig `json:"network"`
+	Media   MediaConfig   `json:"media"`
+	Auth    AuthConfig    `json:"auth,omitempty"`
 }
 
-// DiscoveryConfig holds WS-Discovery / ONVIF Hello-related fields (Core §7.3, WS-Discovery §4.1).
-// Omit or leave at zero values to disable validation of discovery (e.g. simulator not advertising yet).
-// If Address is set, Types, Scopes, XAddrs, InstanceID, and MetadataVersion are required.
-type DiscoveryConfig struct {
-	// Address is the stable a:Address inside Hello (ONVIF: URN:UUID).
-	Address string `json:"endpoint_address"`
-	// Types are d:Types QNames (e.g. tds:Device).
-	Types []string `json:"types"`
-	// Scopes are absolute scope URIs for d:Scopes.
-	Scopes []string `json:"scopes"`
-	// XAddrs are device service URLs (http/https) for d:XAddrs.
-	XAddrs []string `json:"xaddrs"`
-	// InstanceID is d:AppSequence @InstanceId (stable for this simulated device).
-	InstanceID uint32 `json:"instance_id"`
-	// MetadataVersion is d:MetadataVersion; increment when Types/Scopes/XAddrs metadata changes.
-	MetadataVersion uint32 `json:"metadata_version"`
+// DeviceConfig describes who this device is.
+// UUID, Manufacturer, Model, and Serial are required.
+// These fields are used for both ONVIF GetDeviceInformation responses
+// and WS-Discovery advertisement (Scopes are derived from them at runtime).
+type DeviceConfig struct {
+	// UUID is the stable WS-Discovery a:Address (must be urn:uuid:<uuid>).
+	UUID         string `json:"uuid"`
+	Manufacturer string `json:"manufacturer"`
+	Model        string `json:"model"`
+	Serial       string `json:"serial"`
+	// Firmware is optional; reported in GetDeviceInformation.
+	Firmware string `json:"firmware,omitempty"`
+	// Scopes are additional WS-Discovery scope URIs beyond the auto-derived ones.
+	Scopes []string `json:"scopes,omitempty"`
+}
+
+// NetworkConfig describes how clients reach this device.
+type NetworkConfig struct {
+	// HTTPPort is the port the ONVIF device service listens on (required, 1–65535).
+	HTTPPort int `json:"http_port"`
+	// Interface is the network interface to bind (empty means all interfaces).
+	Interface string `json:"interface,omitempty"`
+	// XAddrs overrides the auto-derived WS-Discovery transport addresses.
+	// If empty, XAddrs is derived from the bound IP and HTTPPort at runtime.
+	XAddrs []string `json:"xaddrs,omitempty"`
+}
+
+// MediaConfig holds the list of ONVIF media profiles this device advertises.
+type MediaConfig struct {
+	Profiles []ProfileConfig `json:"profiles"`
+}
+
+// ProfileConfig describes a single ONVIF media profile.
+// Name, Token, RTSP, Encoding, Width, Height, and FPS are all required.
+type ProfileConfig struct {
+	// Name is a human-readable label (e.g. "main", "sub").
+	Name string `json:"name"`
+	// Token is the ONVIF profile token (must be unique across profiles).
+	Token    string `json:"token"`
+	RTSP     string `json:"rtsp"`
+	Encoding string `json:"encoding"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
+	FPS      int    `json:"fps"`
+}
+
+// AuthConfig holds credentials for WS-Security Digest authentication.
+// Username and Password must both be set or both be empty.
+type AuthConfig struct {
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
 }
 
 var (
 	// ErrInvalidVersion means config.version does not match a supported schema.
 	ErrInvalidVersion = errors.New("config: unsupported version")
-	// ErrEmptyRTSPURI means a required rtsp URI field was empty.
-	ErrEmptyRTSPURI = errors.New("config: rtsp uri must not be empty")
-	// ErrInvalidRTSPURL means the value is not a valid URL.
-	ErrInvalidRTSPURL = errors.New("config: invalid rtsp url")
-	// ErrInvalidRTSPScheme means the URL scheme is not rtsp.
-	ErrInvalidRTSPScheme = errors.New("config: rtsp uri scheme must be rtsp")
-	// ErrRTSPHostRequired means the URL has no host component.
-	ErrRTSPHostRequired = errors.New("config: rtsp uri must include host")
 
-	// ErrDiscoveryIncomplete means discovery fields were partially set without endpoint_address.
-	ErrDiscoveryIncomplete = errors.New("config: discovery.endpoint_address required when other discovery fields are set")
-	// ErrDiscoveryEndpointURN means endpoint_address is not a valid UUID URN.
-	ErrDiscoveryEndpointURN = errors.New("config: discovery.endpoint_address must look like urn:uuid:<uuid>")
+	// ErrDeviceUUIDRequired means device.uuid is empty.
+	ErrDeviceUUIDRequired = errors.New("config: device.uuid is required")
+	// ErrDeviceUUIDInvalid means device.uuid is not a valid urn:uuid: URI.
+	ErrDeviceUUIDInvalid = errors.New("config: device.uuid must be urn:uuid:<uuid>")
+
+	// ErrNetworkPortInvalid means network.http_port is out of the valid range.
+	ErrNetworkPortInvalid = errors.New("config: network.http_port must be between 1 and 65535")
+
+	// ErrMediaNoProfiles means media.profiles is empty.
+	ErrMediaNoProfiles = errors.New("config: media.profiles must have at least one entry")
+
+	// ErrProfileEncodingInvalid means profile.encoding is not a supported value.
+	ErrProfileEncodingInvalid = errors.New("config: profile.encoding must be one of H264, H265, MJPEG")
+
+	// ErrAuthIncomplete means only one of username/password is set.
+	ErrAuthIncomplete = errors.New("config: auth.username and auth.password must both be set or both be empty")
 )
 
 var (
-	errDiscoveryTypesWhenConfigured = errors.New(
-		"config: discovery.types must be non-empty when discovery is configured",
-	)
-	errDiscoveryTypeEntryEmpty       = errors.New("config: discovery type entry must not be empty")
-	errDiscoveryScopeEntryEmpty      = errors.New("config: discovery scope entry must not be empty")
-	errDiscoveryScopesWhenConfigured = errors.New(
-		"config: discovery.scopes must be non-empty when discovery is configured",
-	)
-	errDiscoveryScopeNotAbsolute = errors.New("config: discovery scope must be an absolute URI")
-	errDiscoveryScopeOnvifPrefix = errors.New(
-		"config: discovery onvif scope must use onvif://www.onvif.org/ prefix",
-	)
-	errDiscoveryScopeHTTPHost        = errors.New("config: discovery http(s) scope must include host")
-	errDiscoveryXAddrsWhenConfigured = errors.New(
-		"config: discovery.xaddrs must be non-empty when discovery is configured",
-	)
-	errDiscoveryInstanceID = errors.New(
-		"config: discovery.instance_id must be >= 1 when discovery is configured",
-	)
-	errDiscoveryMetadataVersion = errors.New(
-		"config: discovery.metadata_version must be >= 1 when discovery is configured",
-	)
-	errHTTPURLFieldEmpty  = errors.New("config: field must not be empty")
-	errHTTPURLInvalid     = errors.New("config: invalid url")
-	errHTTPURLScheme      = errors.New("config: field scheme must be http or https")
-	errHTTPURLHost        = errors.New("config: field must include host")
-	errNilConfig          = errors.New("config: nil Config")
-	errNilDiscoveryConfig = errors.New("config: nil DiscoveryConfig pointer")
+	errNilConfig = errors.New("config: nil Config")
+
+	errDeviceFieldRequired = errors.New("config: must not be empty")
+
+	errProfileFieldRequired = errors.New("config: must not be empty")
+	errProfileRTSPInvalid   = errors.New("config: profile.rtsp must be a valid rtsp:// URL")
+	errProfileDimension     = errors.New("config: must be greater than 0")
+
+	errScopeEntryEmpty       = errors.New("config: scope entry must not be empty")
+	errScopeNotAbsolute      = errors.New("config: scope must be an absolute URI")
+	errScopeOnvifPrefix      = errors.New("config: onvif scope must use onvif://www.onvif.org/ prefix")
+	errScopeHTTPHost         = errors.New("config: http(s) scope must include host")
+	errXAddrFieldEmpty       = errors.New("config: xaddr must not be empty")
+	errXAddrInvalid          = errors.New("config: invalid xaddr url")
+	errXAddrScheme           = errors.New("config: xaddr scheme must be http or https")
+	errXAddrHost             = errors.New("config: xaddr must include host")
+	errProfileTokenDuplicate = errors.New("config: profile token must be unique")
 )
 
-// Validate checks required fields and RTSP URL shape.
+var (
+	uuidURNPattern    = regexp.MustCompile(`(?i)^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	validEncodings    = map[string]bool{"H264": true, "H265": true, "MJPEG": true}
+	seenProfileTokens map[string]bool
+)
+
+// Validate checks all required fields and their formats.
 func Validate(c *Config) error {
 	if c == nil {
 		return errNilConfig
@@ -102,155 +137,159 @@ func Validate(c *Config) error {
 	if c.Version != CurrentVersion {
 		return fmt.Errorf("%w (got %d, want %d)", ErrInvalidVersion, c.Version, CurrentVersion)
 	}
-	if err := validateRTSPURI("main_rtsp_uri", c.MainRTSP); err != nil {
+	if err := validateDevice(&c.Device); err != nil {
 		return err
 	}
-	if err := validateRTSPURI("sub_rtsp_uri", c.SubRTSP); err != nil {
+	if err := validateNetwork(&c.Network); err != nil {
 		return err
 	}
-	return validateDiscovery(&c.Discovery)
+	if err := validateMedia(&c.Media); err != nil {
+		return err
+	}
+	return validateAuth(&c.Auth)
 }
 
-var uuidURNPattern = regexp.MustCompile(`(?i)^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-
-func validateDiscovery(d *DiscoveryConfig) error {
-	if d == nil {
-		return errNilDiscoveryConfig
+func validateDevice(d *DeviceConfig) error {
+	if strings.TrimSpace(d.UUID) == "" {
+		return ErrDeviceUUIDRequired
 	}
-	hasEndpoint := strings.TrimSpace(d.Address) != ""
-	if !hasEndpoint && discoveryPartiallySet(d) {
-		return ErrDiscoveryIncomplete
+	if !uuidURNPattern.MatchString(strings.TrimSpace(d.UUID)) {
+		return ErrDeviceUUIDInvalid
 	}
-	if !hasEndpoint {
-		return nil
-	}
-	if !uuidURNPattern.MatchString(strings.TrimSpace(d.Address)) {
-		return fmt.Errorf("%w", ErrDiscoveryEndpointURN)
-	}
-	if err := validateDiscoveryTypes(d.Types); err != nil {
-		return err
-	}
-	if err := validateDiscoveryScopesSection(d.Scopes); err != nil {
-		return err
-	}
-	if err := validateDiscoveryXAddrs(d.XAddrs); err != nil {
-		return err
-	}
-	if d.InstanceID < 1 {
-		return errDiscoveryInstanceID
-	}
-	if d.MetadataVersion < 1 {
-		return errDiscoveryMetadataVersion
-	}
-	return nil
-}
-
-func validateDiscoveryTypes(types []string) error {
-	if len(types) == 0 {
-		return errDiscoveryTypesWhenConfigured
-	}
-	for i, t := range types {
-		if strings.TrimSpace(t) == "" {
-			return fmt.Errorf("config: discovery.types[%d]: %w", i, errDiscoveryTypeEntryEmpty)
+	for _, f := range []struct{ name, val string }{
+		{"device.manufacturer", d.Manufacturer},
+		{"device.model", d.Model},
+		{"device.serial", d.Serial},
+	} {
+		if strings.TrimSpace(f.val) == "" {
+			return fmt.Errorf("config: %s: %w", f.name, errDeviceFieldRequired)
 		}
 	}
-	return nil
+	return validateScopes(d.Scopes)
 }
 
-func validateDiscoveryScopesSection(scopes []string) error {
-	if len(scopes) == 0 {
-		return errDiscoveryScopesWhenConfigured
+func validateNetwork(n *NetworkConfig) error {
+	if n.HTTPPort < 1 || n.HTTPPort > 65535 {
+		return ErrNetworkPortInvalid
 	}
-	return validateDiscoveryScopes(scopes)
-}
-
-func validateDiscoveryXAddrs(xaddrs []string) error {
-	if len(xaddrs) == 0 {
-		return errDiscoveryXAddrsWhenConfigured
-	}
-	for i, x := range xaddrs {
-		field := fmt.Sprintf("discovery.xaddrs[%d]", i)
-		if err := validateHTTPURL(field, strings.TrimSpace(x)); err != nil {
+	for i, x := range n.XAddrs {
+		if err := validateXAddr(i, strings.TrimSpace(x)); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func discoveryPartiallySet(d *DiscoveryConfig) bool {
-	if d == nil {
-		return false
+func validateMedia(m *MediaConfig) error {
+	if len(m.Profiles) == 0 {
+		return ErrMediaNoProfiles
 	}
-	if len(d.Types) > 0 || len(d.Scopes) > 0 || len(d.XAddrs) > 0 {
-		return true
-	}
-	if d.InstanceID != 0 || d.MetadataVersion != 0 {
-		return true
-	}
-	return false
-}
-
-func validateDiscoveryScopes(scopes []string) error {
-	for i, s := range scopes {
-		raw := strings.TrimSpace(s)
-		if raw == "" {
-			return fmt.Errorf("config: discovery.scopes[%d]: %w", i, errDiscoveryScopeEntryEmpty)
-		}
-		u, err := url.Parse(raw)
-		if err != nil {
-			return fmt.Errorf("config: discovery.scopes[%d]: %w", i, err)
-		}
-		if u.Scheme == "" {
-			return fmt.Errorf("config: discovery.scopes[%d]: %w", i, errDiscoveryScopeNotAbsolute)
-		}
-		switch strings.ToLower(u.Scheme) {
-		case "onvif":
-			if !strings.HasPrefix(strings.ToLower(raw), "onvif://www.onvif.org/") {
-				return fmt.Errorf("config: discovery.scopes[%d]: %w", i, errDiscoveryScopeOnvifPrefix)
-			}
-		case "http", "https":
-			if u.Host == "" {
-				return fmt.Errorf("config: discovery.scopes[%d]: %w", i, errDiscoveryScopeHTTPHost)
-			}
-		default:
-			// Vendor-specific or other schemes: must be parseable absolute URI (scheme set above).
+	seenProfileTokens = make(map[string]bool, len(m.Profiles))
+	for i := range m.Profiles {
+		if err := validateProfile(i, &m.Profiles[i]); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func validateHTTPURL(field, raw string) error {
+func validateProfile(i int, p *ProfileConfig) error {
+	prefix := fmt.Sprintf("media.profiles[%d]", i)
+	for _, f := range []struct{ name, val string }{
+		{prefix + ".name", p.Name},
+		{prefix + ".token", p.Token},
+	} {
+		if strings.TrimSpace(f.val) == "" {
+			return fmt.Errorf("config: %s: %w", f.name, errProfileFieldRequired)
+		}
+	}
+	if seenProfileTokens[p.Token] {
+		return fmt.Errorf("config: %s.token %q: %w", prefix, p.Token, errProfileTokenDuplicate)
+	}
+	seenProfileTokens[p.Token] = true
+	if err := validateRTSPURI(prefix+".rtsp", p.RTSP); err != nil {
+		return err
+	}
+	if !validEncodings[p.Encoding] {
+		return fmt.Errorf("config: %s.encoding: %w (got %q)", prefix, ErrProfileEncodingInvalid, p.Encoding)
+	}
+	for _, f := range []struct {
+		name string
+		val  int
+	}{
+		{prefix + ".width", p.Width},
+		{prefix + ".height", p.Height},
+		{prefix + ".fps", p.FPS},
+	} {
+		if f.val <= 0 {
+			return fmt.Errorf("config: %s: %w", f.name, errProfileDimension)
+		}
+	}
+	return nil
+}
+
+func validateAuth(a *AuthConfig) error {
+	hasUser := strings.TrimSpace(a.Username) != ""
+	hasPass := strings.TrimSpace(a.Password) != ""
+	if hasUser != hasPass {
+		return ErrAuthIncomplete
+	}
+	return nil
+}
+
+func validateScopes(scopes []string) error {
+	for i, s := range scopes {
+		raw := strings.TrimSpace(s)
+		if raw == "" {
+			return fmt.Errorf("config: device.scopes[%d]: %w", i, errScopeEntryEmpty)
+		}
+		u, err := url.Parse(raw)
+		if err != nil {
+			return fmt.Errorf("config: device.scopes[%d]: %w", i, err)
+		}
+		if u.Scheme == "" {
+			return fmt.Errorf("config: device.scopes[%d]: %w", i, errScopeNotAbsolute)
+		}
+		switch strings.ToLower(u.Scheme) {
+		case "onvif":
+			if !strings.HasPrefix(strings.ToLower(raw), "onvif://www.onvif.org/") {
+				return fmt.Errorf("config: device.scopes[%d]: %w", i, errScopeOnvifPrefix)
+			}
+		case "http", "https":
+			if u.Host == "" {
+				return fmt.Errorf("config: device.scopes[%d]: %w", i, errScopeHTTPHost)
+			}
+		}
+	}
+	return nil
+}
+
+func validateXAddr(i int, raw string) error {
 	if raw == "" {
-		return fmt.Errorf("config: %s: %w", field, errHTTPURLFieldEmpty)
+		return fmt.Errorf("config: network.xaddrs[%d]: %w", i, errXAddrFieldEmpty)
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("config: %s: %w: %w", field, errHTTPURLInvalid, err)
+		return fmt.Errorf("config: network.xaddrs[%d]: %w: %w", i, errXAddrInvalid, err)
 	}
 	switch u.Scheme {
 	case "http", "https":
 	default:
-		return fmt.Errorf("config: %s: %w: got %q", field, errHTTPURLScheme, u.Scheme)
+		return fmt.Errorf("config: network.xaddrs[%d]: %w: got %q", i, errXAddrScheme, u.Scheme)
 	}
 	if u.Host == "" {
-		return fmt.Errorf("config: %s: %w", field, errHTTPURLHost)
+		return fmt.Errorf("config: network.xaddrs[%d]: %w", i, errXAddrHost)
 	}
 	return nil
 }
 
 func validateRTSPURI(field, raw string) error {
-	if raw == "" {
-		return fmt.Errorf("%w (%s)", ErrEmptyRTSPURI, field)
+	if strings.TrimSpace(raw) == "" {
+		return fmt.Errorf("config: %s: %w", field, errProfileRTSPInvalid)
 	}
 	u, err := url.Parse(raw)
-	if err != nil {
-		return fmt.Errorf("%w (%s): %w", ErrInvalidRTSPURL, field, err)
-	}
-	if u.Scheme != "rtsp" {
-		return fmt.Errorf("%w (%s): got scheme %q", ErrInvalidRTSPScheme, field, u.Scheme)
-	}
-	if u.Host == "" {
-		return fmt.Errorf("%w (%s)", ErrRTSPHostRequired, field)
+	if err != nil || u.Scheme != "rtsp" || u.Host == "" {
+		return fmt.Errorf("config: %s: %w", field, errProfileRTSPInvalid)
 	}
 	return nil
 }
@@ -276,8 +315,7 @@ func Load() (Config, error) {
 }
 
 // Save writes cfg to ./onvif-simulator.json relative to the working directory.
-// It validates before writing and replaces the destination atomically when possible
-// (same directory rename).
+// It validates before writing and replaces the destination atomically when possible.
 func Save(cfg *Config) error {
 	if cfg == nil {
 		return errNilConfig
@@ -304,23 +342,13 @@ func Save(cfg *Config) error {
 	tmpPath := tmp.Name()
 
 	if _, werr := tmp.Write(data); werr != nil {
-		return joinSaveErrors(
-			fmt.Errorf("config: write temp: %w", werr),
-			tmp.Close(),
-			os.Remove(tmpPath),
-		)
+		return joinSaveErrors(fmt.Errorf("config: write temp: %w", werr), tmp.Close(), os.Remove(tmpPath))
 	}
 	if cerr := tmp.Close(); cerr != nil {
-		return joinSaveErrors(
-			fmt.Errorf("config: close temp: %w", cerr),
-			os.Remove(tmpPath),
-		)
+		return joinSaveErrors(fmt.Errorf("config: close temp: %w", cerr), os.Remove(tmpPath))
 	}
 	if rerr := os.Rename(tmpPath, path); rerr != nil {
-		return joinSaveErrors(
-			fmt.Errorf("config: rename to %s: %w", FileName, rerr),
-			os.Remove(tmpPath),
-		)
+		return joinSaveErrors(fmt.Errorf("config: rename to %s: %w", FileName, rerr), os.Remove(tmpPath))
 	}
 	return nil
 }
