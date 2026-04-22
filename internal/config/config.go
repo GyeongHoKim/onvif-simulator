@@ -29,10 +29,10 @@ type Config struct {
 
 // DiscoveryConfig holds WS-Discovery / ONVIF Hello-related fields (Core §7.3, WS-Discovery §4.1).
 // Omit or leave at zero values to disable validation of discovery (e.g. simulator not advertising yet).
-// If EndpointAddress is set, Types, Scopes, XAddrs, InstanceID, and MetadataVersion are required.
+// If Address is set, Types, Scopes, XAddrs, InstanceID, and MetadataVersion are required.
 type DiscoveryConfig struct {
-	// EndpointAddress is the stable a:Address inside Hello (ONVIF: URN:UUID).
-	EndpointAddress string `json:"endpoint_address"`
+	// Address is the stable a:Address inside Hello (ONVIF: URN:UUID).
+	Address string `json:"endpoint_address"`
 	// Types are d:Types QNames (e.g. tds:Device).
 	Types []string `json:"types"`
 	// Scopes are absolute scope URIs for d:Scopes.
@@ -117,14 +117,14 @@ func validateDiscovery(d *DiscoveryConfig) error {
 	if d == nil {
 		return errNilDiscoveryConfig
 	}
-	hasEndpoint := strings.TrimSpace(d.EndpointAddress) != ""
+	hasEndpoint := strings.TrimSpace(d.Address) != ""
 	if !hasEndpoint && discoveryPartiallySet(d) {
 		return ErrDiscoveryIncomplete
 	}
 	if !hasEndpoint {
 		return nil
 	}
-	if !uuidURNPattern.MatchString(strings.TrimSpace(d.EndpointAddress)) {
+	if !uuidURNPattern.MatchString(strings.TrimSpace(d.Address)) {
 		return fmt.Errorf("%w", ErrDiscoveryEndpointURN)
 	}
 	if err := validateDiscoveryTypes(d.Types); err != nil {

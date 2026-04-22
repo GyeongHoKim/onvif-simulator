@@ -25,11 +25,11 @@ type IncomingProbe struct {
 
 // IncomingResolve is a parsed WS-Discovery Resolve (WS-Discovery §6.1).
 type IncomingResolve struct {
-	Action          string
-	MessageID       string
-	To              string
-	EndpointAddress string
-	ReplyToAddress  string
+	Action         string
+	MessageID      string
+	To             string
+	Address        string
+	ReplyToAddress string
 }
 
 type soapEnvelope struct {
@@ -106,11 +106,11 @@ func ParseResolve(data []byte) (*IncomingResolve, error) {
 	}
 	r := env.Body.Resolve
 	ir := &IncomingResolve{
-		Action:          strings.TrimSpace(env.Header.Action),
-		MessageID:       strings.TrimSpace(env.Header.MessageID),
-		To:              strings.TrimSpace(env.Header.To),
-		EndpointAddress: strings.TrimSpace(r.EndpointRef.Address),
-		ReplyToAddress:  replyToString(env.Header.ReplyTo),
+		Action:         strings.TrimSpace(env.Header.Action),
+		MessageID:      strings.TrimSpace(env.Header.MessageID),
+		To:             strings.TrimSpace(env.Header.To),
+		Address:        strings.TrimSpace(r.EndpointRef.Address),
+		ReplyToAddress: replyToString(env.Header.ReplyTo),
 	}
 	return ir, nil
 }

@@ -10,13 +10,13 @@ var (
 	errResolveMatchesRelatesToRequired  = errors.New("discovery: ResolveMatches RelatesTo is required")
 	errResolveMatchesMessageNumberRange = errors.New("discovery: ResolveMatches MessageNumber must be >= 1")
 	errResolveMatchesParamsNil          = errors.New("discovery: nil ResolveMatchesParams")
-	errResolveMatchEndpointRequired     = errors.New("discovery: ResolveMatch EndpointAddress is required")
+	errResolveMatchEndpointRequired     = errors.New("discovery: ResolveMatch Address is required")
 	errResolveMatchXAddrsRequired       = errors.New("discovery: ResolveMatch XAddrs must be non-empty")
 )
 
 // ResolveMatchContent is a single d:ResolveMatch (WS-Discovery §6.2).
 type ResolveMatchContent struct {
-	EndpointAddress string
+	Address         string
 	Types           []string
 	Scopes          []string
 	XAddrs          []string
@@ -45,7 +45,7 @@ func (p *ResolveMatchesParams) Validate() error {
 		return errResolveMatchesRelatesToRequired
 	case p.MsgNumber < 1:
 		return errResolveMatchesMessageNumberRange
-	case strings.TrimSpace(p.Match.EndpointAddress) == "":
+	case strings.TrimSpace(p.Match.Address) == "":
 		return errResolveMatchEndpointRequired
 	case len(p.Match.XAddrs) == 0:
 		return errResolveMatchXAddrsRequired
@@ -71,7 +71,7 @@ func MarshalResolveMatches(p *ResolveMatchesParams) ([]byte, error) {
 		"<d:ResolveMatches>", "</d:ResolveMatches>", "d:ResolveMatch",
 		p.MessageID, to, p.RelatesTo, p.InstanceID, p.MsgNumber,
 		p.Match.Types,
-		p.Match.EndpointAddress,
+		p.Match.Address,
 		p.Match.Scopes,
 		p.Match.XAddrs,
 		p.Match.MetadataVersion,

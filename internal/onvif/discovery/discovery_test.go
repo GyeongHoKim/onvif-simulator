@@ -58,7 +58,7 @@ func TestMarshalHelloRoundTripFields(t *testing.T) {
 	t.Parallel()
 	p := &discovery.HelloParams{
 		MessageID:       discovery.NewMessageID(),
-		EndpointAddress: "urn:uuid:11111111-2222-4333-8444-555555555555",
+		Address:         "urn:uuid:11111111-2222-4333-8444-555555555555",
 		Types:           []string{"tds:Device"},
 		Scopes:          []string{"onvif://www.onvif.org/name/x"},
 		XAddrs:          []string{"http://127.0.0.1:8080/onvif/device_service"},
