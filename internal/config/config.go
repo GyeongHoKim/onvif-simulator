@@ -124,9 +124,8 @@ var (
 )
 
 var (
-	uuidURNPattern    = regexp.MustCompile(`(?i)^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-	validEncodings    = map[string]bool{"H264": true, "H265": true, "MJPEG": true}
-	seenProfileTokens map[string]bool
+	uuidURNPattern = regexp.MustCompile(`(?i)^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	validEncodings = map[string]bool{"H264": true, "H265": true, "MJPEG": true}
 )
 
 // Validate checks all required fields and their formats.
@@ -184,16 +183,16 @@ func validateMedia(m *MediaConfig) error {
 	if len(m.Profiles) == 0 {
 		return ErrMediaNoProfiles
 	}
-	seenProfileTokens = make(map[string]bool, len(m.Profiles))
+	seenProfileTokens := make(map[string]bool, len(m.Profiles))
 	for i := range m.Profiles {
-		if err := validateProfile(i, &m.Profiles[i]); err != nil {
+		if err := validateProfile(i, &m.Profiles[i], seenProfileTokens); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateProfile(i int, p *ProfileConfig) error {
+func validateProfile(i int, p *ProfileConfig, seenProfileTokens map[string]bool) error {
 	prefix := fmt.Sprintf("media.profiles[%d]", i)
 	for _, f := range []struct{ name, val string }{
 		{prefix + ".name", p.Name},
