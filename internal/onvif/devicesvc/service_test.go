@@ -121,11 +121,10 @@ func TestServeHTTP_UnsupportedOperationFault(t *testing.T) {
 	}
 }
 
-func TestReadOperation(t *testing.T) {
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetWsdlUrl", "")))
-	payload, op, err := readOperation(req)
+func TestParseOperation(t *testing.T) {
+	payload, op, err := parseOperation([]byte(soapRequest("GetWsdlUrl", "")))
 	if err != nil {
-		t.Fatalf("readOperation: %v", err)
+		t.Fatalf("parseOperation: %v", err)
 	}
 	if op != "GetWsdlUrl" {
 		t.Fatalf("operation = %q, want %q", op, "GetWsdlUrl")

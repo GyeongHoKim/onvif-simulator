@@ -1,6 +1,7 @@
 package devicesvc
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -61,7 +62,18 @@ func (s *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payload, operation, err := readOperation(r)
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeFault(w, http.StatusBadRequest, "Sender", fmt.Errorf("read request body: %w", err).Error())
+		return
+	}
+	if closeErr := r.Body.Close(); closeErr != nil {
+		writeFault(w, http.StatusBadRequest, "Sender", closeErr.Error())
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(raw))
+
+	payload, operation, err := parseOperation(raw)
 	if err != nil {
 		writeFault(w, http.StatusBadRequest, "Sender", err.Error())
 		return
@@ -103,32 +115,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 			HardwareID:      info.HardwareID,
 		})
 	case "GetServices":
-		var req struct {
-			IncludeCapability bool `xml:"IncludeCapability"`
-		}
-		if err := xml.Unmarshal(payload, &req); err != nil {
-			return nil, fmt.Errorf("devicesvc: decode GetServices: %w", err)
-		}
-
-		services, err := s.provider.Services(ctx, req.IncludeCapability)
-		if err != nil {
-			return nil, err
-		}
-		if len(services) == 0 {
-			return nil, errNoServices
-		}
-		svc := services[0]
-		return xml.Marshal(getServicesResponse{
-			XMLNS: DeviceNamespace,
-			Service: serviceEnvelope{
-				Namespace: svc.Namespace,
-				XAddr:     svc.XAddr,
-				Version: versionEnvelope{
-					Major: svc.Version.Major,
-					Minor: svc.Version.Minor,
-				},
-			},
-		})
+		return s.handleGetServices(ctx, payload)
 	case "GetServiceCapabilities":
 		caps, err := s.provider.GetServiceCapabilities(ctx)
 		if err != nil {
@@ -180,12 +167,9 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 						DynDNS:            caps.Device.Network.DynDNS,
 					},
 					System: coreSystemCapabilitiesEnvelope{
-						DiscoveryResolve: caps.Device.System.DiscoveryResolve,
-						DiscoveryBye:     caps.Device.System.DiscoveryBye,
-						SupportedVersions: versionEnvelope{
-							Major: firstVersion(caps.Device.System.SupportedVersions).Major,
-							Minor: firstVersion(caps.Device.System.SupportedVersions).Minor,
-						},
+						DiscoveryResolve:  caps.Device.System.DiscoveryResolve,
+						DiscoveryBye:      caps.Device.System.DiscoveryBye,
+						SupportedVersions: supportedVersionEnvelopes(caps.Device.System.SupportedVersions),
 					},
 					Security: coreSecurityCapabilitiesEnvelope{
 						UsernameToken: caps.Device.Security.UsernameToken,
@@ -212,20 +196,36 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 	}
 }
 
-func readOperation(r *http.Request) (payload []byte, operation string, err error) {
-	defer func() {
-		if closeErr := r.Body.Close(); closeErr != nil {
-			if err == nil {
-				err = closeErr
-				return
-			}
-			err = errors.Join(err, closeErr)
-		}
-	}()
-	data, err := io.ReadAll(r.Body)
-	if err != nil {
-		return nil, "", fmt.Errorf("read request body: %w", err)
+func (s *Handler) handleGetServices(ctx context.Context, payload []byte) ([]byte, error) {
+	var req struct {
+		IncludeCapability bool `xml:"IncludeCapability"`
 	}
+	if err := xml.Unmarshal(payload, &req); err != nil {
+		return nil, fmt.Errorf("devicesvc: decode GetServices: %w", err)
+	}
+
+	services, err := s.provider.Services(ctx, req.IncludeCapability)
+	if err != nil {
+		return nil, err
+	}
+	if len(services) == 0 {
+		return nil, errNoServices
+	}
+	envelopes := make([]serviceEnvelope, len(services))
+	for i, svc := range services {
+		envelopes[i] = serviceEnvelope{
+			Namespace: svc.Namespace,
+			XAddr:     svc.XAddr,
+			Version:   versionEnvelope(svc.Version),
+		}
+	}
+	return xml.Marshal(getServicesResponse{
+		XMLNS:    DeviceNamespace,
+		Services: envelopes,
+	})
+}
+
+func parseOperation(data []byte) (payload []byte, operation string, err error) {
 	var env struct {
 		Body struct {
 			Inner []byte `xml:",innerxml"`
@@ -238,7 +238,7 @@ func readOperation(r *http.Request) (payload []byte, operation string, err error
 		return nil, "", errEmptySOAPBody
 	}
 
-	decoder := xml.NewDecoder(strings.NewReader(string(env.Body.Inner)))
+	decoder := xml.NewDecoder(bytes.NewReader(env.Body.Inner))
 	for {
 		tok, err := decoder.Token()
 		if err != nil {
@@ -314,11 +314,12 @@ func xmlEscape(value string) string {
 	return replacer.Replace(value)
 }
 
-func firstVersion(versions []Version) Version {
-	if len(versions) == 0 {
-		return Version{}
+func supportedVersionEnvelopes(versions []Version) []versionEnvelope {
+	envelopes := make([]versionEnvelope, len(versions))
+	for i, v := range versions {
+		envelopes[i] = versionEnvelope(v)
 	}
-	return versions[0]
+	return envelopes
 }
 
 type soapEnvelope struct {
@@ -342,9 +343,9 @@ type getDeviceInformationResponse struct {
 }
 
 type getServicesResponse struct {
-	XMLName xml.Name        `xml:"GetServicesResponse"`
-	XMLNS   string          `xml:"xmlns,attr"`
-	Service serviceEnvelope `xml:"Service"`
+	XMLName  xml.Name          `xml:"GetServicesResponse"`
+	XMLNS    string            `xml:"xmlns,attr"`
+	Services []serviceEnvelope `xml:"Service"`
 }
 
 type serviceEnvelope struct {
@@ -420,9 +421,9 @@ type coreNetworkCapabilitiesEnvelope struct {
 }
 
 type coreSystemCapabilitiesEnvelope struct {
-	DiscoveryResolve  bool            `xml:"DiscoveryResolve,omitempty"`
-	DiscoveryBye      bool            `xml:"DiscoveryBye,omitempty"`
-	SupportedVersions versionEnvelope `xml:"SupportedVersions"`
+	DiscoveryResolve  bool              `xml:"DiscoveryResolve,omitempty"`
+	DiscoveryBye      bool              `xml:"DiscoveryBye,omitempty"`
+	SupportedVersions []versionEnvelope `xml:"SupportedVersions"`
 }
 
 type coreSecurityCapabilitiesEnvelope struct {
