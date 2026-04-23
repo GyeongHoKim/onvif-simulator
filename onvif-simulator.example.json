@@ -1,17 +1,62 @@
 {
   "version": 1,
-  "main_rtsp_uri": "rtsp://localhost:8554/live",
-  "sub_rtsp_uri": "rtsp://localhost:8554/live2",
-  "discovery": {
-    "endpoint_address": "urn:uuid:00000000-0000-4000-8000-000000000001",
-    "types": ["tds:Device"],
+  "device": {
+    "uuid": "urn:uuid:00000000-0000-4000-8000-000000000001",
+    "manufacturer": "ONVIF Simulator",
+    "model": "SimCam-100",
+    "serial": "SN-0001",
+    "firmware": "0.1.0",
     "scopes": [
       "onvif://www.onvif.org/Profile/Streaming",
       "onvif://www.onvif.org/name/simulator",
       "onvif://www.onvif.org/hardware/virtual"
+    ]
+  },
+  "network": {
+    "http_port": 8080
+  },
+  "media": {
+    "profiles": [
+      {
+        "name": "main",
+        "token": "profile_main",
+        "rtsp": "rtsp://127.0.0.1:8554/main",
+        "encoding": "H264",
+        "width": 1920,
+        "height": 1080,
+        "fps": 30
+      },
+      {
+        "name": "sub",
+        "token": "profile_sub",
+        "rtsp": "rtsp://127.0.0.1:8554/sub",
+        "encoding": "H264",
+        "width": 640,
+        "height": 480,
+        "fps": 15
+      }
+    ]
+  },
+  "auth": {
+    "enabled": true,
+    "users": [
+      {
+        "username": "admin",
+        "password": "admin",
+        "role": "Administrator"
+      }
     ],
-    "xaddrs": ["http://127.0.0.1:8080/onvif/device_service"],
-    "instance_id": 1,
-    "metadata_version": 1
+    "digest": {
+      "realm": "onvif-simulator",
+      "algorithms": ["MD5"],
+      "nonce_ttl": "5m"
+    },
+    "jwt": {
+      "enabled": false,
+      "algorithms": ["RS256"],
+      "username_claim": "sub",
+      "roles_claim": "roles",
+      "clock_skew": "30s"
+    }
   }
 }

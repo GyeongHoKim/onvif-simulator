@@ -54,6 +54,7 @@ type NetworkCapabilities struct {
 type SecurityCapabilities struct {
 	UsernameToken bool
 	HTTPDigest    bool
+	JSONWebToken  bool
 }
 
 // SystemCapabilities is returned by GetServiceCapabilities.
@@ -82,6 +83,7 @@ type CoreNetworkCapabilities struct {
 type CoreSecurityCapabilities struct {
 	UsernameToken bool
 	HTTPDigest    bool
+	JSONWebToken  bool
 }
 
 // CoreSystemCapabilities is returned via GetCapabilities.Device.System.

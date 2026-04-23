@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/GyeongHoKim/onvif-simulator/internal/auth"
 )
 
 const (
@@ -16,6 +18,9 @@ const (
 	// maxSOAPBodySize caps incoming SOAP payload bytes to avoid unbounded
 	// memory use during io.ReadAll.
 	maxSOAPBodySize = 10 << 20
+
+	faultCodeSender   = "Sender"
+	faultCodeReceiver = "Receiver"
 )
 
 var (
@@ -89,28 +94,51 @@ func (s *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	authErr := s.auth.Authorize(r.Context(), operation, r)
-	if authErr != nil {
-		writeFault(w, http.StatusUnauthorized, "Sender", authErr.Error())
+	if authErr := s.auth.Authorize(r.Context(), operation, r); authErr != nil {
+		s.writeAuthFault(w, authErr)
 		return
 	}
 
 	respPayload, err := s.dispatch(r.Context(), operation, payload)
 	if err != nil {
 		status := http.StatusInternalServerError
-		code := "Receiver"
+		code := faultCodeReceiver
 		switch {
 		case errors.Is(err, errUnsupportedOp):
 			status = http.StatusNotImplemented
-			code = "Sender"
+			code = faultCodeSender
 		case errors.Is(err, errDecodePayload):
 			status = http.StatusBadRequest
-			code = "Sender"
+			code = faultCodeSender
 		}
 		writeFault(w, status, code, err.Error())
 		return
 	}
 	writeSOAP(w, respPayload)
+}
+
+// writeAuthFault translates an auth.Authorize error into a SOAP fault.
+// Forbidden errors map to HTTP 403; other auth errors (including challenges
+// returned as *auth.ChallengeError) map to 401 and copy the challenge's
+// headers (e.g. WWW-Authenticate) onto the response.
+func (*Handler) writeAuthFault(w http.ResponseWriter, authErr error) {
+	status := http.StatusUnauthorized
+	var challenge *auth.ChallengeError
+	if errors.As(authErr, &challenge) {
+		if challenge.Status != 0 {
+			status = challenge.Status
+		}
+		for k, vs := range challenge.Headers {
+			for _, v := range vs {
+				w.Header().Add(k, v)
+			}
+		}
+	}
+	if errors.Is(authErr, auth.ErrForbidden) && status == http.StatusUnauthorized {
+		// The caller authenticated but their role is insufficient.
+		status = http.StatusForbidden
+	}
+	writeFault(w, status, faultCodeSender, authErr.Error())
 }
 
 func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte) ([]byte, error) {
@@ -150,6 +178,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 				Security: securityCapabilitiesEnvelope{
 					UsernameToken: caps.Security.UsernameToken,
 					HTTPDigest:    caps.Security.HTTPDigest,
+					JSONWebToken:  caps.Security.JSONWebToken,
 				},
 				System: systemCapabilitiesEnvelope{
 					DiscoveryResolve:  caps.System.DiscoveryResolve,
@@ -188,6 +217,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 					Security: coreSecurityCapabilitiesEnvelope{
 						UsernameToken: caps.Device.Security.UsernameToken,
 						HTTPDigest:    caps.Device.Security.HTTPDigest,
+						JSONWebToken:  caps.Device.Security.JSONWebToken,
 					},
 				},
 				Media:   serviceCapabilityEnvelope{XAddr: caps.Media.XAddr},
@@ -398,6 +428,7 @@ type networkCapabilitiesEnvelope struct {
 type securityCapabilitiesEnvelope struct {
 	UsernameToken bool `xml:"UsernameToken,attr,omitempty"`
 	HTTPDigest    bool `xml:"HttpDigest,attr,omitempty"`
+	JSONWebToken  bool `xml:"JsonWebToken,attr,omitempty"`
 }
 
 type systemCapabilitiesEnvelope struct {
@@ -443,6 +474,7 @@ type coreSystemCapabilitiesEnvelope struct {
 type coreSecurityCapabilitiesEnvelope struct {
 	UsernameToken bool `xml:"UsernameToken,omitempty"`
 	HTTPDigest    bool `xml:"HttpDigest,omitempty"`
+	JSONWebToken  bool `xml:"JsonWebToken,omitempty"`
 }
 
 type serviceCapabilityEnvelope struct {

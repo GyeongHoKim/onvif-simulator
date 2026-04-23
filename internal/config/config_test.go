@@ -1,8 +1,11 @@
 package config_test
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -35,83 +38,146 @@ var validConfig = config.Config{
 	},
 }
 
-func TestValidate(t *testing.T) {
+func TestValidateAcceptsCanonicalConfig(t *testing.T) {
 	t.Parallel()
-
 	if err := config.Validate(&validConfig); err != nil {
 		t.Fatalf("expected valid config: %v", err)
 	}
+}
 
-	t.Run("wrong version", func(t *testing.T) {
-		t.Parallel()
-		c := validConfig
-		c.Version = 0
-		if err := config.Validate(&c); !errors.Is(err, config.ErrInvalidVersion) {
-			t.Fatalf("expected ErrInvalidVersion, got %v", err)
-		}
-	})
+func TestValidateRejects(t *testing.T) {
+	t.Parallel()
 
-	t.Run("missing device uuid", func(t *testing.T) {
-		t.Parallel()
-		c := validConfig
-		c.Device.UUID = ""
-		if err := config.Validate(&c); !errors.Is(err, config.ErrDeviceUUIDRequired) {
-			t.Fatalf("expected ErrDeviceUUIDRequired, got %v", err)
-		}
-	})
+	userOK := []config.UserConfig{{Username: "u", Password: "p", Role: config.RoleUser}}
 
-	t.Run("invalid device uuid", func(t *testing.T) {
-		t.Parallel()
-		c := validConfig
-		c.Device.UUID = "not-a-uuid"
-		if err := config.Validate(&c); !errors.Is(err, config.ErrDeviceUUIDInvalid) {
-			t.Fatalf("expected ErrDeviceUUIDInvalid, got %v", err)
-		}
-	})
+	cases := []struct {
+		name    string
+		mutate  func(c *config.Config)
+		wantErr error
+	}{
+		{
+			name:    "wrong version",
+			mutate:  func(c *config.Config) { c.Version = 0 },
+			wantErr: config.ErrInvalidVersion,
+		},
+		{
+			name:    "missing device uuid",
+			mutate:  func(c *config.Config) { c.Device.UUID = "" },
+			wantErr: config.ErrDeviceUUIDRequired,
+		},
+		{
+			name:    "invalid device uuid",
+			mutate:  func(c *config.Config) { c.Device.UUID = "not-a-uuid" },
+			wantErr: config.ErrDeviceUUIDInvalid,
+		},
+		{
+			name:    "invalid http port",
+			mutate:  func(c *config.Config) { c.Network.HTTPPort = 0 },
+			wantErr: config.ErrNetworkPortInvalid,
+		},
+		{
+			name:    "no profiles",
+			mutate:  func(c *config.Config) { c.Media.Profiles = nil },
+			wantErr: config.ErrMediaNoProfiles,
+		},
+		{
+			name: "invalid profile encoding",
+			mutate: func(c *config.Config) {
+				c.Media.Profiles = []config.ProfileConfig{{
+					Name: "main", Token: "tok", RTSP: "rtsp://127.0.0.1:8554/main",
+					Encoding: "HEVC", Width: 1920, Height: 1080, FPS: 30,
+				}}
+			},
+			wantErr: config.ErrProfileEncodingInvalid,
+		},
+		{
+			name:    "auth enabled without users",
+			mutate:  func(c *config.Config) { c.Auth = config.AuthConfig{Enabled: true} },
+			wantErr: config.ErrAuthUsersRequired,
+		},
+		{
+			name: "auth user missing fields",
+			mutate: func(c *config.Config) {
+				c.Auth = config.AuthConfig{Enabled: true, Users: []config.UserConfig{{Username: "admin"}}}
+			},
+			wantErr: config.ErrAuthUserIncomplete,
+		},
+		{
+			name: "auth role reserved prefix",
+			mutate: func(c *config.Config) {
+				c.Auth = config.AuthConfig{Enabled: true, Users: []config.UserConfig{{Username: "u", Password: "p", Role: "onvif:custom"}}}
+			},
+			wantErr: config.ErrAuthRoleReserved,
+		},
+		{
+			name: "auth role whitespace",
+			mutate: func(c *config.Config) {
+				c.Auth = config.AuthConfig{Enabled: true, Users: []config.UserConfig{{Username: "u", Password: "p", Role: "my role"}}}
+			},
+			wantErr: config.ErrAuthRoleWhitespace,
+		},
+		{
+			name: "auth username duplicate",
+			mutate: func(c *config.Config) {
+				c.Auth = config.AuthConfig{Enabled: true, Users: []config.UserConfig{
+					{Username: "admin", Password: "p", Role: config.RoleAdministrator},
+					{Username: "admin", Password: "q", Role: config.RoleOperator},
+				}}
+			},
+			wantErr: config.ErrAuthUsernameDuplicate,
+		},
+		{
+			name: "auth digest algorithm invalid",
+			mutate: func(c *config.Config) {
+				c.Auth = config.AuthConfig{Enabled: true, Users: userOK}
+				c.Auth.Digest.Algorithms = []string{"MD5", "SHA-512"}
+			},
+			wantErr: config.ErrAuthDigestAlgorithm,
+		},
+		{
+			name: "auth digest nonce ttl invalid",
+			mutate: func(c *config.Config) {
+				c.Auth = config.AuthConfig{Enabled: true, Users: userOK}
+				c.Auth.Digest.NonceTTL = "forever"
+			},
+			wantErr: config.ErrAuthDigestNonceTTL,
+		},
+		{
+			name: "auth jwt algorithm invalid",
+			mutate: func(c *config.Config) {
+				c.Auth = config.AuthConfig{Enabled: true, Users: userOK}
+				c.Auth.JWT.Algorithms = []string{"HS256"}
+			},
+			wantErr: config.ErrAuthJWTAlgorithm,
+		},
+		{
+			name: "auth jwt enabled without key material",
+			mutate: func(c *config.Config) {
+				c.Auth = config.AuthConfig{Enabled: true, Users: userOK}
+				c.Auth.JWT.Enabled = true
+			},
+			wantErr: config.ErrAuthJWTKeyMaterial,
+		},
+		{
+			name: "auth jwt clock skew invalid",
+			mutate: func(c *config.Config) {
+				c.Auth = config.AuthConfig{Enabled: true, Users: userOK}
+				c.Auth.JWT.ClockSkew = "tomorrow"
+			},
+			wantErr: config.ErrAuthJWTClockSkew,
+		},
+	}
 
-	t.Run("invalid http port", func(t *testing.T) {
-		t.Parallel()
-		c := validConfig
-		c.Network.HTTPPort = 0
-		if err := config.Validate(&c); !errors.Is(err, config.ErrNetworkPortInvalid) {
-			t.Fatalf("expected ErrNetworkPortInvalid, got %v", err)
-		}
-	})
-
-	t.Run("no profiles", func(t *testing.T) {
-		t.Parallel()
-		c := validConfig
-		c.Media.Profiles = nil
-		if err := config.Validate(&c); !errors.Is(err, config.ErrMediaNoProfiles) {
-			t.Fatalf("expected ErrMediaNoProfiles, got %v", err)
-		}
-	})
-
-	t.Run("invalid profile encoding", func(t *testing.T) {
-		t.Parallel()
-		c := validConfig
-		c.Media.Profiles = []config.ProfileConfig{{
-			Name:     "main",
-			Token:    "tok",
-			RTSP:     "rtsp://127.0.0.1:8554/main",
-			Encoding: "HEVC",
-			Width:    1920,
-			Height:   1080,
-			FPS:      30,
-		}}
-		if err := config.Validate(&c); !errors.Is(err, config.ErrProfileEncodingInvalid) {
-			t.Fatalf("expected ErrProfileEncodingInvalid, got %v", err)
-		}
-	})
-
-	t.Run("auth incomplete", func(t *testing.T) {
-		t.Parallel()
-		c := validConfig
-		c.Auth = config.AuthConfig{Username: "admin"}
-		if err := config.Validate(&c); !errors.Is(err, config.ErrAuthIncomplete) {
-			t.Fatalf("expected ErrAuthIncomplete, got %v", err)
-		}
-	})
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := validConfig
+			tc.mutate(&c)
+			if err := config.Validate(&c); !errors.Is(err, tc.wantErr) {
+				t.Fatalf("expected %v, got %v", tc.wantErr, err)
+			}
+		})
+	}
 }
 
 func TestLoadSaveRoundTrip(t *testing.T) {
@@ -144,20 +210,19 @@ func TestLoadSaveRoundTrip(t *testing.T) {
 					Height:   1080,
 					FPS:      30,
 				},
-				{
-					Name:     "sub",
-					Token:    "profile_sub",
-					RTSP:     "rtsp://127.0.0.1:8554/sub",
-					Encoding: "H264",
-					Width:    640,
-					Height:   480,
-					FPS:      15,
-				},
 			},
 		},
 		Auth: config.AuthConfig{
-			Username: "admin",
-			Password: "secret",
+			Enabled: true,
+			Users: []config.UserConfig{
+				{Username: "admin", Password: "secret", Role: config.RoleAdministrator},
+				{Username: "ops", Password: "op-pass", Role: config.RoleOperator},
+			},
+			Digest: config.DigestConfig{
+				Realm:      "onvif-simulator",
+				Algorithms: []string{"MD5", "SHA-256"},
+				NonceTTL:   "5m",
+			},
 		},
 	}
 
@@ -183,5 +248,62 @@ func TestLoadMissingFile(t *testing.T) {
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected not exist, got %v", err)
+	}
+}
+
+func TestExampleJSONLoads(t *testing.T) {
+	// Copy the repo example into a temp cwd and ensure it validates.
+	src, err := os.Open(filepath.Join("..", "..", "onvif-simulator.example.json"))
+	if err != nil {
+		t.Fatalf("open example: %v", err)
+	}
+	defer func() {
+		if cerr := src.Close(); cerr != nil {
+			t.Logf("close src: %v", cerr)
+		}
+	}()
+	dir := t.TempDir()
+	t.Chdir(dir)
+	dst, err := os.Create(filepath.Join(dir, config.FileName))
+	if err != nil {
+		t.Fatalf("create dst: %v", err)
+	}
+	if _, cpErr := io.Copy(dst, src); cpErr != nil {
+		t.Fatalf("copy: %v", cpErr)
+	}
+	if cErr := dst.Close(); cErr != nil {
+		t.Fatalf("close dst: %v", cErr)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load example: %v", err)
+	}
+	if !cfg.Auth.Enabled || len(cfg.Auth.Users) == 0 {
+		t.Fatalf("example should have auth enabled with users")
+	}
+}
+
+func TestAuthConfigJSONRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	orig := config.AuthConfig{
+		Enabled: true,
+		Users:   []config.UserConfig{{Username: "a", Password: "b", Role: config.RoleUser}},
+		Digest: config.DigestConfig{
+			Realm:      "test",
+			Algorithms: []string{"MD5"},
+			NonceTTL:   "2m",
+		},
+	}
+	data, err := json.Marshal(orig)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got config.AuthConfig
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !reflect.DeepEqual(got, orig) {
+		t.Fatalf("round-trip mismatch:\ngot  %+v\nwant %+v", got, orig)
 	}
 }
