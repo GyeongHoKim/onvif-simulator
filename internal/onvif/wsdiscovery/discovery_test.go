@@ -1,6 +1,7 @@
 package wsdiscovery_test
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 	"sync"
@@ -96,7 +97,7 @@ func TestParseProbe_ErrNotProbe(t *testing.T) {
 </s:Envelope>`
 
 	_, err := wsdiscovery.ParseProbe([]byte(xmlDoc))
-	if err != wsdiscovery.ErrNotProbe {
+	if !errors.Is(err, wsdiscovery.ErrNotProbe) {
 		t.Fatalf("expected ErrNotProbe, got %v", err)
 	}
 }
@@ -143,7 +144,6 @@ func TestIncomingProbeValidate(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := tc.probe.Validate()
@@ -343,7 +343,6 @@ func TestHelloParamsValidate(t *testing.T) {
 		{"zero MessageNumber", func(p *wsdiscovery.HelloParams) { p.MessageNumber = 0 }, true},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := validBase
@@ -405,7 +404,6 @@ func TestByeParamsValidate(t *testing.T) {
 		{"zero MessageNumber", func(p *wsdiscovery.ByeParams) { p.MessageNumber = 0 }, true},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := validBase
@@ -469,7 +467,7 @@ func TestParseResolve_ErrNotResolve(t *testing.T) {
 </s:Envelope>`
 
 	_, err := wsdiscovery.ParseResolve([]byte(xmlDoc))
-	if err != wsdiscovery.ErrNotResolve {
+	if !errors.Is(err, wsdiscovery.ErrNotResolve) {
 		t.Fatalf("expected ErrNotResolve, got %v", err)
 	}
 }
@@ -520,7 +518,6 @@ func TestIncomingResolveValidate(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := tc.resolve.Validate()
@@ -589,7 +586,6 @@ func TestProbeMatchesParamsValidate(t *testing.T) {
 		{"empty Match.Address", func(p *wsdiscovery.ProbeMatchesParams) { p.Match.Address = "" }, true},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := validBase
@@ -663,7 +659,6 @@ func TestResolveMatchesParamsValidate(t *testing.T) {
 		{"empty Match.XAddrs", func(p *wsdiscovery.ResolveMatchesParams) { p.Match.XAddrs = nil }, true},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := validBase
@@ -693,8 +688,7 @@ func TestAppSequence_Concurrent(t *testing.T) {
 	results := make([]uint32, goroutines)
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
-		i := i
+	for i := range goroutines {
 		go func() {
 			defer wg.Done()
 			results[i] = a.NextMessageNumber()
@@ -716,7 +710,7 @@ func TestAppSequence_Concurrent(t *testing.T) {
 func TestNewMessageID_Format(t *testing.T) {
 	t.Parallel()
 	re := regexp.MustCompile(`^uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		id := wsdiscovery.NewMessageID()
 		if !re.MatchString(id) {
 			t.Fatalf("NewMessageID format invalid: %q", id)
