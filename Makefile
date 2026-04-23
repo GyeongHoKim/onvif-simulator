@@ -1,11 +1,15 @@
 BINARY := onvif-simulator
 GO     := go
-OS     := $(shell uname -s 2>/dev/null || echo Windows)
 
-ifeq ($(OS), Windows)
-  RM       := rmdir /s /q
+ifeq ($(OS),Windows_NT)
+  UNAME_S  := $(shell uname -s 2>NUL)
   CLI_OUT  := bin/$(BINARY).exe
   GUI_OUT  := build/bin/$(BINARY)-gui.exe
+  ifneq (,$(findstring MINGW,$(UNAME_S))$(findstring MSYS,$(UNAME_S))$(findstring CYGWIN,$(UNAME_S)))
+    RM     := rm -rf
+  else
+    RM     := rmdir /s /q
+  endif
 else
   RM       := rm -rf
   CLI_OUT  := bin/$(BINARY)
