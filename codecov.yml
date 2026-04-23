@@ -21,7 +21,7 @@ coverage:
 comment:
   layout: "condensed_header, condensed_files, condensed_footer"
   behavior: default
-  require_changes: uncovered_patch  # comment only when patch has uncovered lines
+  require_changes: true
 
 ignore:
   - "cmd/**"          # entrypoint, not unit-testable
