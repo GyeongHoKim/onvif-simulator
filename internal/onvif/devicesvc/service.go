@@ -13,6 +13,9 @@ import (
 
 const (
 	soapNamespace = "http://www.w3.org/2003/05/soap-envelope"
+	// maxSOAPBodySize caps incoming SOAP payload bytes to avoid unbounded
+	// memory use during io.ReadAll.
+	maxSOAPBodySize = 10 << 20
 )
 
 var (
@@ -20,6 +23,7 @@ var (
 	errUnsupportedOp    = errors.New("devicesvc: unsupported operation")
 	errNoServices       = errors.New("devicesvc: no services available")
 	errEmptySOAPBody    = errors.New("devicesvc: empty soap body")
+	errDecodePayload    = errors.New("devicesvc: malformed request payload")
 )
 
 // Handler serves the ONVIF device management endpoint.
@@ -62,8 +66,14 @@ func (s *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxSOAPBodySize)
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeFault(w, http.StatusRequestEntityTooLarge, "Sender", tooLarge.Error())
+			return
+		}
 		writeFault(w, http.StatusBadRequest, "Sender", fmt.Errorf("read request body: %w", err).Error())
 		return
 	}
@@ -89,8 +99,12 @@ func (s *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		status := http.StatusInternalServerError
 		code := "Receiver"
-		if errors.Is(err, errUnsupportedOp) {
+		switch {
+		case errors.Is(err, errUnsupportedOp):
 			status = http.StatusNotImplemented
+			code = "Sender"
+		case errors.Is(err, errDecodePayload):
+			status = http.StatusBadRequest
 			code = "Sender"
 		}
 		writeFault(w, status, code, err.Error())
@@ -149,7 +163,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 			Category string `xml:"Category"`
 		}
 		if err := xml.Unmarshal(payload, &req); err != nil {
-			return nil, fmt.Errorf("devicesvc: decode GetCapabilities: %w", err)
+			return nil, errors.Join(errDecodePayload, fmt.Errorf("devicesvc: decode GetCapabilities: %w", err))
 		}
 		caps, err := s.provider.GetCapabilities(ctx, req.Category)
 		if err != nil {
@@ -201,7 +215,7 @@ func (s *Handler) handleGetServices(ctx context.Context, payload []byte) ([]byte
 		IncludeCapability bool `xml:"IncludeCapability"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("devicesvc: decode GetServices: %w", err)
+		return nil, errors.Join(errDecodePayload, fmt.Errorf("devicesvc: decode GetServices: %w", err))
 	}
 
 	services, err := s.provider.Services(ctx, req.IncludeCapability)

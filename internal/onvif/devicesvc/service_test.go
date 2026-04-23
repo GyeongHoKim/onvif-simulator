@@ -311,11 +311,30 @@ func TestServeHTTP_GetServicesInvalidPayload(t *testing.T) {
 
 	svc.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if !strings.Contains(rec.Body.String(), "env:Sender") {
+		t.Fatalf("body missing Sender fault code: %s", rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), "decode GetServices") {
 		t.Fatalf("body missing decode error: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_PayloadTooLarge(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	oversized := bytes.Repeat([]byte("a"), maxSOAPBodySize+1)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewReader(oversized))
+	rec := httptest.NewRecorder()
+
+	svc.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
+	}
+	if !strings.Contains(rec.Body.String(), "env:Sender") {
+		t.Fatalf("body missing Sender fault code: %s", rec.Body.String())
 	}
 }
 
