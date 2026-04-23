@@ -337,7 +337,7 @@ func TestHelloParamsValidate(t *testing.T) {
 		mutate  func(*wsdiscovery.HelloParams)
 		wantErr bool
 	}{
-		{"valid", func(p *wsdiscovery.HelloParams) {}, false},
+		{"valid", func(_ *wsdiscovery.HelloParams) {}, false},
 		{"empty MessageID", func(p *wsdiscovery.HelloParams) { p.MessageID = "" }, true},
 		{"empty Address", func(p *wsdiscovery.HelloParams) { p.Address = "" }, true},
 		{"zero MessageNumber", func(p *wsdiscovery.HelloParams) { p.MessageNumber = 0 }, true},
@@ -398,7 +398,7 @@ func TestByeParamsValidate(t *testing.T) {
 		mutate  func(*wsdiscovery.ByeParams)
 		wantErr bool
 	}{
-		{"valid", func(p *wsdiscovery.ByeParams) {}, false},
+		{"valid", func(_ *wsdiscovery.ByeParams) {}, false},
 		{"empty MessageID", func(p *wsdiscovery.ByeParams) { p.MessageID = "" }, true},
 		{"empty Address", func(p *wsdiscovery.ByeParams) { p.Address = "" }, true},
 		{"zero MessageNumber", func(p *wsdiscovery.ByeParams) { p.MessageNumber = 0 }, true},
@@ -579,7 +579,7 @@ func TestProbeMatchesParamsValidate(t *testing.T) {
 		mutate  func(*wsdiscovery.ProbeMatchesParams)
 		wantErr bool
 	}{
-		{"valid", func(p *wsdiscovery.ProbeMatchesParams) {}, false},
+		{"valid", func(_ *wsdiscovery.ProbeMatchesParams) {}, false},
 		{"empty MessageID", func(p *wsdiscovery.ProbeMatchesParams) { p.MessageID = "" }, true},
 		{"empty RelatesTo", func(p *wsdiscovery.ProbeMatchesParams) { p.RelatesTo = "" }, true},
 		{"zero MsgNumber", func(p *wsdiscovery.ProbeMatchesParams) { p.MsgNumber = 0 }, true},
@@ -651,7 +651,7 @@ func TestResolveMatchesParamsValidate(t *testing.T) {
 		mutate  func(*wsdiscovery.ResolveMatchesParams)
 		wantErr bool
 	}{
-		{"valid", func(p *wsdiscovery.ResolveMatchesParams) {}, false},
+		{"valid", func(_ *wsdiscovery.ResolveMatchesParams) {}, false},
 		{"empty MessageID", func(p *wsdiscovery.ResolveMatchesParams) { p.MessageID = "" }, true},
 		{"empty RelatesTo", func(p *wsdiscovery.ResolveMatchesParams) { p.RelatesTo = "" }, true},
 		{"zero MsgNumber", func(p *wsdiscovery.ResolveMatchesParams) { p.MsgNumber = 0 }, true},
@@ -722,7 +722,7 @@ func TestNewMessageID_Unique(t *testing.T) {
 	t.Parallel()
 	const n = 100
 	seen := make(map[string]bool, n)
-	for i := 0; i < n; i++ {
+	for range n {
 		id := wsdiscovery.NewMessageID()
 		if seen[id] {
 			t.Fatalf("duplicate MessageID: %q", id)
