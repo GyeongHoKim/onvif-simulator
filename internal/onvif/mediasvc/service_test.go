@@ -1,0 +1,381 @@
+package mediasvc
+
+import (
+	"bytes"
+	"context"
+	"encoding/xml"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+// stubProvider returns minimal deterministic data for every operation.
+type stubProvider struct{}
+
+func (stubProvider) ServiceCapabilities(context.Context) (ServiceCapabilities, error) {
+	return ServiceCapabilities{
+		SnapshotURI:             true,
+		RTPTCP:                  true,
+		RTPRTSPTCP:              true,
+		MaximumNumberOfProfiles: 2,
+	}, nil
+}
+
+func (stubProvider) Profiles(context.Context) ([]Profile, error) {
+	return []Profile{{
+		Token: "profile_main",
+		Name:  "main",
+		Fixed: true,
+		VideoSource: &VideoSourceConfiguration{
+			Token: "VSConfig_main", Name: "main", UseCount: 1, SourceToken: "VS_MAIN",
+			Bounds: Rectangle{Width: 1920, Height: 1080},
+		},
+		VideoEncoder: &VideoEncoderConfiguration{
+			Token: "VEConfig_main", Name: "main", UseCount: 1,
+			Encoding: "H264", Resolution: Resolution{Width: 1920, Height: 1080},
+			Quality:     5,
+			RateControl: VideoRateControl{FrameRateLimit: 30, EncodingInterval: 1, BitrateLimit: 4096},
+			H264:        H264Configuration{GOVLength: 60, H264Profile: "Main"},
+			SessionTout: "PT0S",
+		},
+	}}, nil
+}
+
+func (s stubProvider) Profile(ctx context.Context, token string) (Profile, error) {
+	ps, err := s.Profiles(ctx)
+	if err != nil {
+		return Profile{}, err
+	}
+	for _, p := range ps {
+		if p.Token == token {
+			return p, nil
+		}
+	}
+	return Profile{}, ErrProfileNotFound
+}
+
+func (stubProvider) CreateProfile(_ context.Context, name, token string) (Profile, error) {
+	return Profile{Token: token, Name: name, Fixed: false}, nil
+}
+
+func (stubProvider) DeleteProfile(context.Context, string) error { return nil }
+
+func (stubProvider) VideoSources(context.Context) ([]VideoSource, error) {
+	return []VideoSource{{Token: "VS_MAIN", Framerate: 30, Resolution: Resolution{Width: 1920, Height: 1080}}}, nil
+}
+
+func (stubProvider) VideoSourceConfigurations(context.Context) ([]VideoSourceConfiguration, error) {
+	return []VideoSourceConfiguration{{
+		Token: "VSConfig_main", Name: "main", UseCount: 1, SourceToken: "VS_MAIN",
+		Bounds: Rectangle{Width: 1920, Height: 1080},
+	}}, nil
+}
+
+func (stubProvider) VideoSourceConfiguration(_ context.Context, token string) (VideoSourceConfiguration, error) {
+	if token != "VSConfig_main" {
+		return VideoSourceConfiguration{}, ErrConfigNotFound
+	}
+	return VideoSourceConfiguration{
+		Token: "VSConfig_main", Name: "main", UseCount: 1, SourceToken: "VS_MAIN",
+		Bounds: Rectangle{Width: 1920, Height: 1080},
+	}, nil
+}
+
+func (stubProvider) SetVideoSourceConfiguration(context.Context, VideoSourceConfiguration) error {
+	return nil
+}
+
+func (stubProvider) AddVideoSourceConfiguration(context.Context, string, string) error { return nil }
+
+func (stubProvider) RemoveVideoSourceConfiguration(context.Context, string) error { return nil }
+
+func (stubProvider) CompatibleVideoSourceConfigurations(context.Context, string) ([]VideoSourceConfiguration, error) {
+	return []VideoSourceConfiguration{{Token: "VSConfig_main", Name: "main"}}, nil
+}
+
+func (stubProvider) VideoSourceConfigurationOptions(context.Context, string, string) (VideoSourceConfigurationOptions, error) {
+	var opt VideoSourceConfigurationOptions
+	opt.MaximumNumberOfProfiles = 2
+	opt.BoundsRange.XRange = IntRange{Min: 0, Max: 0}
+	opt.BoundsRange.YRange = IntRange{Min: 0, Max: 0}
+	opt.BoundsRange.WidthRange = IntRange{Min: 320, Max: 1920}
+	opt.BoundsRange.HeightRange = IntRange{Min: 240, Max: 1080}
+	opt.VideoSourceTokensAvailable = []string{"VS_MAIN"}
+	return opt, nil
+}
+
+func (stubProvider) VideoEncoderConfigurations(context.Context) ([]VideoEncoderConfiguration, error) {
+	return []VideoEncoderConfiguration{{
+		Token: "VEConfig_main", Name: "main", UseCount: 1, Encoding: "H264",
+		Resolution: Resolution{Width: 1920, Height: 1080}, Quality: 5,
+		RateControl: VideoRateControl{FrameRateLimit: 30, BitrateLimit: 4096, EncodingInterval: 1},
+		H264:        H264Configuration{GOVLength: 60, H264Profile: "Main"},
+	}}, nil
+}
+
+func (stubProvider) VideoEncoderConfiguration(_ context.Context, token string) (VideoEncoderConfiguration, error) {
+	if token != "VEConfig_main" {
+		return VideoEncoderConfiguration{}, ErrConfigNotFound
+	}
+	return VideoEncoderConfiguration{
+		Token: token, Name: "main", Encoding: "H264",
+		Resolution: Resolution{Width: 1280, Height: 720}, Quality: 6,
+	}, nil
+}
+
+func (stubProvider) SetVideoEncoderConfiguration(context.Context, VideoEncoderConfiguration) error {
+	return nil
+}
+
+func (stubProvider) AddVideoEncoderConfiguration(context.Context, string, string) error { return nil }
+
+func (stubProvider) RemoveVideoEncoderConfiguration(context.Context, string) error { return nil }
+
+func (stubProvider) CompatibleVideoEncoderConfigurations(context.Context, string) ([]VideoEncoderConfiguration, error) {
+	return []VideoEncoderConfiguration{{Token: "VEConfig_main", Name: "main", Encoding: "H264"}}, nil
+}
+
+func (stubProvider) VideoEncoderConfigurationOptions(context.Context, string, string) (VideoEncoderConfigurationOptions, error) {
+	opt := VideoEncoderConfigurationOptions{
+		QualityRange: IntRange{Min: 0, Max: 10},
+	}
+	opt.H264.ResolutionsAvailable = []ResolutionOptions{{Width: 640, Height: 480}, {Width: 1920, Height: 1080}}
+	opt.H264.GovLengthRange = IntRange{Min: 1, Max: 120}
+	opt.H264.FrameRateRange = IntRange{Min: 1, Max: 60}
+	opt.H264.EncodingIntervalRange = IntRange{Min: 1, Max: 1}
+	opt.H264.H264ProfilesSupported = []string{"Baseline", "Main", "High"}
+	return opt, nil
+}
+
+func (stubProvider) StreamURI(_ context.Context, token string, _ StreamSetup) (MediaURI, error) {
+	if token != "profile_main" {
+		return MediaURI{}, ErrProfileNotFound
+	}
+	return MediaURI{URI: "rtsp://127.0.0.1:8554/main", Timeout: "PT0S"}, nil
+}
+
+func (stubProvider) SnapshotURI(_ context.Context, token string) (MediaURI, error) {
+	if token != "profile_main" {
+		return MediaURI{}, ErrProfileNotFound
+	}
+	return MediaURI{URI: "http://127.0.0.1:8080/snapshot/main.jpg", Timeout: "PT0S"}, nil
+}
+
+// errProvider always returns errProviderBoom; used to prove the 500/Receiver mapping.
+type errProvider struct{ stubProvider }
+
+var errProviderBoom = errors.New("provider boom")
+
+func (errProvider) Profiles(context.Context) ([]Profile, error) { return nil, errProviderBoom }
+
+// ---------- helpers ----------
+
+func soapRequest(op, inner string) string {
+	return `<?xml version="1.0" encoding="UTF-8"?>` +
+		`<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:trt="` + MediaNamespace + `">` +
+		`<env:Body><trt:` + op + `>` + inner + `</trt:` + op + `></env:Body></env:Envelope>`
+}
+
+func doRequest(t *testing.T, h *Handler, op, inner string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, MediaServicePath,
+		bytes.NewBufferString(soapRequest(op, inner)))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// ---------- tests ----------
+
+func TestServeHTTP_GetServiceCapabilities(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	rec := doRequest(t, svc, "GetServiceCapabilities", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "<GetServiceCapabilitiesResponse") {
+		t.Fatalf("body missing GetServiceCapabilitiesResponse: %s", body)
+	}
+	if !strings.Contains(body, `SnapshotUri="true"`) {
+		t.Fatalf("body missing SnapshotUri attr: %s", body)
+	}
+	if !strings.Contains(body, `MaximumNumberOfProfiles="2"`) {
+		t.Fatalf("body missing MaximumNumberOfProfiles attr: %s", body)
+	}
+}
+
+func TestServeHTTP_GetProfiles(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	rec := doRequest(t, svc, "GetProfiles", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `token="profile_main"`) {
+		t.Fatalf("body missing profile token attr: %s", body)
+	}
+	if !strings.Contains(body, "<tt:Encoding>H264</tt:Encoding>") {
+		t.Fatalf("body missing encoder encoding: %s", body)
+	}
+}
+
+func TestServeHTTP_GetProfile(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	rec := doRequest(t, svc, "GetProfile", "<ProfileToken>profile_main</ProfileToken>")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), `token="profile_main"`) {
+		t.Fatalf("profile token missing: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_GetProfile_NotFound(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	rec := doRequest(t, svc, "GetProfile", "<ProfileToken>ghost</ProfileToken>")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if !strings.Contains(rec.Body.String(), "env:Sender") {
+		t.Fatalf("body missing Sender fault code: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_GetStreamUri(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	body := `<StreamSetup><Stream>RTP-Unicast</Stream><Transport><Protocol>RTSP</Protocol></Transport></StreamSetup>` +
+		`<ProfileToken>profile_main</ProfileToken>`
+	rec := doRequest(t, svc, "GetStreamUri", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "<tt:Uri>rtsp://127.0.0.1:8554/main</tt:Uri>") {
+		t.Fatalf("body missing pass-through URI: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_GetSnapshotUri(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	rec := doRequest(t, svc, "GetSnapshotUri", "<ProfileToken>profile_main</ProfileToken>")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "<tt:Uri>http://127.0.0.1:8080/snapshot/main.jpg</tt:Uri>") {
+		t.Fatalf("body missing snapshot URI: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_UnsupportedOperation(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	rec := doRequest(t, svc, "StartMulticastStreaming", "<ProfileToken>profile_main</ProfileToken>")
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotImplemented)
+	}
+	if !strings.Contains(rec.Body.String(), "unsupported operation") {
+		t.Fatalf("body missing unsupported reason: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_MethodNotAllowed(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, MediaServicePath, nil)
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestServeHTTP_InvalidEnvelope(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, MediaServicePath,
+		bytes.NewBufferString("garbage"))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestServeHTTP_ProviderError(t *testing.T) {
+	svc := NewHandler(errProvider{})
+	rec := doRequest(t, svc, "GetProfiles", "")
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+	if !strings.Contains(rec.Body.String(), "env:Receiver") {
+		t.Fatalf("body missing Receiver fault: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_SizeCap(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	big := strings.Repeat("x", maxSOAPBodySize+1)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, MediaServicePath,
+		bytes.NewBufferString(big))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
+	}
+}
+
+func TestServeHTTP_AuthHookRejects(t *testing.T) {
+	svc := NewHandler(stubProvider{}, WithAuthHook(AuthFunc(func(context.Context, string, *http.Request) error {
+		return io.EOF
+	})))
+	rec := doRequest(t, svc, "GetProfiles", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestParseOperation(t *testing.T) {
+	payload, op, err := parseOperation([]byte(soapRequest("GetProfiles", "")))
+	if err != nil {
+		t.Fatalf("parseOperation: %v", err)
+	}
+	if op != "GetProfiles" {
+		t.Fatalf("operation = %q, want GetProfiles", op)
+	}
+	if len(payload) == 0 {
+		t.Fatal("payload must not be empty")
+	}
+}
+
+func TestResponseEnvelopeValid(t *testing.T) {
+	// Sanity: response body must unmarshal as a soap envelope with a non-empty Body.
+	svc := NewHandler(stubProvider{})
+	rec := doRequest(t, svc, "GetProfiles", "")
+	var env struct {
+		Body struct {
+			Inner []byte `xml:",innerxml"`
+		} `xml:"Body"`
+	}
+	if err := xml.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal response envelope: %v", err)
+	}
+	if !bytes.Contains(env.Body.Inner, []byte("GetProfilesResponse")) {
+		t.Fatalf("envelope body missing response element: %s", string(env.Body.Inner))
+	}
+}
+
+func TestWithAuthHookNilIsNoop(t *testing.T) {
+	svc := NewHandler(stubProvider{}, WithAuthHook(nil))
+	if svc.auth == nil {
+		t.Fatal("auth must remain non-nil when WithAuthHook receives nil")
+	}
+}
+
+func TestNewHandlerPanicsOnNilProvider(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("NewHandler(nil) must panic")
+		}
+	}()
+	NewHandler(nil)
+}
