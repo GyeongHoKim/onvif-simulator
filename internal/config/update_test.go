@@ -152,3 +152,102 @@ func TestSetDigestAlgorithms(t *testing.T) {
 		t.Fatalf("algorithms not persisted: %+v", got.Auth.Digest.Algorithms)
 	}
 }
+
+func TestAddProfile(t *testing.T) {
+	seed(t)
+
+	p := config.ProfileConfig{
+		Name: "sub", Token: "profile_sub",
+		RTSP: "rtsp://127.0.0.1:8554/sub", Encoding: "H264",
+		Width: 640, Height: 480, FPS: 15,
+	}
+	if err := config.AddProfile(p); err != nil {
+		t.Fatalf("AddProfile: %v", err)
+	}
+	if err := config.AddProfile(p); !errors.Is(err, config.ErrProfileAlreadyExists) {
+		t.Fatalf("expected ErrProfileAlreadyExists, got %v", err)
+	}
+	got := loadOrFail(t)
+	if len(got.Media.Profiles) != 2 {
+		t.Fatalf("expected 2 profiles, got %d", len(got.Media.Profiles))
+	}
+}
+
+func TestRemoveProfile(t *testing.T) {
+	seed(t)
+
+	sub := config.ProfileConfig{
+		Name: "sub", Token: "profile_sub",
+		RTSP: "rtsp://127.0.0.1:8554/sub", Encoding: "H264",
+		Width: 640, Height: 480, FPS: 15,
+	}
+	if err := config.AddProfile(sub); err != nil {
+		t.Fatalf("AddProfile: %v", err)
+	}
+	if err := config.RemoveProfile("profile_main"); err != nil {
+		t.Fatalf("RemoveProfile: %v", err)
+	}
+	if err := config.RemoveProfile("ghost"); !errors.Is(err, config.ErrProfileNotFound) {
+		t.Fatalf("expected ErrProfileNotFound, got %v", err)
+	}
+	got := loadOrFail(t)
+	if len(got.Media.Profiles) != 1 || got.Media.Profiles[0].Token != "profile_sub" {
+		t.Fatalf("unexpected profiles after remove: %+v", got.Media.Profiles)
+	}
+}
+
+func TestRemoveProfileKeepsAtLeastOne(t *testing.T) {
+	seed(t)
+
+	err := config.RemoveProfile("profile_main")
+	if err == nil {
+		t.Fatal("removing last profile must be rejected by validation")
+	}
+	if !errors.Is(err, config.ErrMediaNoProfiles) {
+		t.Fatalf("expected ErrMediaNoProfiles, got %v", err)
+	}
+}
+
+func TestSetProfileRTSP(t *testing.T) {
+	seed(t)
+
+	if err := config.SetProfileRTSP("profile_main", "rtsp://10.0.0.1:8554/live"); err != nil {
+		t.Fatalf("SetProfileRTSP: %v", err)
+	}
+	got := loadOrFail(t)
+	if got.Media.Profiles[0].RTSP != "rtsp://10.0.0.1:8554/live" {
+		t.Fatalf("rtsp not persisted: %q", got.Media.Profiles[0].RTSP)
+	}
+	if err := config.SetProfileRTSP("ghost", "rtsp://x/y"); !errors.Is(err, config.ErrProfileNotFound) {
+		t.Fatalf("expected ErrProfileNotFound, got %v", err)
+	}
+}
+
+func TestSetProfileSnapshotURI(t *testing.T) {
+	seed(t)
+
+	if err := config.SetProfileSnapshotURI("profile_main", "http://host/snap.jpg"); err != nil {
+		t.Fatalf("SetProfileSnapshotURI: %v", err)
+	}
+	got := loadOrFail(t)
+	if got.Media.Profiles[0].SnapshotURI != "http://host/snap.jpg" {
+		t.Fatalf("snapshot uri not persisted: %q", got.Media.Profiles[0].SnapshotURI)
+	}
+	// Clearing is allowed.
+	if err := config.SetProfileSnapshotURI("profile_main", ""); err != nil {
+		t.Fatalf("clear SnapshotURI: %v", err)
+	}
+}
+
+func TestSetProfileEncoder(t *testing.T) {
+	seed(t)
+
+	if err := config.SetProfileEncoder("profile_main", "H265", 1280, 720, 25, 2048, 50); err != nil {
+		t.Fatalf("SetProfileEncoder: %v", err)
+	}
+	got := loadOrFail(t).Media.Profiles[0]
+	if got.Encoding != "H265" || got.Width != 1280 || got.Height != 720 || got.FPS != 25 ||
+		got.Bitrate != 2048 || got.GOPLength != 50 {
+		t.Fatalf("encoder not persisted: %+v", got)
+	}
+}

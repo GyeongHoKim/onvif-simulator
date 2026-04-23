@@ -20,6 +20,12 @@ var ErrUserAlreadyExists = errors.New("config: user already exists")
 // ErrMutateRequired is returned by Update when the mutate callback is nil.
 var ErrMutateRequired = errors.New("config: Update requires a mutate function")
 
+// ErrProfileNotFound is returned when no profile has the given token.
+var ErrProfileNotFound = errors.New("config: profile not found")
+
+// ErrProfileAlreadyExists is returned by AddProfile when the token is taken.
+var ErrProfileAlreadyExists = errors.New("config: profile already exists")
+
 // Update loads the on-disk config, applies mutate in memory, validates, and
 // saves atomically. Concurrent Update calls are serialized.
 func Update(mutate func(*Config)) error {
@@ -116,4 +122,99 @@ func SetJWTIssuer(issuer, audience, jwksURL string) error {
 		c.Auth.JWT.Audience = audience
 		c.Auth.JWT.JWKSURL = jwksURL
 	})
+}
+
+// AddProfile appends a new media profile.
+// Returns ErrProfileAlreadyExists if the token is already taken.
+//
+//nolint:gocritic // ProfileConfig is a value-typed DTO; callers pass it by value
+func AddProfile(p ProfileConfig) error {
+	var duplicate bool
+	if err := Update(func(c *Config) {
+		for i := range c.Media.Profiles {
+			if c.Media.Profiles[i].Token == p.Token {
+				duplicate = true
+				return
+			}
+		}
+		c.Media.Profiles = append(c.Media.Profiles, p)
+	}); err != nil {
+		return err
+	}
+	if duplicate {
+		return fmt.Errorf("%w: %s", ErrProfileAlreadyExists, p.Token)
+	}
+	return nil
+}
+
+// RemoveProfile deletes the profile with the given token.
+// Returns ErrProfileNotFound if no such profile exists.
+func RemoveProfile(token string) error {
+	var removed bool
+	if err := Update(func(c *Config) {
+		filtered := c.Media.Profiles[:0]
+		for i := range c.Media.Profiles {
+			if c.Media.Profiles[i].Token == token {
+				removed = true
+				continue
+			}
+			filtered = append(filtered, c.Media.Profiles[i])
+		}
+		c.Media.Profiles = filtered
+	}); err != nil {
+		return err
+	}
+	if !removed {
+		return fmt.Errorf("%w: %s", ErrProfileNotFound, token)
+	}
+	return nil
+}
+
+// SetProfileRTSP replaces the RTSP pass-through URI of one profile.
+func SetProfileRTSP(token, rtsp string) error {
+	return mutateProfile(token, func(p *ProfileConfig) { p.RTSP = rtsp })
+}
+
+// SetProfileSnapshotURI replaces the snapshot pass-through URI of one profile.
+// Pass "" to clear.
+func SetProfileSnapshotURI(token, uri string) error {
+	return mutateProfile(token, func(p *ProfileConfig) { p.SnapshotURI = uri })
+}
+
+// SetProfileVideoSourceToken changes the video source a profile references.
+// Pass "" to reset to the default.
+func SetProfileVideoSourceToken(token, sourceToken string) error {
+	return mutateProfile(token, func(p *ProfileConfig) { p.VideoSourceToken = sourceToken })
+}
+
+// SetProfileEncoder replaces the encoder fields of one profile in a single
+// atomic update. Bitrate and gopLength pass 0 to clear (omit from output).
+func SetProfileEncoder(token, encoding string, width, height, fps, bitrate, gopLength int) error {
+	return mutateProfile(token, func(p *ProfileConfig) {
+		p.Encoding = encoding
+		p.Width = width
+		p.Height = height
+		p.FPS = fps
+		p.Bitrate = bitrate
+		p.GOPLength = gopLength
+	})
+}
+
+func mutateProfile(token string, mutate func(*ProfileConfig)) error {
+	var found bool
+	if err := Update(func(c *Config) {
+		for i := range c.Media.Profiles {
+			if c.Media.Profiles[i].Token == token {
+				mutate(&c.Media.Profiles[i])
+				found = true
+				return
+			}
+		}
+	}); err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("%w: %s", ErrProfileNotFound, token)
+	}
+	return nil
 }
