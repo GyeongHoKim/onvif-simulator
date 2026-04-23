@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // FileName is the default on-disk config file name in the working directory.
@@ -29,30 +30,20 @@ type Config struct {
 }
 
 // DeviceConfig describes who this device is.
-// UUID, Manufacturer, Model, and Serial are required.
-// These fields are used for both ONVIF GetDeviceInformation responses
-// and WS-Discovery advertisement (Scopes are derived from them at runtime).
 type DeviceConfig struct {
-	// UUID is the stable WS-Discovery a:Address (must be urn:uuid:<uuid>).
-	UUID         string `json:"uuid"`
-	Manufacturer string `json:"manufacturer"`
-	Model        string `json:"model"`
-	Serial       string `json:"serial"`
-	// Firmware is optional; reported in GetDeviceInformation.
-	Firmware string `json:"firmware,omitempty"`
-	// Scopes are additional WS-Discovery scope URIs beyond the auto-derived ones.
-	Scopes []string `json:"scopes,omitempty"`
+	UUID         string   `json:"uuid"`
+	Manufacturer string   `json:"manufacturer"`
+	Model        string   `json:"model"`
+	Serial       string   `json:"serial"`
+	Firmware     string   `json:"firmware,omitempty"`
+	Scopes       []string `json:"scopes,omitempty"`
 }
 
 // NetworkConfig describes how clients reach this device.
 type NetworkConfig struct {
-	// HTTPPort is the port the ONVIF device service listens on (required, 1–65535).
-	HTTPPort int `json:"http_port"`
-	// Interface is the network interface to bind (empty means all interfaces).
-	Interface string `json:"interface,omitempty"`
-	// XAddrs overrides the auto-derived WS-Discovery transport addresses.
-	// If empty, XAddrs is derived from the bound IP and HTTPPort at runtime.
-	XAddrs []string `json:"xaddrs,omitempty"`
+	HTTPPort  int      `json:"http_port"`
+	Interface string   `json:"interface,omitempty"`
+	XAddrs    []string `json:"xaddrs,omitempty"`
 }
 
 // MediaConfig holds the list of ONVIF media profiles this device advertises.
@@ -61,11 +52,8 @@ type MediaConfig struct {
 }
 
 // ProfileConfig describes a single ONVIF media profile.
-// Name, Token, RTSP, Encoding, Width, Height, and FPS are all required.
 type ProfileConfig struct {
-	// Name is a human-readable label (e.g. "main", "sub").
-	Name string `json:"name"`
-	// Token is the ONVIF profile token (must be unique across profiles).
+	Name     string `json:"name"`
 	Token    string `json:"token"`
 	RTSP     string `json:"rtsp"`
 	Encoding string `json:"encoding"`
@@ -74,11 +62,50 @@ type ProfileConfig struct {
 	FPS      int    `json:"fps"`
 }
 
-// AuthConfig holds credentials for WS-Security Digest authentication.
-// Username and Password must both be set or both be empty.
+// AuthConfig configures authentication for all ONVIF services.
+// When Enabled is true, Users must contain at least one entry
+// (or JWT.Enabled must be true and have key material).
 type AuthConfig struct {
-	Username string `json:"username,omitempty"`
-	Password string `json:"password,omitempty"`
+	Enabled bool         `json:"enabled"`
+	Users   []UserConfig `json:"users,omitempty"`
+	Digest  DigestConfig `json:"digest,omitempty"`
+	JWT     JWTConfig    `json:"jwt,omitempty"`
+}
+
+// UserConfig is one credential entry for HTTP Digest and WS-UsernameToken.
+type UserConfig struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Role     string `json:"role"`
+}
+
+// Known ONVIF user levels (per §5.9.4.2). Custom role names are allowed.
+const (
+	RoleAdministrator = "Administrator"
+	RoleOperator      = "Operator"
+	RoleUser          = "User"
+	RoleExtended      = "Extended"
+)
+
+// DigestConfig tunes HTTP Digest authentication parameters.
+type DigestConfig struct {
+	Realm      string   `json:"realm,omitempty"`
+	Algorithms []string `json:"algorithms,omitempty"`
+	NonceTTL   string   `json:"nonce_ttl,omitempty"`
+}
+
+// JWTConfig tunes JWT Bearer token validation.
+type JWTConfig struct {
+	Enabled       bool     `json:"enabled,omitempty"`
+	Issuer        string   `json:"issuer,omitempty"`
+	Audience      string   `json:"audience,omitempty"`
+	JWKSURL       string   `json:"jwks_url,omitempty"`
+	PublicKeyPEM  []string `json:"public_key_pem,omitempty"`
+	Algorithms    []string `json:"algorithms,omitempty"`
+	UsernameClaim string   `json:"username_claim,omitempty"`
+	RolesClaim    string   `json:"roles_claim,omitempty"`
+	ClockSkew     string   `json:"clock_skew,omitempty"`
+	RequireTLS    *bool    `json:"require_tls,omitempty"`
 }
 
 var (
@@ -99,8 +126,27 @@ var (
 	// ErrProfileEncodingInvalid means profile.encoding is not a supported value.
 	ErrProfileEncodingInvalid = errors.New("config: profile.encoding must be one of H264, H265, MJPEG")
 
-	// ErrAuthIncomplete means only one of username/password is set.
-	ErrAuthIncomplete = errors.New("config: auth.username and auth.password must both be set or both be empty")
+	// ErrAuthUsersRequired means auth.enabled=true but auth.users is empty.
+	ErrAuthUsersRequired = errors.New("config: auth.users must contain at least one user when auth.enabled is true")
+	// ErrAuthUserIncomplete means a user entry is missing username, password, or role.
+	ErrAuthUserIncomplete = errors.New("config: auth.users entry requires username, password, and role")
+	// ErrAuthRoleReserved means a custom role uses the reserved onvif: prefix.
+	ErrAuthRoleReserved = errors.New("config: auth.users role must not start with onvif: prefix")
+	// ErrAuthRoleWhitespace means a custom role name contains whitespace (forbidden per §5.9.4.5).
+	ErrAuthRoleWhitespace = errors.New("config: auth.users role must not contain whitespace")
+	// ErrAuthUsernameDuplicate means two user entries share the same username.
+	ErrAuthUsernameDuplicate = errors.New("config: auth.users username must be unique")
+	// ErrAuthDigestAlgorithm means digest.algorithms contains an unsupported entry.
+	ErrAuthDigestAlgorithm = errors.New("config: auth.digest.algorithms must be a subset of [MD5, SHA-256]")
+	// ErrAuthDigestNonceTTL means digest.nonce_ttl is not a valid Go duration.
+	ErrAuthDigestNonceTTL = errors.New("config: auth.digest.nonce_ttl must be a Go duration (e.g. 5m)")
+	// ErrAuthJWTAlgorithm means jwt.algorithms contains an unsupported entry.
+	ErrAuthJWTAlgorithm = errors.New(
+		"config: auth.jwt.algorithms must be a subset of [RS256, RS384, RS512, ES256, ES384, ES512]")
+	// ErrAuthJWTClockSkew means jwt.clock_skew is not a valid Go duration.
+	ErrAuthJWTClockSkew = errors.New("config: auth.jwt.clock_skew must be a Go duration (e.g. 30s)")
+	// ErrAuthJWTKeyMaterial means jwt is enabled but no JWKS URL or PEM key was configured.
+	ErrAuthJWTKeyMaterial = errors.New("config: auth.jwt requires jwks_url or public_key_pem when enabled")
 )
 
 var (
@@ -124,8 +170,14 @@ var (
 )
 
 var (
-	uuidURNPattern = regexp.MustCompile(`(?i)^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-	validEncodings = map[string]bool{"H264": true, "H265": true, "MJPEG": true}
+	uuidURNPattern  = regexp.MustCompile(`(?i)^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	validEncodings  = map[string]bool{"H264": true, "H265": true, "MJPEG": true}
+	validDigestAlgs = map[string]bool{"MD5": true, "SHA-256": true}
+	validJWTAlgs    = map[string]bool{
+		"RS256": true, "RS384": true, "RS512": true,
+		"ES256": true, "ES384": true, "ES512": true,
+	}
+	whitespacePattern = regexp.MustCompile(`\s`)
 )
 
 // Validate checks all required fields and their formats.
@@ -228,10 +280,71 @@ func validateProfile(i int, p *ProfileConfig, seenProfileTokens map[string]bool)
 }
 
 func validateAuth(a *AuthConfig) error {
-	hasUser := strings.TrimSpace(a.Username) != ""
-	hasPass := strings.TrimSpace(a.Password) != ""
-	if hasUser != hasPass {
-		return ErrAuthIncomplete
+	if !a.Enabled && len(a.Users) == 0 && !a.JWT.Enabled {
+		return nil
+	}
+	if a.Enabled && len(a.Users) == 0 && !a.JWT.Enabled {
+		return ErrAuthUsersRequired
+	}
+	seen := make(map[string]bool, len(a.Users))
+	for i := range a.Users {
+		if err := validateUser(i, &a.Users[i], seen); err != nil {
+			return err
+		}
+	}
+	if err := validateDigest(&a.Digest); err != nil {
+		return err
+	}
+	return validateJWT(&a.JWT)
+}
+
+func validateUser(i int, u *UserConfig, seen map[string]bool) error {
+	prefix := fmt.Sprintf("auth.users[%d]", i)
+	if strings.TrimSpace(u.Username) == "" ||
+		strings.TrimSpace(u.Password) == "" ||
+		strings.TrimSpace(u.Role) == "" {
+		return fmt.Errorf("config: %s: %w", prefix, ErrAuthUserIncomplete)
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(u.Role)), "onvif:") {
+		return fmt.Errorf("config: %s.role %q: %w", prefix, u.Role, ErrAuthRoleReserved)
+	}
+	if whitespacePattern.MatchString(u.Role) {
+		return fmt.Errorf("config: %s.role %q: %w", prefix, u.Role, ErrAuthRoleWhitespace)
+	}
+	if seen[u.Username] {
+		return fmt.Errorf("config: %s.username %q: %w", prefix, u.Username, ErrAuthUsernameDuplicate)
+	}
+	seen[u.Username] = true
+	return nil
+}
+
+func validateDigest(d *DigestConfig) error {
+	for _, alg := range d.Algorithms {
+		if !validDigestAlgs[alg] {
+			return fmt.Errorf("config: auth.digest.algorithms %q: %w", alg, ErrAuthDigestAlgorithm)
+		}
+	}
+	if d.NonceTTL != "" {
+		if _, err := time.ParseDuration(d.NonceTTL); err != nil {
+			return fmt.Errorf("config: auth.digest.nonce_ttl %q: %w", d.NonceTTL, ErrAuthDigestNonceTTL)
+		}
+	}
+	return nil
+}
+
+func validateJWT(j *JWTConfig) error {
+	for _, alg := range j.Algorithms {
+		if !validJWTAlgs[alg] {
+			return fmt.Errorf("config: auth.jwt.algorithms %q: %w", alg, ErrAuthJWTAlgorithm)
+		}
+	}
+	if j.ClockSkew != "" {
+		if _, err := time.ParseDuration(j.ClockSkew); err != nil {
+			return fmt.Errorf("config: auth.jwt.clock_skew %q: %w", j.ClockSkew, ErrAuthJWTClockSkew)
+		}
+	}
+	if j.Enabled && j.JWKSURL == "" && len(j.PublicKeyPEM) == 0 {
+		return ErrAuthJWTKeyMaterial
 	}
 	return nil
 }
