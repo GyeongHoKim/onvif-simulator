@@ -35,8 +35,9 @@ func upsertOrFail(t *testing.T, u config.UserConfig) {
 func TestUpdate(t *testing.T) {
 	seed(t)
 
-	err := config.Update(func(c *config.Config) {
+	err := config.Update(func(c *config.Config) error {
 		c.Device.Firmware = "9.9.9"
+		return nil
 	})
 	if err != nil {
 		t.Fatalf("Update: %v", err)
@@ -50,8 +51,9 @@ func TestUpdate(t *testing.T) {
 func TestUpdateRejectsInvalid(t *testing.T) {
 	seed(t)
 
-	err := config.Update(func(c *config.Config) {
+	err := config.Update(func(c *config.Config) error {
 		c.Network.HTTPPort = 0
+		return nil
 	})
 	if !errors.Is(err, config.ErrNetworkPortInvalid) {
 		t.Fatalf("expected ErrNetworkPortInvalid, got %v", err)
