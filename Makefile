@@ -1,8 +1,7 @@
 BINARY := onvif-simulator
 GO     := go
-OS     := $(shell uname -s 2>/dev/null || echo Windows)
 
-ifeq ($(OS), Windows)
+ifeq ($(OS),Windows_NT)
   RM       := rmdir /s /q
   CLI_OUT  := bin/$(BINARY).exe
   GUI_OUT  := build/bin/$(BINARY)-gui.exe
