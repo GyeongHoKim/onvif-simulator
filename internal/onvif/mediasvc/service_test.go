@@ -36,10 +36,10 @@ func (stubProvider) Profiles(context.Context) ([]Profile, error) {
 		VideoEncoder: &VideoEncoderConfiguration{
 			Token: "VEConfig_main", Name: "main", UseCount: 1,
 			Encoding: "H264", Resolution: Resolution{Width: 1920, Height: 1080},
-			Quality:     5,
-			RateControl: VideoRateControl{FrameRateLimit: 30, EncodingInterval: 1, BitrateLimit: 4096},
-			H264:        H264Configuration{GOVLength: 60, H264Profile: "Main"},
-			SessionTout: "PT0S",
+			Quality:        5,
+			RateControl:    VideoRateControl{FrameRateLimit: 30, EncodingInterval: 1, BitrateLimit: 4096},
+			H264:           H264Configuration{GOVLength: 60, H264Profile: "Main"},
+			SessionTimeout: "PT0S",
 		},
 	}}, nil
 }

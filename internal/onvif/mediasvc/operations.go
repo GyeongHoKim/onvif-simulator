@@ -506,7 +506,7 @@ func veConfigToEnvelope(cfg *VideoEncoderConfiguration) videoEncoderConfiguratio
 			EncodingInterval: cfg.RateControl.EncodingInterval,
 			BitrateLimit:     cfg.RateControl.BitrateLimit,
 		},
-		SessionTimeout: cfg.SessionTout,
+		SessionTimeout: cfg.SessionTimeout,
 	}
 	if cfg.Encoding == "H264" {
 		env.H264 = &h264ConfigurationEnvelope{
@@ -519,13 +519,13 @@ func veConfigToEnvelope(cfg *VideoEncoderConfiguration) videoEncoderConfiguratio
 
 func envelopeToVEConfig(env *videoEncoderConfigurationEnvelope) VideoEncoderConfiguration {
 	cfg := VideoEncoderConfiguration{
-		Token:       env.Token,
-		Name:        env.Name,
-		UseCount:    env.UseCount,
-		Encoding:    env.Encoding,
-		Resolution:  Resolution{Width: env.Resolution.Width, Height: env.Resolution.Height},
-		Quality:     env.Quality,
-		SessionTout: env.SessionTimeout,
+		Token:          env.Token,
+		Name:           env.Name,
+		UseCount:       env.UseCount,
+		Encoding:       env.Encoding,
+		Resolution:     Resolution{Width: env.Resolution.Width, Height: env.Resolution.Height},
+		Quality:        env.Quality,
+		SessionTimeout: env.SessionTimeout,
 	}
 	if env.RateControl != nil {
 		cfg.RateControl = VideoRateControl{

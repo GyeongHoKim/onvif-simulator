@@ -60,15 +60,15 @@ type VideoRateControl struct {
 
 // VideoEncoderConfiguration describes the encoder used by a profile.
 type VideoEncoderConfiguration struct {
-	Token       string
-	Name        string
-	UseCount    int
-	Encoding    string // JPEG | H264 | MPEG4
-	Resolution  Resolution
-	Quality     float64
-	RateControl VideoRateControl
-	H264        H264Configuration
-	SessionTout string // ISO 8601 duration (e.g. PT0S)
+	Token          string
+	Name           string
+	UseCount       int
+	Encoding       string // JPEG | H264 | MPEG4
+	Resolution     Resolution
+	Quality        float64
+	RateControl    VideoRateControl
+	H264           H264Configuration
+	SessionTimeout string // ISO 8601 duration (e.g. PT0S)
 }
 
 // Profile is an aggregated ONVIF media profile.
