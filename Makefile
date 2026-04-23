@@ -12,7 +12,7 @@ else
   GUI_OUT  := build/bin/$(BINARY)-gui
 endif
 
-.PHONY: cli gui format lint test e2e clean setup
+.PHONY: cli gui format lint test coverage e2e clean setup
 
 cli:
 	$(GO) build -o $(CLI_OUT) ./cmd/cli
@@ -29,6 +29,10 @@ lint:
 
 test:
 	$(GO) test -race ./internal/...
+
+coverage:
+	$(GO) test ./internal/... -coverprofile=coverage.out -covermode=atomic
+	$(GO) tool cover -func=coverage.out
 
 e2e:
 	ONVIF_HOST=$(or $(ONVIF_HOST),localhost:8080) \
