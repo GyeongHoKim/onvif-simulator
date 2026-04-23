@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -47,6 +48,36 @@ func (stubProvider) GetCapabilities(context.Context, string) (CapabilitySet, err
 
 func (stubProvider) WsdlURL(context.Context) (string, error) {
 	return "http://www.onvif.org/ver10/device/wsdl/devicemgmt.wsdl", nil
+}
+
+var errProviderBoom = errors.New("provider boom")
+
+type errProvider struct{}
+
+func (errProvider) DeviceInfo(context.Context) (DeviceInfo, error) {
+	return DeviceInfo{}, errProviderBoom
+}
+
+func (errProvider) Services(context.Context, bool) ([]ServiceDescriptor, error) {
+	return nil, errProviderBoom
+}
+
+func (errProvider) GetServiceCapabilities(context.Context) (DeviceServiceCapabilities, error) {
+	return DeviceServiceCapabilities{}, errProviderBoom
+}
+
+func (errProvider) GetCapabilities(context.Context, string) (CapabilitySet, error) {
+	return CapabilitySet{}, errProviderBoom
+}
+
+func (errProvider) WsdlURL(context.Context) (string, error) {
+	return "", errProviderBoom
+}
+
+type emptyServicesProvider struct{ stubProvider }
+
+func (emptyServicesProvider) Services(context.Context, bool) ([]ServiceDescriptor, error) {
+	return nil, nil
 }
 
 func TestServeHTTP_GetCapabilities(t *testing.T) {
@@ -145,6 +176,201 @@ func TestServeHTTP_AuthHook(t *testing.T) {
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestServeHTTP_MethodNotAllowed(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, DeviceServicePath, nil)
+	rec := httptest.NewRecorder()
+
+	svc.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestServeHTTP_InvalidEnvelopeFault(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString("not an xml envelope"))
+	rec := httptest.NewRecorder()
+
+	svc.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if !strings.Contains(rec.Body.String(), "env:Sender") {
+		t.Fatalf("body missing Sender fault code: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_EmptyBodyFault(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	envelope := `<?xml version="1.0" encoding="UTF-8"?>` +
+		`<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope">` +
+		`<env:Body></env:Body></env:Envelope>`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(envelope))
+	rec := httptest.NewRecorder()
+
+	svc.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if !strings.Contains(rec.Body.String(), "empty soap body") {
+		t.Fatalf("body missing empty body reason: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_GetServiceCapabilities(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetServiceCapabilities", "")))
+	rec := httptest.NewRecorder()
+
+	svc.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "<GetServiceCapabilitiesResponse") {
+		t.Fatalf("body missing GetServiceCapabilitiesResponse: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `HttpDigest="true"`) {
+		t.Fatalf("body missing HttpDigest attr: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_GetWsdlUrl(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetWsdlUrl", "")))
+	rec := httptest.NewRecorder()
+
+	svc.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "<WsdlUrl>http://www.onvif.org/ver10/device/wsdl/devicemgmt.wsdl</WsdlUrl>") {
+		t.Fatalf("body missing wsdl url: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_ProviderErrors(t *testing.T) {
+	cases := []struct {
+		op    string
+		inner string
+	}{
+		{"GetDeviceInformation", ""},
+		{"GetServices", "<IncludeCapability>false</IncludeCapability>"},
+		{"GetServiceCapabilities", ""},
+		{"GetCapabilities", "<Category>All</Category>"},
+		{"GetWsdlUrl", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.op, func(t *testing.T) {
+			svc := NewHandler(errProvider{})
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(tc.op, tc.inner)))
+			rec := httptest.NewRecorder()
+
+			svc.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusInternalServerError {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+			}
+			if !strings.Contains(rec.Body.String(), "env:Receiver") {
+				t.Fatalf("body missing Receiver fault code: %s", rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), errProviderBoom.Error()) {
+				t.Fatalf("body missing provider error reason: %s", rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestServeHTTP_GetServicesNoServices(t *testing.T) {
+	svc := NewHandler(emptyServicesProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetServices", "<IncludeCapability>false</IncludeCapability>")))
+	rec := httptest.NewRecorder()
+
+	svc.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+	if !strings.Contains(rec.Body.String(), "no services available") {
+		t.Fatalf("body missing no services reason: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_GetServicesInvalidPayload(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetServices", "<IncludeCapability>notabool</IncludeCapability>")))
+	rec := httptest.NewRecorder()
+
+	svc.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+	if !strings.Contains(rec.Body.String(), "decode GetServices") {
+		t.Fatalf("body missing decode error: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_AuthHookPreservesBody(t *testing.T) {
+	var seen []byte
+	svc := NewHandler(stubProvider{}, WithAuthHook(AuthFunc(func(_ context.Context, _ string, r *http.Request) error {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			return err
+		}
+		seen = body
+		return nil
+	})))
+	envelope := soapRequest("GetWsdlUrl", "")
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(envelope))
+	rec := httptest.NewRecorder()
+
+	svc.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if string(seen) != envelope {
+		t.Fatalf("auth hook saw %q, want %q", string(seen), envelope)
+	}
+}
+
+func TestParseOperation_Errors(t *testing.T) {
+	t.Run("malformed xml", func(t *testing.T) {
+		if _, _, err := parseOperation([]byte("not xml")); err == nil {
+			t.Fatal("expected error for malformed xml")
+		}
+	})
+	t.Run("empty body", func(t *testing.T) {
+		env := `<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope"><env:Body></env:Body></env:Envelope>`
+		_, _, err := parseOperation([]byte(env))
+		if !errors.Is(err, errEmptySOAPBody) {
+			t.Fatalf("err = %v, want errEmptySOAPBody", err)
+		}
+	})
+}
+
+func TestNewHandler_NilProviderPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic on nil provider")
+		}
+	}()
+	NewHandler(nil)
+}
+
+func TestWithAuthHook_NilHookIgnored(t *testing.T) {
+	svc := NewHandler(stubProvider{}, WithAuthHook(nil))
+	if svc.auth == nil {
+		t.Fatal("auth must remain non-nil when WithAuthHook receives nil")
 	}
 }
 
