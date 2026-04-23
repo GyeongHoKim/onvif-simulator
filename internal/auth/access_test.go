@@ -67,3 +67,21 @@ func TestDeviceOperationClass(t *testing.T) {
 		t.Fatal("unknown op must default to WRITE_SYSTEM")
 	}
 }
+
+func TestMediaOperationClass(t *testing.T) {
+	t.Parallel()
+	if auth.MediaOperationClass("GetServiceCapabilities") != auth.ClassPreAuth {
+		t.Fatal("GetServiceCapabilities must be PreAuth")
+	}
+	if auth.MediaOperationClass("GetProfiles") != auth.ClassReadMedia {
+		t.Fatal("GetProfiles must be ReadMedia")
+	}
+	if auth.MediaOperationClass("CreateProfile") != auth.ClassActuate {
+		t.Fatal("CreateProfile must be Actuate")
+	}
+	// Pipeline-controlling ops are intentionally unclassified and must
+	// fall through to the admin-only default.
+	if auth.MediaOperationClass("StartMulticastStreaming") != auth.ClassWriteSystem {
+		t.Fatal("unclassified media op must default to WRITE_SYSTEM")
+	}
+}

@@ -379,3 +379,137 @@ func TestNewHandlerPanicsOnNilProvider(t *testing.T) {
 	}()
 	NewHandler(nil)
 }
+
+// TestServeHTTP_DispatchHappyPath hits every in-scope operation with a
+// minimal valid body and asserts the handler returns 200 + the expected
+// response element. This covers the dispatch branches that the focused
+// tests above don't touch (Delete, VideoSource/VideoEncoder CRUD,
+// Compatible/Options, Add/Remove).
+func TestServeHTTP_DispatchHappyPath(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+
+	vsConfigInner := `<Configuration token="VSConfig_main">` +
+		`<tt:Name xmlns:tt="http://www.onvif.org/ver10/schema">main</tt:Name>` +
+		`<tt:UseCount xmlns:tt="http://www.onvif.org/ver10/schema">1</tt:UseCount>` +
+		`<tt:SourceToken xmlns:tt="http://www.onvif.org/ver10/schema">VS_MAIN</tt:SourceToken>` +
+		`<tt:Bounds xmlns:tt="http://www.onvif.org/ver10/schema" x="0" y="0" width="1920" height="1080"/>` +
+		`</Configuration>`
+	veConfigInner := `<Configuration token="VEConfig_main">` +
+		`<tt:Name xmlns:tt="http://www.onvif.org/ver10/schema">main</tt:Name>` +
+		`<tt:UseCount xmlns:tt="http://www.onvif.org/ver10/schema">1</tt:UseCount>` +
+		`<tt:Encoding xmlns:tt="http://www.onvif.org/ver10/schema">H264</tt:Encoding>` +
+		`<tt:Resolution xmlns:tt="http://www.onvif.org/ver10/schema">` +
+		`<tt:Width>1920</tt:Width><tt:Height>1080</tt:Height></tt:Resolution>` +
+		`<tt:Quality xmlns:tt="http://www.onvif.org/ver10/schema">5</tt:Quality>` +
+		`<tt:RateControl xmlns:tt="http://www.onvif.org/ver10/schema">` +
+		`<tt:FrameRateLimit>30</tt:FrameRateLimit>` +
+		`<tt:EncodingInterval>1</tt:EncodingInterval>` +
+		`<tt:BitrateLimit>4096</tt:BitrateLimit></tt:RateControl>` +
+		`<tt:H264 xmlns:tt="http://www.onvif.org/ver10/schema">` +
+		`<tt:GovLength>60</tt:GovLength><tt:H264Profile>Main</tt:H264Profile></tt:H264>` +
+		`</Configuration>`
+
+	cases := []struct {
+		op       string
+		inner    string
+		respElem string
+	}{
+		{"DeleteProfile", "<ProfileToken>profile_main</ProfileToken>", "DeleteProfileResponse"},
+		{"CreateProfile", "<Name>sub</Name><Token>profile_sub</Token>", "CreateProfileResponse"},
+		{"GetVideoSources", "", "GetVideoSourcesResponse"},
+		{"GetVideoSourceConfigurations", "", "GetVideoSourceConfigurationsResponse"},
+		{"GetVideoSourceConfiguration",
+			"<ConfigurationToken>VSConfig_main</ConfigurationToken>",
+			"GetVideoSourceConfigurationResponse"},
+		{"SetVideoSourceConfiguration", vsConfigInner, "SetVideoSourceConfigurationResponse"},
+		{"AddVideoSourceConfiguration",
+			"<ProfileToken>profile_main</ProfileToken><ConfigurationToken>VSConfig_main</ConfigurationToken>",
+			"AddVideoSourceConfigurationResponse"},
+		{"RemoveVideoSourceConfiguration",
+			"<ProfileToken>profile_main</ProfileToken>",
+			"RemoveVideoSourceConfigurationResponse"},
+		{"GetCompatibleVideoSourceConfigurations",
+			"<ProfileToken>profile_main</ProfileToken>",
+			"GetCompatibleVideoSourceConfigurationsResponse"},
+		{"GetVideoSourceConfigurationOptions",
+			"<ConfigurationToken>VSConfig_main</ConfigurationToken><ProfileToken>profile_main</ProfileToken>",
+			"GetVideoSourceConfigurationOptionsResponse"},
+		{"GetVideoEncoderConfigurations", "", "GetVideoEncoderConfigurationsResponse"},
+		{"GetVideoEncoderConfiguration",
+			"<ConfigurationToken>VEConfig_main</ConfigurationToken>",
+			"GetVideoEncoderConfigurationResponse"},
+		{"SetVideoEncoderConfiguration", veConfigInner, "SetVideoEncoderConfigurationResponse"},
+		{"AddVideoEncoderConfiguration",
+			"<ProfileToken>profile_main</ProfileToken><ConfigurationToken>VEConfig_main</ConfigurationToken>",
+			"AddVideoEncoderConfigurationResponse"},
+		{"RemoveVideoEncoderConfiguration",
+			"<ProfileToken>profile_main</ProfileToken>",
+			"RemoveVideoEncoderConfigurationResponse"},
+		{"GetCompatibleVideoEncoderConfigurations",
+			"<ProfileToken>profile_main</ProfileToken>",
+			"GetCompatibleVideoEncoderConfigurationsResponse"},
+		{"GetVideoEncoderConfigurationOptions",
+			"<ConfigurationToken>VEConfig_main</ConfigurationToken><ProfileToken>profile_main</ProfileToken>",
+			"GetVideoEncoderConfigurationOptionsResponse"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.op, func(t *testing.T) {
+			rec := doRequest(t, svc, tc.op, tc.inner)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "<"+tc.respElem) {
+				t.Fatalf("response missing %s element: %s", tc.respElem, rec.Body.String())
+			}
+		})
+	}
+}
+
+// TestServeHTTP_DecodeErrorPaths covers the errDecodePayload branch in
+// every handler that unmarshals a typed request struct.
+func TestServeHTTP_DecodeErrorPaths(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	malformed := "<ProfileToken><bad></ProfileToken>"
+
+	ops := []string{
+		"GetProfile", "CreateProfile", "DeleteProfile",
+		"GetVideoSourceConfiguration", "SetVideoSourceConfiguration",
+		"AddVideoSourceConfiguration", "RemoveVideoSourceConfiguration",
+		"GetCompatibleVideoSourceConfigurations", "GetVideoSourceConfigurationOptions",
+		"GetVideoEncoderConfiguration", "SetVideoEncoderConfiguration",
+		"AddVideoEncoderConfiguration", "RemoveVideoEncoderConfiguration",
+		"GetCompatibleVideoEncoderConfigurations", "GetVideoEncoderConfigurationOptions",
+		"GetStreamUri", "GetSnapshotUri",
+	}
+	for _, op := range ops {
+		t.Run(op, func(t *testing.T) {
+			rec := doRequest(t, svc, op, malformed)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "env:Sender") {
+				t.Fatalf("body missing Sender fault: %s", rec.Body.String())
+			}
+		})
+	}
+}
+
+// TestServeHTTP_NoSnapshotURI verifies that a profile without a snapshot
+// URI surfaces ErrNoSnapshot as HTTP 400 + Sender fault.
+func TestServeHTTP_NoSnapshotURI(t *testing.T) {
+	svc := NewHandler(noSnapshotProvider{})
+	rec := doRequest(t, svc, "GetSnapshotUri", "<ProfileToken>profile_main</ProfileToken>")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "snapshot uri not available") {
+		t.Fatalf("body missing ErrNoSnapshot reason: %s", rec.Body.String())
+	}
+}
+
+type noSnapshotProvider struct{ stubProvider }
+
+func (noSnapshotProvider) SnapshotURI(context.Context, string) (MediaURI, error) {
+	return MediaURI{}, ErrNoSnapshot
+}

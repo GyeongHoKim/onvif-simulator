@@ -251,3 +251,32 @@ func TestSetProfileEncoder(t *testing.T) {
 		t.Fatalf("encoder not persisted: %+v", got)
 	}
 }
+
+func TestSetProfileVideoSourceToken(t *testing.T) {
+	seed(t)
+
+	if err := config.SetProfileVideoSourceToken("profile_main", "VS_ALT"); err != nil {
+		t.Fatalf("SetProfileVideoSourceToken: %v", err)
+	}
+	got := loadOrFail(t)
+	if got.Media.Profiles[0].VideoSourceToken != "VS_ALT" {
+		t.Fatalf("video source token not persisted: %q", got.Media.Profiles[0].VideoSourceToken)
+	}
+	if err := config.SetProfileVideoSourceToken("ghost", "VS_X"); !errors.Is(err, config.ErrProfileNotFound) {
+		t.Fatalf("expected ErrProfileNotFound, got %v", err)
+	}
+}
+
+func TestAddProfileRejectsInvalid(t *testing.T) {
+	seed(t)
+
+	// Missing name/token + invalid encoding → Update rolls back, validation error surfaced.
+	err := config.AddProfile(config.ProfileConfig{Token: "bad"})
+	if err == nil {
+		t.Fatal("expected validation error, got nil")
+	}
+	got := loadOrFail(t)
+	if len(got.Media.Profiles) != 1 {
+		t.Fatalf("disk mutated on invalid AddProfile: %d profiles", len(got.Media.Profiles))
+	}
+}

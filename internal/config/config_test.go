@@ -180,6 +180,62 @@ func TestValidateRejects(t *testing.T) {
 	}
 }
 
+// TestValidateRejectsProfileExtras exercises the optional-field validation
+// branches added for the Media service pass-through fields.
+func TestValidateRejectsProfileExtras(t *testing.T) {
+	t.Parallel()
+
+	base := func() config.ProfileConfig {
+		return config.ProfileConfig{
+			Name: "main", Token: "t", RTSP: "rtsp://127.0.0.1:8554/main",
+			Encoding: "H264", Width: 1920, Height: 1080, FPS: 30,
+		}
+	}
+
+	cases := []struct {
+		name   string
+		mutate func(*config.ProfileConfig)
+	}{
+		{"bitrate negative", func(p *config.ProfileConfig) { p.Bitrate = -1 }},
+		{"gop length negative", func(p *config.ProfileConfig) { p.GOPLength = -1 }},
+		{"snapshot uri malformed", func(p *config.ProfileConfig) { p.SnapshotURI = "://not-a-url" }},
+		{"snapshot uri wrong scheme", func(p *config.ProfileConfig) { p.SnapshotURI = "ftp://host/snap.jpg" }},
+		{"snapshot uri no host", func(p *config.ProfileConfig) { p.SnapshotURI = "http:///snap.jpg" }},
+		{"video source token with space", func(p *config.ProfileConfig) { p.VideoSourceToken = "bad token" }},
+		{"video source token whitespace only", func(p *config.ProfileConfig) { p.VideoSourceToken = "   " }},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := validConfig
+			p := base()
+			tc.mutate(&p)
+			c.Media.Profiles = []config.ProfileConfig{p}
+			if err := config.Validate(&c); err == nil {
+				t.Fatalf("%s: expected validation error, got nil", tc.name)
+			}
+		})
+	}
+}
+
+// TestValidateAcceptsProfileExtras makes sure the happy-path values for
+// the new optional fields pass validation.
+func TestValidateAcceptsProfileExtras(t *testing.T) {
+	t.Parallel()
+	c := validConfig
+	c.Media.Profiles = []config.ProfileConfig{{
+		Name: "main", Token: "t", RTSP: "rtsp://127.0.0.1:8554/main",
+		Encoding: "H264", Width: 1920, Height: 1080, FPS: 30,
+		Bitrate: 4096, GOPLength: 60,
+		SnapshotURI:      "https://host/snap.jpg",
+		VideoSourceToken: "VS_MAIN",
+	}}
+	if err := config.Validate(&c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestLoadSaveRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
