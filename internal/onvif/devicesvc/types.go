@@ -228,7 +228,7 @@ type Provider interface {
 	DeviceInfo(ctx context.Context) (DeviceInfo, error)
 
 	// Services returns the list of ONVIF service endpoints.
-	// includeCapability=true populates ServiceDescriptor.Capability.
+	// includeCapability=true requests capability details for each service endpoint.
 	// Maps to GetServices.
 	Services(ctx context.Context, includeCapability bool) ([]ServiceDescriptor, error)
 
