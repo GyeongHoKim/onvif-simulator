@@ -247,6 +247,78 @@ func doRequest(t *testing.T, h *Handler, op, inner string) *httptest.ResponseRec
 	return rec
 }
 
+func soapBodyInnerXML(t *testing.T, body []byte) []byte {
+	t.Helper()
+
+	var env struct {
+		Body struct {
+			Inner []byte `xml:",innerxml"`
+		} `xml:"Body"`
+	}
+	if err := xml.Unmarshal(body, &env); err != nil {
+		t.Fatalf("unmarshal response envelope: %v", err)
+	}
+	if len(env.Body.Inner) == 0 {
+		t.Fatal("response envelope body must not be empty")
+	}
+	return env.Body.Inner
+}
+
+func soapBodyRootName(t *testing.T, body []byte) xml.Name {
+	t.Helper()
+
+	decoder := xml.NewDecoder(bytes.NewReader(soapBodyInnerXML(t, body)))
+	for {
+		tok, err := decoder.Token()
+		if err != nil {
+			t.Fatalf("read response body token: %v", err)
+		}
+		if start, ok := tok.(xml.StartElement); ok {
+			return start.Name
+		}
+	}
+}
+
+func unmarshalSOAPBody(t *testing.T, body []byte, v any) {
+	t.Helper()
+	if err := xml.Unmarshal(soapBodyInnerXML(t, body), v); err != nil {
+		t.Fatalf("unmarshal soap body: %v", err)
+	}
+}
+
+type serviceCapabilitiesResponseView struct {
+	XMLName      xml.Name `xml:"GetServiceCapabilitiesResponse"`
+	Capabilities struct {
+		SnapshotURI         bool `xml:"SnapshotUri,attr"`
+		ProfileCapabilities struct {
+			MaximumNumberOfProfiles int `xml:"MaximumNumberOfProfiles,attr"`
+		} `xml:"ProfileCapabilities"`
+	} `xml:"Capabilities"`
+}
+
+type profilesResponseView struct {
+	XMLName  xml.Name `xml:"GetProfilesResponse"`
+	Profiles []struct {
+		Token                     string `xml:"token,attr"`
+		VideoEncoderConfiguration *struct {
+			Encoding string `xml:"Encoding"`
+		} `xml:"VideoEncoderConfiguration"`
+	} `xml:"Profiles"`
+}
+
+type profileResponseView struct {
+	XMLName xml.Name `xml:"GetProfileResponse"`
+	Profile struct {
+		Token string `xml:"token,attr"`
+	} `xml:"Profile"`
+}
+
+type mediaURIResponseView struct {
+	MediaURI struct {
+		URI string `xml:"Uri"`
+	} `xml:"MediaUri"`
+}
+
 // ---------- tests ----------
 
 func TestServeHTTP_GetServiceCapabilities(t *testing.T) {
@@ -255,15 +327,17 @@ func TestServeHTTP_GetServiceCapabilities(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	body := rec.Body.String()
-	if !strings.Contains(body, "<GetServiceCapabilitiesResponse") {
-		t.Fatalf("body missing GetServiceCapabilitiesResponse: %s", body)
+
+	var resp serviceCapabilitiesResponseView
+	unmarshalSOAPBody(t, rec.Body.Bytes(), &resp)
+	if resp.Capabilities.SnapshotURI != true {
+		t.Fatalf("SnapshotUri = %t, want true", resp.Capabilities.SnapshotURI)
 	}
-	if !strings.Contains(body, `SnapshotUri="true"`) {
-		t.Fatalf("body missing SnapshotUri attr: %s", body)
-	}
-	if !strings.Contains(body, `MaximumNumberOfProfiles="2"`) {
-		t.Fatalf("body missing MaximumNumberOfProfiles attr: %s", body)
+	if resp.Capabilities.ProfileCapabilities.MaximumNumberOfProfiles != 2 {
+		t.Fatalf(
+			"MaximumNumberOfProfiles = %d, want 2",
+			resp.Capabilities.ProfileCapabilities.MaximumNumberOfProfiles,
+		)
 	}
 }
 
@@ -273,12 +347,22 @@ func TestServeHTTP_GetProfiles(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	body := rec.Body.String()
-	if !strings.Contains(body, `token="profile_main"`) {
-		t.Fatalf("body missing profile token attr: %s", body)
+	var resp profilesResponseView
+	unmarshalSOAPBody(t, rec.Body.Bytes(), &resp)
+	if len(resp.Profiles) != 1 {
+		t.Fatalf("profiles len = %d, want 1", len(resp.Profiles))
 	}
-	if !strings.Contains(body, "<tt:Encoding>H264</tt:Encoding>") {
-		t.Fatalf("body missing encoder encoding: %s", body)
+	if resp.Profiles[0].Token != "profile_main" {
+		t.Fatalf("profile token = %q, want profile_main", resp.Profiles[0].Token)
+	}
+	if resp.Profiles[0].VideoEncoderConfiguration == nil {
+		t.Fatal("VideoEncoderConfiguration must be present")
+	}
+	if resp.Profiles[0].VideoEncoderConfiguration.Encoding != "H264" {
+		t.Fatalf(
+			"encoder encoding = %q, want H264",
+			resp.Profiles[0].VideoEncoderConfiguration.Encoding,
+		)
 	}
 }
 
@@ -288,8 +372,10 @@ func TestServeHTTP_GetProfile(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	if !strings.Contains(rec.Body.String(), `token="profile_main"`) {
-		t.Fatalf("profile token missing: %s", rec.Body.String())
+	var resp profileResponseView
+	unmarshalSOAPBody(t, rec.Body.Bytes(), &resp)
+	if resp.Profile.Token != "profile_main" {
+		t.Fatalf("profile token = %q, want profile_main", resp.Profile.Token)
 	}
 }
 
@@ -312,8 +398,10 @@ func TestServeHTTP_GetStreamUri(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	if !strings.Contains(rec.Body.String(), "<tt:Uri>rtsp://127.0.0.1:8554/main</tt:Uri>") {
-		t.Fatalf("body missing pass-through URI: %s", rec.Body.String())
+	var resp mediaURIResponseView
+	unmarshalSOAPBody(t, rec.Body.Bytes(), &resp)
+	if resp.MediaURI.URI != "rtsp://127.0.0.1:8554/main" {
+		t.Fatalf("MediaUri.Uri = %q, want rtsp://127.0.0.1:8554/main", resp.MediaURI.URI)
 	}
 }
 
@@ -323,8 +411,13 @@ func TestServeHTTP_GetSnapshotUri(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	if !strings.Contains(rec.Body.String(), "<tt:Uri>http://127.0.0.1:8080/snapshot/main.jpg</tt:Uri>") {
-		t.Fatalf("body missing snapshot URI: %s", rec.Body.String())
+	var resp mediaURIResponseView
+	unmarshalSOAPBody(t, rec.Body.Bytes(), &resp)
+	if resp.MediaURI.URI != "http://127.0.0.1:8080/snapshot/main.jpg" {
+		t.Fatalf(
+			"MediaUri.Uri = %q, want http://127.0.0.1:8080/snapshot/main.jpg",
+			resp.MediaURI.URI,
+		)
 	}
 }
 
@@ -421,19 +514,13 @@ func TestParseOperation_RejectsUnexpectedNamespace(t *testing.T) {
 }
 
 func TestResponseEnvelopeValid(t *testing.T) {
-	// Sanity: response body must unmarshal as a soap envelope with a non-empty Body.
+	// Sanity: response body must unmarshal as a soap envelope and contain
+	// the expected response element in the Body.
 	svc := NewHandler(stubProvider{})
 	rec := doRequest(t, svc, "GetProfiles", "")
-	var env struct {
-		Body struct {
-			Inner []byte `xml:",innerxml"`
-		} `xml:"Body"`
-	}
-	if err := xml.Unmarshal(rec.Body.Bytes(), &env); err != nil {
-		t.Fatalf("unmarshal response envelope: %v", err)
-	}
-	if !bytes.Contains(env.Body.Inner, []byte("GetProfilesResponse")) {
-		t.Fatalf("envelope body missing response element: %s", string(env.Body.Inner))
+	root := soapBodyRootName(t, rec.Body.Bytes())
+	if root.Local != "GetProfilesResponse" {
+		t.Fatalf("body root = %q, want GetProfilesResponse", root.Local)
 	}
 }
 
@@ -532,8 +619,9 @@ func TestServeHTTP_DispatchHappyPath(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 			}
-			if !strings.Contains(rec.Body.String(), "<"+tc.respElem) {
-				t.Fatalf("response missing %s element: %s", tc.respElem, rec.Body.String())
+			root := soapBodyRootName(t, rec.Body.Bytes())
+			if root.Local != tc.respElem {
+				t.Fatalf("response root = %q, want %s", root.Local, tc.respElem)
 			}
 		})
 	}
