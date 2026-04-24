@@ -238,6 +238,100 @@ func TestParseSubscriptionManagerOperation_RejectsOtherNamespace(t *testing.T) {
 	}
 }
 
+// ---------- missing subscription ID ----------------------------------------------
+
+func TestSubscriptionManager_MissingSubscriptionID(t *testing.T) {
+	h := NewSubscriptionManagerHandler(testStubProvider{})
+	body := soapRequestSubEvents("PullMessages", "")
+	rec := doSubRequest(t, h, body, "")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Sender") {
+		t.Fatalf("expected Sender fault: %s", rec.Body.String())
+	}
+}
+
+// ---------- provider error paths -------------------------------------------------
+
+func TestSubscriptionManager_ProviderError_SetSynchronizationPoint(t *testing.T) {
+	h := NewSubscriptionManagerHandler(testErrProvider{})
+	body := soapRequestSubEvents("SetSynchronizationPoint", "")
+	rec := doSubRequest(t, h, body, "sub-001")
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d want 500; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Receiver") {
+		t.Fatalf("expected Receiver fault: %s", rec.Body.String())
+	}
+}
+
+func TestSubscriptionManager_ProviderError_Unsubscribe(t *testing.T) {
+	h := NewSubscriptionManagerHandler(testErrProvider{})
+	body := soapRequestWSN("Unsubscribe", "")
+	rec := doSubRequest(t, h, body, "sub-001")
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d want 500; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Receiver") {
+		t.Fatalf("expected Receiver fault: %s", rec.Body.String())
+	}
+}
+
+func TestSubscriptionManager_ProviderError_Renew(t *testing.T) {
+	h := NewSubscriptionManagerHandler(testErrProvider{})
+	body := soapRequestWSN("Renew", `<wsnt:TerminationTime>PT1H</wsnt:TerminationTime>`)
+	rec := doSubRequest(t, h, body, "sub-001")
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d want 500; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Receiver") {
+		t.Fatalf("expected Receiver fault: %s", rec.Body.String())
+	}
+}
+
+// ---------- PullMessages validation ----------------------------------------------
+
+func TestSubscriptionManager_PullMessages_NegativeMessageLimit(t *testing.T) {
+	h := NewSubscriptionManagerHandler(testStubProvider{})
+	body := soapRequestSubEvents("PullMessages", `<tev:MessageLimit>-1</tev:MessageLimit>`)
+	rec := doSubRequest(t, h, body, "sub-001")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Sender") {
+		t.Fatalf("expected Sender fault: %s", rec.Body.String())
+	}
+}
+
+// ---------- parseSubscriptionManagerOperation edge cases -------------------------
+
+func TestParseSubscriptionManagerOperation_EmptyBody(t *testing.T) {
+	cases := []struct {
+		name string
+		xml  string
+	}{
+		{
+			name: "self-closing body",
+			xml: `<?xml version="1.0"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">` +
+				`<s:Body></s:Body></s:Envelope>`,
+		},
+		{
+			name: "whitespace-only body",
+			xml: `<?xml version="1.0"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">` +
+				`<s:Body>  </s:Body></s:Envelope>`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := parseSubscriptionManagerOperation([]byte(tc.xml))
+			if err == nil {
+				t.Fatal("expected error for empty SOAP body, got nil")
+			}
+		})
+	}
+}
+
 // ---------- helper providers for specific error paths ----------------------------
 
 type notFoundProvider struct{ testStubProvider }
