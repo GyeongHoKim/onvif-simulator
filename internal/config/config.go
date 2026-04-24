@@ -27,6 +27,8 @@ type Config struct {
 	Network NetworkConfig `json:"network"`
 	Media   MediaConfig   `json:"media"`
 	Auth    AuthConfig    `json:"auth,omitempty"`
+	Events  EventsConfig  `json:"events,omitempty"`
+	Runtime RuntimeConfig `json:"runtime,omitempty"`
 }
 
 // DeviceConfig describes who this device is.
@@ -44,6 +46,76 @@ type NetworkConfig struct {
 	HTTPPort  int      `json:"http_port"`
 	Interface string   `json:"interface,omitempty"`
 	XAddrs    []string `json:"xaddrs,omitempty"`
+}
+
+// RuntimeConfig holds simulator state that the Device Service exposes via
+// Get/Set operations (discovery mode, hostname, DNS, gateway, protocols,
+// system date/time). These fields are read and written at runtime through the
+// ONVIF Device Management operations; they are persisted so that the simulator
+// survives restarts with the last applied values.
+type RuntimeConfig struct {
+	DiscoveryMode     string               `json:"discovery_mode,omitempty"`
+	Hostname          string               `json:"hostname,omitempty"`
+	DNS               DNSConfig            `json:"dns,omitempty"`
+	DefaultGateway    DefaultGatewayConfig `json:"default_gateway,omitempty"`
+	NetworkProtocols  []NetworkProtocol    `json:"network_protocols,omitempty"`
+	SystemDateAndTime SystemDateTimeConfig `json:"system_date_and_time,omitempty"`
+}
+
+// DNSConfig mirrors the ONVIF DNSInformation type.
+type DNSConfig struct {
+	FromDHCP     bool     `json:"from_dhcp,omitempty"`
+	SearchDomain []string `json:"search_domain,omitempty"`
+	// DNSManual holds manually configured DNS server addresses.
+	DNSManual []string `json:"dns_manual,omitempty"`
+}
+
+// DefaultGatewayConfig mirrors the ONVIF NetworkGateway type.
+type DefaultGatewayConfig struct {
+	IPv4Address []string `json:"ipv4_address,omitempty"`
+	IPv6Address []string `json:"ipv6_address,omitempty"`
+}
+
+// NetworkProtocol mirrors the ONVIF NetworkProtocol type.
+type NetworkProtocol struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	Port    []int  `json:"port,omitempty"`
+}
+
+// SystemDateTimeConfig mirrors the ONVIF SystemDateTime type.
+type SystemDateTimeConfig struct {
+	// DateTimeType is "Manual" or "NTP".
+	DateTimeType    string `json:"date_time_type,omitempty"`
+	DaylightSavings bool   `json:"daylight_savings,omitempty"`
+	// TZ is the POSIX timezone string, e.g. "UTC" or "KST-9".
+	TZ string `json:"tz,omitempty"`
+}
+
+// EventsConfig configures the Event Service and the set of topics the
+// simulator advertises.
+type EventsConfig struct {
+	// MaxPullPoints is the maximum number of concurrent pull-point
+	// subscriptions. 0 means no limit is advertised (defaults to 10).
+	MaxPullPoints int `json:"max_pull_points,omitempty"`
+	// SubscriptionTimeout is the default ISO 8601 duration used when a
+	// CreatePullPointSubscription request omits InitialTerminationTime.
+	// Example: "PT1H". Defaults to "PT1H" if empty.
+	SubscriptionTimeout string `json:"subscription_timeout,omitempty"`
+	// Topics declares which ONVIF event topics the simulator supports.
+	// Each entry controls whether the topic appears in GetEventProperties
+	// and can be triggered via the EventBroker.Publish API.
+	Topics []TopicConfig `json:"topics,omitempty"`
+}
+
+// TopicConfig describes one ONVIF event topic the simulator advertises.
+type TopicConfig struct {
+	// Name is the tns1: topic expression, e.g.
+	// "tns1:VideoSource/MotionAlarm".
+	Name string `json:"name"`
+	// Enabled controls whether the topic appears in GetEventProperties and
+	// whether EventBroker.Publish accepts it.
+	Enabled bool `json:"enabled"`
 }
 
 // MediaConfig holds the list of ONVIF media profiles this device advertises.
@@ -161,6 +233,21 @@ var (
 	ErrAuthJWTClockSkew = errors.New("config: auth.jwt.clock_skew must be a Go duration (e.g. 30s)")
 	// ErrAuthJWTKeyMaterial means jwt is enabled but no JWKS URL or PEM key was configured.
 	ErrAuthJWTKeyMaterial = errors.New("config: auth.jwt requires jwks_url or public_key_pem when enabled")
+
+	// ErrDiscoveryModeInvalid means runtime.discovery_mode is not a supported value.
+	ErrDiscoveryModeInvalid = errors.New("config: runtime.discovery_mode must be Discoverable or NonDiscoverable")
+
+	// ErrNetworkProtocolNameEmpty means a network protocol entry has an empty name.
+	ErrNetworkProtocolNameEmpty = errors.New("config: runtime.network_protocols entry requires a non-empty name")
+
+	// ErrEventsSubscriptionTimeoutInvalid means events.subscription_timeout is not a valid ISO 8601 duration.
+	ErrEventsSubscriptionTimeoutInvalid = errors.New("config: events.subscription_timeout must be a Go duration (e.g. 1h)")
+
+	// ErrEventsTopicNameEmpty means a topic entry has an empty name.
+	ErrEventsTopicNameEmpty = errors.New("config: events.topics entry requires a non-empty name")
+
+	// ErrEventsTopicNameDuplicate means two topic entries share the same name.
+	ErrEventsTopicNameDuplicate = errors.New("config: events.topics name must be unique")
 )
 
 var (
@@ -221,7 +308,13 @@ func Validate(c *Config) error {
 	if err := validateMedia(&c.Media); err != nil {
 		return err
 	}
-	return validateAuth(&c.Auth)
+	if err := validateAuth(&c.Auth); err != nil {
+		return err
+	}
+	if err := validateRuntime(&c.Runtime); err != nil {
+		return err
+	}
+	return validateEvents(&c.Events)
 }
 
 func validateDevice(d *DeviceConfig) error {
@@ -459,6 +552,43 @@ func validateRTSPURI(field, raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "rtsp" || u.Host == "" {
 		return fmt.Errorf("config: %s: %w", field, errProfileRTSPInvalid)
+	}
+	return nil
+}
+
+var validDiscoveryModes = map[string]bool{
+	"Discoverable":    true,
+	"NonDiscoverable": true,
+}
+
+func validateRuntime(r *RuntimeConfig) error {
+	if r.DiscoveryMode != "" && !validDiscoveryModes[r.DiscoveryMode] {
+		return fmt.Errorf("config: runtime.discovery_mode %q: %w", r.DiscoveryMode, ErrDiscoveryModeInvalid)
+	}
+	for i, p := range r.NetworkProtocols {
+		if strings.TrimSpace(p.Name) == "" {
+			return fmt.Errorf("config: runtime.network_protocols[%d]: %w", i, ErrNetworkProtocolNameEmpty)
+		}
+	}
+	return nil
+}
+
+func validateEvents(e *EventsConfig) error {
+	if e.SubscriptionTimeout != "" {
+		if _, err := time.ParseDuration(e.SubscriptionTimeout); err != nil {
+			return fmt.Errorf("config: events.subscription_timeout %q: %w",
+				e.SubscriptionTimeout, ErrEventsSubscriptionTimeoutInvalid)
+		}
+	}
+	seen := make(map[string]bool, len(e.Topics))
+	for i, t := range e.Topics {
+		if strings.TrimSpace(t.Name) == "" {
+			return fmt.Errorf("config: events.topics[%d]: %w", i, ErrEventsTopicNameEmpty)
+		}
+		if seen[t.Name] {
+			return fmt.Errorf("config: events.topics[%d].name %q: %w", i, t.Name, ErrEventsTopicNameDuplicate)
+		}
+		seen[t.Name] = true
 	}
 	return nil
 }

@@ -26,6 +26,9 @@ var ErrProfileNotFound = errors.New("config: profile not found")
 // ErrProfileAlreadyExists is returned by AddProfile when the token is taken.
 var ErrProfileAlreadyExists = errors.New("config: profile already exists")
 
+// ErrTopicNotFound is returned by SetTopicEnabled when the topic name does not exist.
+var ErrTopicNotFound = errors.New("config: topic not found")
+
 // Update loads the on-disk config, applies mutate in memory, validates, and
 // saves atomically. Concurrent Update calls are serialized. If mutate
 // returns a non-nil error, Save is skipped and the error is returned
@@ -200,5 +203,78 @@ func mutateProfile(token string, mutate func(*ProfileConfig)) error {
 			}
 		}
 		return fmt.Errorf("%w: %s", ErrProfileNotFound, token)
+	})
+}
+
+// SetDiscoveryMode persists the discovery mode ("Discoverable" or
+// "NonDiscoverable").
+func SetDiscoveryMode(mode string) error {
+	return Update(func(c *Config) error {
+		c.Runtime.DiscoveryMode = mode
+		return nil
+	})
+}
+
+// SetHostname persists the device hostname.
+func SetHostname(hostname string) error {
+	return Update(func(c *Config) error {
+		c.Runtime.Hostname = hostname
+		return nil
+	})
+}
+
+// SetDNS persists the DNS configuration.
+func SetDNS(dns DNSConfig) error {
+	return Update(func(c *Config) error {
+		c.Runtime.DNS = dns
+		return nil
+	})
+}
+
+// SetDefaultGateway persists the default gateway configuration.
+func SetDefaultGateway(gw DefaultGatewayConfig) error {
+	return Update(func(c *Config) error {
+		c.Runtime.DefaultGateway = gw
+		return nil
+	})
+}
+
+// SetNetworkProtocols replaces the full network protocol list and persists.
+func SetNetworkProtocols(protocols []NetworkProtocol) error {
+	return Update(func(c *Config) error {
+		c.Runtime.NetworkProtocols = append([]NetworkProtocol(nil), protocols...)
+		return nil
+	})
+}
+
+// SetSystemDateAndTime persists the system date/time configuration.
+func SetSystemDateAndTime(cfg SystemDateTimeConfig) error {
+	return Update(func(c *Config) error {
+		c.Runtime.SystemDateAndTime = cfg
+		return nil
+	})
+}
+
+// SetEventsTopics replaces the events topic list and persists. Callers pass
+// the full desired list; existing entries not present in the new list are
+// dropped.
+func SetEventsTopics(topics []TopicConfig) error {
+	return Update(func(c *Config) error {
+		c.Events.Topics = append([]TopicConfig(nil), topics...)
+		return nil
+	})
+}
+
+// SetTopicEnabled toggles the Enabled flag of one event topic by name.
+// Returns ErrTopicNotFound if no topic with that name exists.
+func SetTopicEnabled(name string, enabled bool) error {
+	return Update(func(c *Config) error {
+		for i := range c.Events.Topics {
+			if c.Events.Topics[i].Name == name {
+				c.Events.Topics[i].Enabled = enabled
+				return nil
+			}
+		}
+		return fmt.Errorf("%w: %s", ErrTopicNotFound, name)
 	})
 }
