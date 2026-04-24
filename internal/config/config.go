@@ -52,15 +52,29 @@ type MediaConfig struct {
 }
 
 // ProfileConfig describes a single ONVIF media profile.
+//
+// RTSP and SnapshotURI are pass-through: the simulator does not run an RTP
+// server or snapshot endpoint itself — it returns these URIs verbatim from
+// GetStreamUri / GetSnapshotUri so clients can connect to a user-provided
+// external process.
 type ProfileConfig struct {
-	Name     string `json:"name"`
-	Token    string `json:"token"`
-	RTSP     string `json:"rtsp"`
-	Encoding string `json:"encoding"`
-	Width    int    `json:"width"`
-	Height   int    `json:"height"`
-	FPS      int    `json:"fps"`
+	Name             string `json:"name"`
+	Token            string `json:"token"`
+	RTSP             string `json:"rtsp"`
+	Encoding         string `json:"encoding"`
+	Width            int    `json:"width"`
+	Height           int    `json:"height"`
+	FPS              int    `json:"fps"`
+	Bitrate          int    `json:"bitrate,omitempty"`
+	GOPLength        int    `json:"gop_length,omitempty"`
+	SnapshotURI      string `json:"snapshot_uri,omitempty"`
+	VideoSourceToken string `json:"video_source_token,omitempty"`
 }
+
+// DefaultVideoSourceToken is used when a ProfileConfig does not specify a
+// VideoSourceToken. The ONVIF Media service dedups source tokens across
+// profiles when building the GetVideoSources response.
+const DefaultVideoSourceToken = "VS_DEFAULT"
 
 // AuthConfig configures authentication for all ONVIF services.
 // When Enabled is true, Users must contain at least one entry
@@ -154,9 +168,14 @@ var (
 
 	errDeviceFieldRequired = errors.New("config: must not be empty")
 
-	errProfileFieldRequired = errors.New("config: must not be empty")
-	errProfileRTSPInvalid   = errors.New("config: profile.rtsp must be a valid rtsp:// URL")
-	errProfileDimension     = errors.New("config: must be greater than 0")
+	errProfileFieldRequired       = errors.New("config: must not be empty")
+	errProfileRTSPInvalid         = errors.New("config: profile.rtsp must be a valid rtsp:// URL")
+	errProfileDimension           = errors.New("config: must be greater than 0")
+	errProfileBitrateNegative     = errors.New("config: profile.bitrate must be >= 0")
+	errProfileGOPNegative         = errors.New("config: profile.gop_length must be >= 0")
+	errProfileSnapshotURIInvalid  = errors.New("config: profile.snapshot_uri must be an http(s) URL")
+	errProfileVideoSourceTokenWS  = errors.New("config: profile.video_source_token must not contain whitespace")
+	errProfileVideoSourceTokenLen = errors.New("config: profile.video_source_token must not be empty when set")
 
 	errScopeEntryEmpty       = errors.New("config: scope entry must not be empty")
 	errScopeNotAbsolute      = errors.New("config: scope must be an absolute URI")
@@ -167,6 +186,11 @@ var (
 	errXAddrScheme           = errors.New("config: xaddr scheme must be http or https")
 	errXAddrHost             = errors.New("config: xaddr must include host")
 	errProfileTokenDuplicate = errors.New("config: profile token must be unique")
+)
+
+const (
+	schemeHTTP  = "http"
+	schemeHTTPS = "https"
 )
 
 var (
@@ -275,6 +299,39 @@ func validateProfile(i int, p *ProfileConfig, seenProfileTokens map[string]bool)
 		if f.val <= 0 {
 			return fmt.Errorf("config: %s: %w", f.name, errProfileDimension)
 		}
+	}
+	if p.Bitrate < 0 {
+		return fmt.Errorf("config: %s.bitrate: %w", prefix, errProfileBitrateNegative)
+	}
+	if p.GOPLength < 0 {
+		return fmt.Errorf("config: %s.gop_length: %w", prefix, errProfileGOPNegative)
+	}
+	if err := validateSnapshotURI(prefix+".snapshot_uri", p.SnapshotURI); err != nil {
+		return err
+	}
+	return validateVideoSourceToken(prefix+".video_source_token", p.VideoSourceToken)
+}
+
+func validateSnapshotURI(field, raw string) error {
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != schemeHTTP && u.Scheme != schemeHTTPS) || u.Host == "" {
+		return fmt.Errorf("config: %s: %w", field, errProfileSnapshotURIInvalid)
+	}
+	return nil
+}
+
+func validateVideoSourceToken(field, raw string) error {
+	if raw == "" {
+		return nil
+	}
+	if strings.TrimSpace(raw) == "" {
+		return fmt.Errorf("config: %s: %w", field, errProfileVideoSourceTokenLen)
+	}
+	if whitespacePattern.MatchString(raw) {
+		return fmt.Errorf("config: %s: %w", field, errProfileVideoSourceTokenWS)
 	}
 	return nil
 }
