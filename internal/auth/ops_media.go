@@ -29,6 +29,13 @@ var MediaOperationClasses = map[string]AccessClass{
 	"GetStreamUri":                            ClassReadMedia,
 	"GetSnapshotUri":                          ClassReadMedia,
 
+	// Read-only media queries (continued).
+	"GetGuaranteedNumberOfVideoEncoderInstances": ClassReadMedia,
+	"GetMetadataConfigurations":                  ClassReadMedia,
+	"GetMetadataConfiguration":                   ClassReadMedia,
+	"GetCompatibleMetadataConfigurations":        ClassReadMedia,
+	"GetMetadataConfigurationOptions":            ClassReadMedia,
+
 	// Runtime-affecting writes.
 	"CreateProfile":                   ClassActuate,
 	"DeleteProfile":                   ClassActuate,
@@ -38,6 +45,9 @@ var MediaOperationClasses = map[string]AccessClass{
 	"RemoveVideoEncoderConfiguration": ClassActuate,
 	"SetVideoSourceConfiguration":     ClassActuate,
 	"SetVideoEncoderConfiguration":    ClassActuate,
+	"AddMetadataConfiguration":        ClassActuate,
+	"RemoveMetadataConfiguration":     ClassActuate,
+	"SetMetadataConfiguration":        ClassActuate,
 }
 
 // MediaOperationClass returns the AccessClass for the named Media Service
