@@ -178,6 +178,9 @@ func (h *Handler) dispatch(ctx context.Context, operation string, payload []byte
 	if resp, handled, err := h.dispatchURI(ctx, operation, payload); handled {
 		return resp, err
 	}
+	if resp, handled, err := h.dispatchMetadata(ctx, operation, payload); handled {
+		return resp, err
+	}
 	return nil, fmt.Errorf("%w: %s", errUnsupportedOp, operation)
 }
 
@@ -261,6 +264,38 @@ func (h *Handler) dispatchVideoEncoder(ctx context.Context, op string, payload [
 	case "GetVideoEncoderConfigurationOptions":
 		resp, err := h.handleGetVideoEncoderConfigurationOptions(ctx, payload)
 		return resp, true, err
+	case "GetGuaranteedNumberOfVideoEncoderInstances":
+		resp, err := h.handleGetGuaranteedNumberOfVideoEncoderInstances(ctx, payload)
+		return resp, true, err
+	}
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchMetadata(ctx context.Context, op string, payload []byte) (
+	resp []byte, handled bool, err error,
+) {
+	switch op {
+	case "GetMetadataConfigurations":
+		resp, err := h.handleGetMetadataConfigurations(ctx)
+		return resp, true, err
+	case "GetMetadataConfiguration":
+		resp, err := h.handleGetMetadataConfiguration(ctx, payload)
+		return resp, true, err
+	case "AddMetadataConfiguration":
+		resp, err := h.handleAddMetadataConfiguration(ctx, payload)
+		return resp, true, err
+	case "RemoveMetadataConfiguration":
+		resp, err := h.handleRemoveMetadataConfiguration(ctx, payload)
+		return resp, true, err
+	case "SetMetadataConfiguration":
+		resp, err := h.handleSetMetadataConfiguration(ctx, payload)
+		return resp, true, err
+	case "GetCompatibleMetadataConfigurations":
+		resp, err := h.handleGetCompatibleMetadataConfigurations(ctx, payload)
+		return resp, true, err
+	case "GetMetadataConfigurationOptions":
+		resp, err := h.handleGetMetadataConfigurationOptions(ctx, payload)
+		return resp, true, err
 	}
 	return nil, false, nil
 }
@@ -319,6 +354,27 @@ func parseOperation(data []byte) (payload []byte, operation string, err error) {
 			}
 		}
 	}
+}
+
+func (h *Handler) handleGetGuaranteedNumberOfVideoEncoderInstances(
+	ctx context.Context, payload []byte,
+) ([]byte, error) {
+	var req struct {
+		ConfigurationToken string `xml:"ConfigurationToken"`
+	}
+	if err := xml.Unmarshal(payload, &req); err != nil {
+		return nil, errors.Join(errDecodePayload,
+			fmt.Errorf("mediasvc: decode GetGuaranteedNumberOfVideoEncoderInstances: %w", err))
+	}
+	n, err := h.provider.GuaranteedNumberOfVideoEncoderInstances(ctx, req.ConfigurationToken)
+	if err != nil {
+		return nil, err
+	}
+	return xml.Marshal(getGuaranteedNumberOfVideoEncoderInstancesResponse{
+		XMLNS:       MediaNamespace,
+		TotalNumber: n,
+		H264:        n,
+	})
 }
 
 func writeSOAP(w http.ResponseWriter, payload []byte) {

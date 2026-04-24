@@ -138,6 +138,26 @@ type VideoEncoderConfigurationOptions struct {
 	H264         H264Options
 }
 
+// MetadataConfiguration describes the metadata stream configuration for a profile.
+type MetadataConfiguration struct {
+	Token     string
+	Name      string
+	UseCount  int
+	Analytics bool
+	PTZStatus bool
+	Events    bool
+}
+
+// MetadataConfigurationOptions advertises the valid options for metadata configuration.
+type MetadataConfigurationOptions struct {
+	// PTZStatusSupported indicates PTZ status events can be included.
+	PTZStatusSupported bool
+	// AnalyticsSupported indicates analytics module can be enabled.
+	AnalyticsSupported bool
+	// EventsSupported indicates ONVIF events can be included.
+	EventsSupported bool
+}
+
 // ServiceCapabilities is the GetServiceCapabilities payload for mediasvc.
 // The simulator advertises conservative defaults that match its pass-through
 // model: no RTP multicast, no audio, no metadata, no OSD.
@@ -194,6 +214,30 @@ type Provider interface {
 
 	StreamURI(ctx context.Context, profileToken string, setup StreamSetup) (MediaURI, error)
 	SnapshotURI(ctx context.Context, profileToken string) (MediaURI, error)
+
+	// GuaranteedNumberOfVideoEncoderInstances returns the number of encoder
+	// instances that are guaranteed to be available simultaneously for the
+	// given profile token. Maps to GetGuaranteedNumberOfVideoEncoderInstances.
+	GuaranteedNumberOfVideoEncoderInstances(
+		ctx context.Context, configToken string,
+	) (int, error)
+
+	// MetadataConfigurations returns all metadata configurations.
+	MetadataConfigurations(ctx context.Context) ([]MetadataConfiguration, error)
+	// MetadataConfiguration returns one metadata configuration by token.
+	MetadataConfiguration(ctx context.Context, token string) (MetadataConfiguration, error)
+	// AddMetadataConfiguration binds a metadata configuration to a profile.
+	AddMetadataConfiguration(ctx context.Context, profileToken, configToken string) error
+	// RemoveMetadataConfiguration removes the metadata configuration from a profile.
+	RemoveMetadataConfiguration(ctx context.Context, profileToken string) error
+	// SetMetadataConfiguration updates a metadata configuration.
+	SetMetadataConfiguration(ctx context.Context, cfg MetadataConfiguration) error
+	// CompatibleMetadataConfigurations returns metadata configurations compatible with a profile.
+	CompatibleMetadataConfigurations(ctx context.Context, profileToken string) ([]MetadataConfiguration, error)
+	// MetadataConfigurationOptions returns the options for metadata configuration.
+	MetadataConfigurationOptions(
+		ctx context.Context, configToken, profileToken string,
+	) (MetadataConfigurationOptions, error)
 }
 
 // AuthHook authorizes one request before the operation is executed.
