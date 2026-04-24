@@ -634,7 +634,12 @@ func isValidSubscriptionTimeout(s string) bool {
 	if !strings.HasPrefix(upper, "PT") {
 		return false
 	}
-	rest := upper[2:]
+	return validatePTDuration(upper[2:])
+}
+
+// validatePTDuration reports whether rest (already uppercased, "PT" prefix
+// already stripped) is a valid PT-duration token sequence using H, M, S units.
+func validatePTDuration(rest string) bool {
 	if rest == "" {
 		return false
 	}
