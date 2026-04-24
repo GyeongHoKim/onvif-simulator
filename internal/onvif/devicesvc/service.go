@@ -306,7 +306,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 		if err != nil {
 			return nil, err
 		}
-		return xml.Marshal(removeScopesResponse{XMLNS: DeviceNamespace, NotRemovedScopes: removed})
+		return xml.Marshal(removeScopesResponse{XMLNS: DeviceNamespace, RemovedScopes: removed})
 
 	// --- Network configuration (§7.4) ---
 
@@ -339,7 +339,11 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 		}
 		manualAddrs := make([]ipAddressEnvelope, len(info.DNSManual))
 		for i, a := range info.DNSManual {
-			manualAddrs[i] = ipAddressEnvelope{IPv4Address: a}
+			if isIPv6Addr(a) {
+				manualAddrs[i] = ipAddressEnvelope{IPv6Address: a}
+			} else {
+				manualAddrs[i] = ipAddressEnvelope{IPv4Address: a}
+			}
 		}
 		return xml.Marshal(getDNSResponse{
 			XMLNS: DeviceNamespace,
@@ -356,14 +360,19 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 			SearchDomain []string `xml:"SearchDomain"`
 			DNSManual    []struct {
 				IPv4Address string `xml:"IPv4Address"`
+				IPv6Address string `xml:"IPv6Address"`
 			} `xml:"DNSManual"`
 		}
 		if err := xml.Unmarshal(payload, &req); err != nil {
 			return nil, errors.Join(errDecodePayload, fmt.Errorf("devicesvc: decode SetDNS: %w", err))
 		}
-		manual := make([]string, len(req.DNSManual))
-		for i, m := range req.DNSManual {
-			manual[i] = m.IPv4Address
+		manual := make([]string, 0, len(req.DNSManual))
+		for _, m := range req.DNSManual {
+			if m.IPv6Address != "" {
+				manual = append(manual, m.IPv6Address)
+			} else if m.IPv4Address != "" {
+				manual = append(manual, m.IPv4Address)
+			}
 		}
 		if err := s.provider.SetDNS(ctx, DNSInfo{
 			FromDHCP:     req.FromDHCP,
@@ -618,9 +627,10 @@ func (s *Handler) handleGetServices(ctx context.Context, payload []byte) ([]byte
 	envelopes := make([]serviceEnvelope, len(services))
 	for i, svc := range services {
 		envelopes[i] = serviceEnvelope{
-			Namespace: svc.Namespace,
-			XAddr:     svc.XAddr,
-			Version:   versionEnvelope(svc.Version),
+			Namespace:    svc.Namespace,
+			XAddr:        svc.XAddr,
+			Version:      versionEnvelope(svc.Version),
+			Capabilities: svc.Capability,
 		}
 	}
 	return xml.Marshal(getServicesResponse{
@@ -753,9 +763,10 @@ type getServicesResponse struct {
 }
 
 type serviceEnvelope struct {
-	Namespace string          `xml:"Namespace"`
-	XAddr     string          `xml:"XAddr"`
-	Version   versionEnvelope `xml:"Version"`
+	Namespace    string          `xml:"Namespace"`
+	XAddr        string          `xml:"XAddr"`
+	Version      versionEnvelope `xml:"Version"`
+	Capabilities string          `xml:"Capabilities,omitempty"`
 }
 
 type versionEnvelope struct {
@@ -873,9 +884,9 @@ type getScopesResponse struct {
 }
 
 type removeScopesResponse struct {
-	XMLName          xml.Name `xml:"RemoveScopesResponse"`
-	XMLNS            string   `xml:"xmlns,attr"`
-	NotRemovedScopes []string `xml:"NotRemovedScopes,omitempty"`
+	XMLName       xml.Name `xml:"RemoveScopesResponse"`
+	XMLNS         string   `xml:"xmlns,attr"`
+	RemovedScopes []string `xml:"RemovedScopes,omitempty"`
 }
 
 // ---------- Network envelopes ---------------------------------------------------
@@ -1021,4 +1032,9 @@ func envelopesToUsers(envs []userEnvelope) []UserInfo {
 		users[i] = UserInfo(e)
 	}
 	return users
+}
+
+// isIPv6Addr reports whether addr is an IPv6 address (contains a colon).
+func isIPv6Addr(addr string) bool {
+	return strings.Contains(addr, ":")
 }
