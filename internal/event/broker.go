@@ -80,7 +80,9 @@ type Broker struct {
 	subs map[string]*subscription // keyed by subscriptionID
 
 	// stopCh is closed by Stop to terminate the background reaper.
-	stopCh chan struct{}
+	stopCh    chan struct{}
+	startOnce sync.Once
+	stopOnce  sync.Once
 }
 
 // New creates a Broker from cfg.  Zero-valued numeric fields in cfg are
@@ -100,14 +102,15 @@ func New(cfg BrokerConfig) *Broker {
 }
 
 // Start launches the background subscription-reaper goroutine. Call Stop to
-// terminate it. Start is idempotent per Broker instance.
+// terminate it. Start is idempotent: calling it more than once is safe.
 func (b *Broker) Start() {
-	go b.reapLoop()
+	b.startOnce.Do(func() { go b.reapLoop() })
 }
 
 // Stop signals the background goroutine started by Start to exit.
+// Stop is idempotent: calling it more than once is safe.
 func (b *Broker) Stop() {
-	close(b.stopCh)
+	b.stopOnce.Do(func() { close(b.stopCh) })
 }
 
 // Publish injects an event into all active subscriptions that match topic.
@@ -188,13 +191,21 @@ func (b *Broker) CreatePullPointSubscription(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	b.reapLocked()
 	if len(b.subs) >= b.cfg.MaxPullPoints {
 		return eventsvc.SubscriptionInfo{}, fmt.Errorf("%w (%d)", errMaxPullPointsReached, b.cfg.MaxPullPoints)
 	}
 
 	timeout := b.cfg.SubscriptionTimeout
-	if d, err := parseISO8601Duration(params.InitialTerminationTime); err == nil && d > 0 {
-		timeout = d
+	if params.InitialTerminationTime != "" {
+		d, err := parseISO8601Duration(params.InitialTerminationTime)
+		if err != nil {
+			return eventsvc.SubscriptionInfo{}, fmt.Errorf(
+				"event: invalid InitialTerminationTime %q: %w", params.InitialTerminationTime, err)
+		}
+		if d > 0 {
+			timeout = d
+		}
 	}
 
 	id := newSubscriptionID()
@@ -256,8 +267,14 @@ func (b *Broker) Renew(
 	}
 
 	timeout := b.cfg.SubscriptionTimeout
-	if d, parseErr := parseISO8601Duration(params.TerminationTime); parseErr == nil && d > 0 {
-		timeout = d
+	if params.TerminationTime != "" {
+		d, parseErr := parseISO8601Duration(params.TerminationTime)
+		if parseErr != nil {
+			return eventsvc.RenewResult{}, fmt.Errorf("event: invalid TerminationTime %q: %w", params.TerminationTime, parseErr)
+		}
+		if d > 0 {
+			timeout = d
+		}
 	}
 
 	now := time.Now()
@@ -311,9 +328,15 @@ func (b *Broker) reapLoop() {
 }
 
 func (b *Broker) reap() {
-	now := time.Now()
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.reapLocked()
+}
+
+// reapLocked removes expired subscriptions from b.subs. Must be called with
+// b.mu held.
+func (b *Broker) reapLocked() {
+	now := time.Now()
 	for id, sub := range b.subs {
 		if now.After(sub.terminationTime) {
 			delete(b.subs, id)
