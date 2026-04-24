@@ -226,14 +226,14 @@ type videoEncoderConfigurationEnvelope struct {
 }
 
 type rateControlEnvelope struct {
-	FrameRateLimit   int `xml:"tt:FrameRateLimit"`
-	EncodingInterval int `xml:"tt:EncodingInterval"`
-	BitrateLimit     int `xml:"tt:BitrateLimit"`
+	FrameRateLimit   int `xml:"tt:FrameRateLimit,omitempty"`
+	EncodingInterval int `xml:"tt:EncodingInterval,omitempty"`
+	BitrateLimit     int `xml:"tt:BitrateLimit,omitempty"`
 }
 
 type h264ConfigurationEnvelope struct {
-	GovLength   int    `xml:"tt:GovLength"`
-	H264Profile string `xml:"tt:H264Profile"`
+	GovLength   int    `xml:"tt:GovLength,omitempty"`
+	H264Profile string `xml:"tt:H264Profile,omitempty"`
 }
 
 type videoEncoderConfigurationOptionsEnvelope struct {

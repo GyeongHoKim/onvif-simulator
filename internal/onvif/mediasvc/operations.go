@@ -495,23 +495,29 @@ func envelopeToVSConfig(env *videoSourceConfigurationEnvelope) VideoSourceConfig
 
 func veConfigToEnvelope(cfg *VideoEncoderConfiguration) videoEncoderConfigurationEnvelope {
 	env := videoEncoderConfigurationEnvelope{
-		Token:      cfg.Token,
-		Name:       cfg.Name,
-		UseCount:   cfg.UseCount,
-		Encoding:   cfg.Encoding,
-		Resolution: resolutionEnvelope{Width: cfg.Resolution.Width, Height: cfg.Resolution.Height},
-		Quality:    cfg.Quality,
-		RateControl: &rateControlEnvelope{
+		Token:          cfg.Token,
+		Name:           cfg.Name,
+		UseCount:       cfg.UseCount,
+		Encoding:       cfg.Encoding,
+		Resolution:     resolutionEnvelope{Width: cfg.Resolution.Width, Height: cfg.Resolution.Height},
+		Quality:        cfg.Quality,
+		SessionTimeout: cfg.SessionTimeout,
+	}
+	if cfg.RateControl.FrameRateLimit != 0 ||
+		cfg.RateControl.EncodingInterval != 0 ||
+		cfg.RateControl.BitrateLimit != 0 {
+		env.RateControl = &rateControlEnvelope{
 			FrameRateLimit:   cfg.RateControl.FrameRateLimit,
 			EncodingInterval: cfg.RateControl.EncodingInterval,
 			BitrateLimit:     cfg.RateControl.BitrateLimit,
-		},
-		SessionTimeout: cfg.SessionTimeout,
+		}
 	}
 	if cfg.Encoding == "H264" {
-		env.H264 = &h264ConfigurationEnvelope{
-			GovLength:   cfg.H264.GOVLength,
-			H264Profile: cfg.H264.H264Profile,
+		if cfg.H264.GOVLength != 0 || cfg.H264.H264Profile != "" {
+			env.H264 = &h264ConfigurationEnvelope{
+				GovLength:   cfg.H264.GOVLength,
+				H264Profile: cfg.H264.H264Profile,
+			}
 		}
 	}
 	return env

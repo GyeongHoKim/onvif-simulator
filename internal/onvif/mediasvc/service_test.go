@@ -179,6 +179,65 @@ func soapRequest(op, inner string) string {
 		`<env:Body><trt:` + op + `>` + inner + `</trt:` + op + `></env:Body></env:Envelope>`
 }
 
+func TestVEConfigToEnvelope_OmitsClearedOptionalFields(t *testing.T) {
+	env := veConfigToEnvelope(&VideoEncoderConfiguration{
+		Token:      "VEConfig_main",
+		Name:       "main",
+		UseCount:   1,
+		Encoding:   "H264",
+		Resolution: Resolution{Width: 1920, Height: 1080},
+		Quality:    5,
+		RateControl: VideoRateControl{
+			FrameRateLimit:   30,
+			EncodingInterval: 1,
+		},
+		H264: H264Configuration{
+			H264Profile: "Main",
+		},
+	})
+
+	got, err := xml.Marshal(env)
+	if err != nil {
+		t.Fatalf("xml.Marshal: %v", err)
+	}
+	xmlText := string(got)
+
+	if strings.Contains(xmlText, "<tt:BitrateLimit>") {
+		t.Fatalf("BitrateLimit should be omitted when cleared: %s", xmlText)
+	}
+	if strings.Contains(xmlText, "<tt:GovLength>") {
+		t.Fatalf("GovLength should be omitted when cleared: %s", xmlText)
+	}
+	if !strings.Contains(xmlText, "<tt:RateControl>") {
+		t.Fatalf("RateControl should be present when other limits are set: %s", xmlText)
+	}
+	if !strings.Contains(xmlText, "<tt:H264>") {
+		t.Fatalf("H264 should be present when H264Profile is set: %s", xmlText)
+	}
+
+	env = veConfigToEnvelope(&VideoEncoderConfiguration{
+		Token:      "VEConfig_main",
+		Name:       "main",
+		UseCount:   1,
+		Encoding:   "H264",
+		Resolution: Resolution{Width: 1920, Height: 1080},
+		Quality:    5,
+	})
+
+	got, err = xml.Marshal(env)
+	if err != nil {
+		t.Fatalf("xml.Marshal cleared: %v", err)
+	}
+	xmlText = string(got)
+
+	if strings.Contains(xmlText, "<tt:RateControl>") {
+		t.Fatalf("RateControl should be omitted when fully cleared: %s", xmlText)
+	}
+	if strings.Contains(xmlText, "<tt:H264>") {
+		t.Fatalf("H264 should be omitted when fully cleared: %s", xmlText)
+	}
+}
+
 func doRequest(t *testing.T, h *Handler, op, inner string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, MediaServicePath,
