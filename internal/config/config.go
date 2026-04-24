@@ -621,10 +621,13 @@ func validateRuntime(r *RuntimeConfig) error {
 }
 
 // isValidSubscriptionTimeout reports whether s is a valid subscription timeout:
-// either a Go duration (e.g. "1h", "30m") or an ISO 8601 PT duration subset
-// (e.g. "PT1H", "PT30M", "PT1H30M").
+// a Go duration (e.g. "1h", "30m"), an ISO 8601 PT duration subset
+// (e.g. "PT1H", "PT30M", "PT1H30M"), or an RFC3339 absolute timestamp.
 func isValidSubscriptionTimeout(s string) bool {
 	if _, err := time.ParseDuration(s); err == nil {
+		return true
+	}
+	if _, err := time.Parse(time.RFC3339, s); err == nil {
 		return true
 	}
 	upper := strings.ToUpper(s)
