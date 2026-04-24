@@ -46,6 +46,14 @@ var (
 	ErrNoSnapshot = errors.New("mediasvc: snapshot uri not available")
 )
 
+var xmlReplacer = strings.NewReplacer(
+	"&", "&amp;",
+	"<", "&lt;",
+	">", "&gt;",
+	`"`, "&quot;",
+	"'", "&apos;",
+)
+
 // Handler serves the ONVIF media service endpoint.
 type Handler struct {
 	provider Provider
@@ -290,21 +298,23 @@ func parseOperation(data []byte) (payload []byte, operation string, err error) {
 		if err != nil {
 			return nil, "", fmt.Errorf("parse soap body: %w", err)
 		}
-		switch start := tok.(type) {
+		switch elem := tok.(type) {
 		case xml.StartElement:
-			if start.Name.Local == "Body" && start.Name.Space == soapNamespace {
+			startElem := elem
+			if startElem.Name.Local == "Body" && startElem.Name.Space == soapNamespace {
 				inBody = true
 				continue
 			}
 			if !inBody {
 				continue
 			}
-			if start.Name.Space != MediaNamespace {
-				return nil, "", fmt.Errorf("%w: %s", errInvalidNamespace, start.Name.Space)
+			if startElem.Name.Space != MediaNamespace {
+				return nil, "", fmt.Errorf("%w: %s", errInvalidNamespace, startElem.Name.Space)
 			}
-			return env.Body.Inner, start.Name.Local, nil
+			return env.Body.Inner, startElem.Name.Local, nil
 		case xml.EndElement:
-			if inBody && start.Name.Local == "Body" && start.Name.Space == soapNamespace {
+			endElem := elem
+			if inBody && endElem.Name.Local == "Body" && endElem.Name.Space == soapNamespace {
 				return nil, "", errEmptySOAPBody
 			}
 		}
@@ -362,14 +372,7 @@ func writeFault(w http.ResponseWriter, status int, code, reason string) {
 }
 
 func xmlEscape(value string) string {
-	replacer := strings.NewReplacer(
-		"&", "&amp;",
-		"<", "&lt;",
-		">", "&gt;",
-		`"`, "&quot;",
-		"'", "&apos;",
-	)
-	return replacer.Replace(value)
+	return xmlReplacer.Replace(value)
 }
 
 type soapEnvelope struct {
