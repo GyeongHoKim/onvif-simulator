@@ -1,4 +1,36 @@
-// Package config loads and validates onvif-simulator.json.
+// Package config manages the on-disk configuration for the ONVIF simulator.
+//
+// # File location
+//
+// The config file is named "onvif-simulator.json" and is read from (and
+// written to) the process working directory. Copy onvif-simulator.example.json
+// to get started.
+//
+// # Schema versioning
+//
+// Every config file must set "version": 1. Future breaking changes will
+// increment this number; the loader rejects mismatches immediately.
+//
+// # Typical usage
+//
+// Load once at startup and pass the result to the simulator:
+//
+//	cfg, err := config.Load()
+//
+// Mutate individual fields at runtime via the targeted helpers; never
+// construct or overwrite a Config value by hand:
+//
+//	// Persist a new media profile added by the user via GUI/TUI
+//	if err := config.AddProfile(config.ProfileConfig{...}); err != nil { ... }
+//
+//	// Flip the discovery mode from the TUI
+//	if err := config.SetDiscoveryMode("NonDiscoverable"); err != nil { ... }
+//
+//	// Toggle an event topic on/off
+//	if err := config.SetTopicEnabled("tns1:VideoSource/MotionAlarm", true); err != nil { ... }
+//
+// All helpers load → mutate → validate → save atomically; concurrent calls
+// are serialized by an internal mutex.
 package config
 
 import (
@@ -593,7 +625,10 @@ func validateEvents(e *EventsConfig) error {
 	return nil
 }
 
-// Load reads and validates ./onvif-simulator.json relative to the process working directory.
+// Load reads and validates onvif-simulator.json relative to the process
+// working directory. On success it returns the fully validated Config that
+// callers should treat as read-only; mutate individual fields only through
+// the targeted helpers in update.go.
 func Load() (Config, error) {
 	wd, err := os.Getwd()
 	if err != nil {
@@ -613,8 +648,10 @@ func Load() (Config, error) {
 	return c, nil
 }
 
-// Save writes cfg to ./onvif-simulator.json relative to the working directory.
-// It validates before writing and replaces the destination atomically when possible.
+// Save validates cfg and writes it to onvif-simulator.json in the working
+// directory.  The write is atomic (write-to-temp + rename) to prevent
+// corruption on crash.  Prefer the targeted helpers in update.go over calling
+// Save directly; they load, mutate, and save under the package mutex.
 func Save(cfg *Config) error {
 	if cfg == nil {
 		return errNilConfig

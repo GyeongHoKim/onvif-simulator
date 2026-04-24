@@ -26,22 +26,53 @@ const (
 )
 
 // TopicConfig mirrors config.TopicConfig to avoid a circular import.
+// Set Enabled=false to hide a topic from GetEventProperties; Publish still
+// routes messages to any subscription that explicitly filters on that topic.
 type TopicConfig struct {
 	Name    string
 	Enabled bool
 }
 
-// BrokerConfig holds the runtime configuration for the EventBroker.
-// It maps directly from config.EventsConfig.
+// BrokerConfig holds the runtime configuration for the Broker.
+// Build it from config.EventsConfig at startup; call Broker.UpdateConfig to
+// hot-swap it without restarting the broker.
+//
+//	broker := event.New(event.BrokerConfig{
+//	    MaxPullPoints:       10,
+//	    SubscriptionTimeout: time.Hour,
+//	    Topics: []event.TopicConfig{
+//	        {Name: "tns1:VideoSource/MotionAlarm", Enabled: true},
+//	        {Name: "tns1:Device/Trigger/DigitalInput", Enabled: true},
+//	    },
+//	})
 type BrokerConfig struct {
-	MaxPullPoints       int
+	// MaxPullPoints is the maximum number of concurrent pull-point subscriptions
+	// the broker will accept. Additional requests return an error.
+	// Zero is replaced with DefaultMaxPullPoints.
+	MaxPullPoints int
+	// SubscriptionTimeout is the default lifetime assigned when
+	// CreatePullPointSubscription omits InitialTerminationTime.
+	// Zero or negative is replaced with DefaultSubscriptionTimeout.
 	SubscriptionTimeout time.Duration
-	Topics              []TopicConfig
+	// Topics is the list of ONVIF event topics this broker advertises.
+	Topics []TopicConfig
 }
 
-// Broker is the concrete eventsvc.Provider. It is safe for concurrent use.
+// Broker is the concrete eventsvc.Provider.  Wire it into the ONVIF Event
+// Service and SubscriptionManager handlers at composition time:
 //
-// Zero value is not usable — create instances with New.
+//	broker := event.New(cfg)
+//	broker.Start()
+//	defer broker.Stop()
+//
+//	// pass to the ONVIF handler
+//	eventHandler := eventsvc.New(broker, authHook)
+//
+//	// trigger events from GUI/TUI
+//	broker.MotionAlarm("vs0", true)
+//
+// Broker is safe for concurrent use.  Zero value is not usable — create
+// instances with New.
 type Broker struct {
 	cfg BrokerConfig
 
@@ -52,7 +83,8 @@ type Broker struct {
 	stopCh chan struct{}
 }
 
-// New creates a new Broker with the given configuration.
+// New creates a Broker from cfg.  Zero-valued numeric fields in cfg are
+// replaced by their defaults (see DefaultMaxPullPoints, DefaultSubscriptionTimeout).
 func New(cfg BrokerConfig) *Broker {
 	if cfg.MaxPullPoints <= 0 {
 		cfg.MaxPullPoints = DefaultMaxPullPoints

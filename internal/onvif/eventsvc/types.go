@@ -124,14 +124,39 @@ type RenewResult struct {
 }
 
 // Provider supplies operation data to both the EventServiceHandler and the
-// SubscriptionManagerHandler. Implementations must be safe for concurrent use.
+// SubscriptionManagerHandler. The concrete implementation is event.Broker.
+// Implementations must be safe for concurrent use.
+//
+// All methods that accept a subscriptionID must return ErrSubscriptionNotFound
+// (wrapped) when the token is unknown or expired — the handler maps this to an
+// HTTP 400 + wsrf:ResourceUnknown SOAP fault.
 type Provider interface {
+	// EventServiceCapabilities returns the static capabilities advertised by
+	// GetServiceCapabilities.
 	EventServiceCapabilities(ctx context.Context) (ServiceCapabilities, error)
+
+	// EventProperties returns the topic set and related metadata advertised by
+	// GetEventProperties. TopicSet is a raw XML fragment emitted verbatim.
 	EventProperties(ctx context.Context) (EventProperties, error)
+
+	// CreatePullPointSubscription allocates a new pull-point subscription and
+	// returns its ID, current time, and termination time.
 	CreatePullPointSubscription(ctx context.Context, params CreatePullPointSubscriptionParams) (SubscriptionInfo, error)
+
+	// PullMessages drains up to params.MessageLimit events from the
+	// subscription queue.  It must not block; return an empty slice when the
+	// queue is empty.
 	PullMessages(ctx context.Context, subscriptionID string, params PullMessagesParams) (PullMessagesResult, error)
+
+	// SetSynchronizationPoint is called by a client to force the device to
+	// re-emit "Initialized" property events. The broker may respond immediately
+	// with an acknowledgement and push events asynchronously via Publish.
 	SetSynchronizationPoint(ctx context.Context, subscriptionID string) error
+
+	// Renew extends the termination time of an existing subscription.
 	Renew(ctx context.Context, subscriptionID string, params RenewParams) (RenewResult, error)
+
+	// Unsubscribe cancels a subscription immediately.
 	Unsubscribe(ctx context.Context, subscriptionID string) error
 }
 

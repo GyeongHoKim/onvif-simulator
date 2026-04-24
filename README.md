@@ -85,23 +85,53 @@ The features are the same as the TUI mode.
 
 ### `onvif-simulator.json`
 
-onvif-simulator does not manage RTSP streams itself. You should provide pre-existing RTSP endpoints in a JSON config file in the working directory.
+onvif-simulator does not manage RTSP streams itself. Provide pre-existing RTSP endpoints in a JSON config file placed in the working directory; the simulator returns those URIs verbatim to ONVIF clients.
 
-Copy the example file and edit the URIs:
+Copy the bundled example and edit it for your environment:
 
 ```bash
 cp onvif-simulator.example.json onvif-simulator.json
 ```
 
+**Minimal required fields:**
+
 ```json
 {
   "version": 1,
-  "main_rtsp_uri": "rtsp://localhost:8554/live",
-  "sub_rtsp_uri": "rtsp://localhost:8554/live2"
+  "device": {
+    "uuid": "urn:uuid:00000000-0000-4000-8000-000000000001",
+    "manufacturer": "ONVIF Simulator",
+    "model": "SimCam-100",
+    "serial": "SN-0001"
+  },
+  "network": {
+    "http_port": 8080
+  },
+  "media": {
+    "profiles": [
+      {
+        "name": "main",
+        "token": "profile_main",
+        "rtsp": "rtsp://127.0.0.1:8554/main",
+        "encoding": "H264",
+        "width": 1920,
+        "height": 1080,
+        "fps": 30
+      }
+    ]
+  }
 }
 ```
 
-The RTSP URIs must be reachable at runtime — onvif-simulator forwards them as-is to ONVIF clients.
+**Optional sections** (all fields shown in `onvif-simulator.example.json`):
+
+| Section | Purpose |
+|---------|---------|
+| `auth` | Enable HTTP Digest / WS-UsernameToken / JWT authentication and manage users. |
+| `runtime` | Persist Device Management runtime state: `discovery_mode`, `hostname`, `dns`, `default_gateway`, `network_protocols`, `system_date_and_time`. Written by ONVIF Set* operations; editing manually sets the initial value. |
+| `events` | Configure the Event Service: `max_pull_points`, `subscription_timeout` (Go duration, e.g. `"1h"`), and the `topics` list (name + enabled flag). |
+
+> **Note:** `encoding` must be one of `H264`, `H265`, or `MJPEG`. The `rtsp` field must be a valid `rtsp://` URL and must be reachable at runtime.
 
 ## Development
 
