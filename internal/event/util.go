@@ -44,7 +44,8 @@ func parseISO8601Duration(s string) (time.Duration, error) {
 	// ISO 8601 subset: PT[nH][nM][nS]
 	upper := strings.ToUpper(s)
 	if !strings.HasPrefix(upper, "PT") {
-		return 0, fmt.Errorf("%w: %q", errUnsupportedFmt, s)
+		// Try absolute datetime (RFC3339 / RFC3339Nano) before giving up.
+		return parseAbsoluteDateTime(s)
 	}
 	rest := upper[2:] // strip "PT"
 	if rest == "" {
@@ -79,4 +80,20 @@ func parseISO8601Duration(s string) (time.Duration, error) {
 		}
 	}
 	return total, nil
+}
+
+// parseAbsoluteDateTime tries to parse s as an RFC3339 or RFC3339Nano absolute
+// datetime and returns the duration until that point in time. Returns an error
+// if s does not parse as a datetime or if the parsed time is not in the future.
+func parseAbsoluteDateTime(s string) (time.Duration, error) {
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
+		if t, err := time.Parse(layout, s); err == nil {
+			d := time.Until(t)
+			if d <= 0 {
+				return 0, fmt.Errorf("%w: absolute time %q is in the past or present", errUnsupportedFmt, s)
+			}
+			return d, nil
+		}
+	}
+	return 0, fmt.Errorf("%w: %q", errUnsupportedFmt, s)
 }
