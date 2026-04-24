@@ -13,6 +13,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -29,7 +30,12 @@ const (
 	waitDeadline = 30 * time.Second
 	pollInterval = 300 * time.Millisecond
 	dialTimeout  = time.Second
+
+	// pkgsiteVersion pins the pkgsite tool version so `make manual` is reproducible.
+	pkgsiteVersion = "v0.0.0-20260421174859-26eab2f0c5ff"
 )
+
+var errPkgsiteNotReady = errors.New("pkgsite server did not become ready")
 
 func main() {
 	port := flag.Int("port", defaultPort, "port to serve docs on")
@@ -41,7 +47,7 @@ func main() {
 	url := fmt.Sprintf("http://localhost:%d/%s", *port, module)
 
 	// #nosec G204 -- pkgsite address is constructed from a validated port flag, not user input
-	srv := exec.CommandContext(ctx, "go", "run", "golang.org/x/pkgsite/cmd/pkgsite@latest", "-http="+addr, ".")
+	srv := exec.CommandContext(ctx, "go", "run", "golang.org/x/pkgsite/cmd/pkgsite@"+pkgsiteVersion, "-http="+addr, ".")
 	srv.Stdout = os.Stdout
 	srv.Stderr = os.Stderr
 	if err := srv.Start(); err != nil {
@@ -49,7 +55,10 @@ func main() {
 	}
 
 	fmt.Printf("waiting for pkgsite on %s ...\n", addr)
-	waitReady(ctx, addr)
+	if err := waitReady(ctx, addr); err != nil {
+		log.Printf("aborting: %v", err)
+		return
+	}
 	fmt.Printf("opening %s\n", url)
 	openBrowser(ctx, url)
 
@@ -58,7 +67,7 @@ func main() {
 	}
 }
 
-func waitReady(ctx context.Context, addr string) {
+func waitReady(ctx context.Context, addr string) error {
 	deadline := time.Now().Add(waitDeadline)
 	dialer := &net.Dialer{Timeout: dialTimeout}
 	for time.Now().Before(deadline) {
@@ -67,10 +76,11 @@ func waitReady(ctx context.Context, addr string) {
 			if cerr := conn.Close(); cerr != nil {
 				log.Printf("close probe conn: %v", cerr)
 			}
-			return
+			return nil
 		}
 		time.Sleep(pollInterval)
 	}
+	return fmt.Errorf("pkgsite on %s not ready after %s: %w", addr, waitDeadline, errPkgsiteNotReady)
 }
 
 func openBrowser(ctx context.Context, url string) {
