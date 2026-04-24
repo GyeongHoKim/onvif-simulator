@@ -12,7 +12,8 @@ import (
 type subscription struct {
 	id string
 	// address is the full subscription manager URL including ?id=<id>.
-	// Set by the handler layer; used as SubscriptionReference in notifications.
+	// Set by the broker at creation time from BrokerConfig.SubscriptionManagerAddr;
+	// used as SubscriptionReference in notifications.
 	address string
 	// filter is the raw TopicExpression from CreatePullPointSubscription.
 	// Empty means "accept all topics".

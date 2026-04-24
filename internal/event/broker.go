@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -56,6 +57,11 @@ type BrokerConfig struct {
 	SubscriptionTimeout time.Duration
 	// Topics is the list of ONVIF event topics this broker advertises.
 	Topics []TopicConfig
+	// SubscriptionManagerAddr is the base URL of the subscription manager
+	// endpoint, e.g. "http://192.168.1.1:8080/onvif/subscription_manager".
+	// Each subscription's address is composed as this base URL with "?id=<id>"
+	// appended. When empty, only the relative path is used.
+	SubscriptionManagerAddr string
 }
 
 // Broker is the concrete eventsvc.Provider.  Wire it into the ONVIF Event
@@ -94,6 +100,7 @@ func New(cfg BrokerConfig) *Broker {
 	if cfg.SubscriptionTimeout <= 0 {
 		cfg.SubscriptionTimeout = DefaultSubscriptionTimeout
 	}
+	cfg.Topics = cloneTopics(cfg.Topics)
 	return &Broker{
 		cfg:    cfg,
 		subs:   make(map[string]*subscription),
@@ -147,6 +154,23 @@ func (b *Broker) Publish(topic, message string) {
 	}
 }
 
+// subscriptionAddrLocked composes the full subscription manager URL for the
+// given subscription ID. Must be called with b.mu held.
+func (b *Broker) subscriptionAddrLocked(id string) string {
+	base := b.cfg.SubscriptionManagerAddr
+	if base == "" {
+		base = eventsvc.SubscriptionManagerPath
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		return base + "?id=" + url.QueryEscape(id)
+	}
+	q := u.Query()
+	q.Set("id", id)
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
 // topicEnabledLocked reports whether topic is in the broker's config and enabled.
 // Must be called with b.mu held.
 func (b *Broker) topicEnabledLocked(topic string) bool {
@@ -168,6 +192,7 @@ func (b *Broker) UpdateConfig(cfg BrokerConfig) {
 	if cfg.SubscriptionTimeout <= 0 {
 		cfg.SubscriptionTimeout = DefaultSubscriptionTimeout
 	}
+	cfg.Topics = cloneTopics(cfg.Topics)
 	b.mu.Lock()
 	b.cfg = cfg
 	b.mu.Unlock()
@@ -230,6 +255,7 @@ func (b *Broker) CreatePullPointSubscription(
 	now := time.Now()
 	sub := &subscription{
 		id:              id,
+		address:         b.subscriptionAddrLocked(id),
 		filter:          params.Filter,
 		terminationTime: now.Add(timeout),
 		queue:           make([]eventsvc.NotificationMessage, 0, defaultQueueDepth),
@@ -403,3 +429,11 @@ var xmlEscaper = strings.NewReplacer(
 )
 
 func xmlEscape(s string) string { return xmlEscaper.Replace(s) }
+
+// cloneTopics returns a copy of the slice so the broker owns its own backing
+// array and cannot be mutated by the caller after New/UpdateConfig returns.
+func cloneTopics(topics []TopicConfig) []TopicConfig {
+	clone := make([]TopicConfig, len(topics))
+	copy(clone, topics)
+	return clone
+}
