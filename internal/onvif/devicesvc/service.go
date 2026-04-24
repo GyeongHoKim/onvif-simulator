@@ -266,8 +266,8 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 			return nil, err
 		}
 		entries := make([]scopeEntryEnvelope, len(scopes))
-		for i, s := range scopes {
-			entries[i] = scopeEntryEnvelope(s)
+		for i, scope := range scopes {
+			entries[i] = scopeEntryEnvelope(scope)
 		}
 		return xml.Marshal(getScopesResponse{XMLNS: DeviceNamespace, Scopes: entries})
 
