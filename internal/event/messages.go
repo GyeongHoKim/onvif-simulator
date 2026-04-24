@@ -2,6 +2,7 @@ package event
 
 import (
 	"fmt"
+	"html"
 	"time"
 )
 
@@ -104,14 +105,14 @@ func boolPropertyMessage(
 	pt PropertyType,
 ) string {
 	return fmt.Sprintf(
-		`<tt:Message xmlns:tt="http://www.onvif.org/ver10/schema" UtcTime=%q PropertyType=%q>`+
-			`<tt:Source><tt:SimpleItem Name=%q Value=%q/></tt:Source>`+
-			`<tt:Data><tt:SimpleItem Name=%q Value=%q/></tt:Data>`+
+		`<tt:Message xmlns:tt="http://www.onvif.org/ver10/schema" UtcTime="%s" PropertyType="%s">`+
+			`<tt:Source><tt:SimpleItem Name="%s" Value="%s"/></tt:Source>`+
+			`<tt:Data><tt:SimpleItem Name="%s" Value="%s"/></tt:Data>`+
 			`</tt:Message>`,
 		time.Now().UTC().Format(time.RFC3339),
 		string(pt),
-		sourceItemName, sourceValue,
-		dataItemName, formatBool(state),
+		html.EscapeString(sourceItemName), html.EscapeString(sourceValue),
+		html.EscapeString(dataItemName), formatBool(state),
 	)
 }
 
