@@ -282,3 +282,165 @@ func TestAddProfileRejectsInvalid(t *testing.T) {
 		t.Fatalf("disk mutated on invalid AddProfile: %d profiles", len(got.Media.Profiles))
 	}
 }
+
+func TestUpdateNilMutate(t *testing.T) {
+	seed(t)
+
+	if err := config.Update(nil); !errors.Is(err, config.ErrMutateRequired) {
+		t.Fatalf("expected ErrMutateRequired, got %v", err)
+	}
+}
+
+func TestSetDiscoveryMode(t *testing.T) {
+	seed(t)
+
+	if err := config.SetDiscoveryMode("NonDiscoverable"); err != nil {
+		t.Fatalf("SetDiscoveryMode: %v", err)
+	}
+	got := loadOrFail(t)
+	if got.Runtime.DiscoveryMode != "NonDiscoverable" {
+		t.Fatalf("discovery mode not persisted: %q", got.Runtime.DiscoveryMode)
+	}
+
+	if err := config.SetDiscoveryMode("Discoverable"); err != nil {
+		t.Fatalf("SetDiscoveryMode Discoverable: %v", err)
+	}
+	if err := config.SetDiscoveryMode("InvalidMode"); !errors.Is(err, config.ErrDiscoveryModeInvalid) {
+		t.Fatalf("expected ErrDiscoveryModeInvalid, got %v", err)
+	}
+}
+
+func TestSetHostname(t *testing.T) {
+	seed(t)
+
+	if err := config.SetHostname("mycamera"); err != nil {
+		t.Fatalf("SetHostname: %v", err)
+	}
+	got := loadOrFail(t)
+	if got.Runtime.Hostname != "mycamera" {
+		t.Fatalf("hostname not persisted: %q", got.Runtime.Hostname)
+	}
+}
+
+func TestSetDNS(t *testing.T) {
+	seed(t)
+
+	dns := config.DNSConfig{
+		FromDHCP:     false,
+		SearchDomain: []string{"example.com"},
+		DNSManual:    []string{"8.8.8.8", "8.8.4.4"},
+	}
+	if err := config.SetDNS(dns); err != nil {
+		t.Fatalf("SetDNS: %v", err)
+	}
+	got := loadOrFail(t)
+	if got.Runtime.DNS.DNSManual[0] != "8.8.8.8" {
+		t.Fatalf("dns not persisted: %+v", got.Runtime.DNS)
+	}
+}
+
+func TestSetDefaultGateway(t *testing.T) {
+	seed(t)
+
+	gw := config.DefaultGatewayConfig{
+		IPv4Address: []string{"192.168.1.1"},
+	}
+	if err := config.SetDefaultGateway(gw); err != nil {
+		t.Fatalf("SetDefaultGateway: %v", err)
+	}
+	got := loadOrFail(t)
+	if len(got.Runtime.DefaultGateway.IPv4Address) != 1 || got.Runtime.DefaultGateway.IPv4Address[0] != "192.168.1.1" {
+		t.Fatalf("default gateway not persisted: %+v", got.Runtime.DefaultGateway)
+	}
+}
+
+func TestSetNetworkProtocols(t *testing.T) {
+	seed(t)
+
+	protocols := []config.NetworkProtocol{
+		{Name: "HTTP", Enabled: true, Port: []int{80}},
+		{Name: "RTSP", Enabled: true, Port: []int{554}},
+	}
+	if err := config.SetNetworkProtocols(protocols); err != nil {
+		t.Fatalf("SetNetworkProtocols: %v", err)
+	}
+	got := loadOrFail(t)
+	if len(got.Runtime.NetworkProtocols) != 2 {
+		t.Fatalf("protocols not persisted: %+v", got.Runtime.NetworkProtocols)
+	}
+
+	invalid := []config.NetworkProtocol{{Name: "", Enabled: true}}
+	if err := config.SetNetworkProtocols(invalid); !errors.Is(err, config.ErrNetworkProtocolNameEmpty) {
+		t.Fatalf("expected ErrNetworkProtocolNameEmpty, got %v", err)
+	}
+}
+
+func TestSetSystemDateAndTime(t *testing.T) {
+	seed(t)
+
+	cfg := config.SystemDateTimeConfig{
+		DateTimeType:    "Manual",
+		DaylightSavings: true,
+		TZ:              "KST-9",
+	}
+	if err := config.SetSystemDateAndTime(cfg); err != nil {
+		t.Fatalf("SetSystemDateAndTime: %v", err)
+	}
+	got := loadOrFail(t)
+	if got.Runtime.SystemDateAndTime.TZ != "KST-9" || !got.Runtime.SystemDateAndTime.DaylightSavings {
+		t.Fatalf("system date/time not persisted: %+v", got.Runtime.SystemDateAndTime)
+	}
+}
+
+func TestSetEventsTopics(t *testing.T) {
+	seed(t)
+
+	topics := []config.TopicConfig{
+		{Name: "tns1:VideoSource/MotionAlarm", Enabled: true},
+		{Name: "tns1:Device/Trigger/DigitalInput", Enabled: false},
+	}
+	if err := config.SetEventsTopics(topics); err != nil {
+		t.Fatalf("SetEventsTopics: %v", err)
+	}
+	got := loadOrFail(t)
+	if len(got.Events.Topics) != 2 {
+		t.Fatalf("topics not persisted: %+v", got.Events.Topics)
+	}
+	if !got.Events.Topics[0].Enabled {
+		t.Fatalf("first topic should be enabled: %+v", got.Events.Topics[0])
+	}
+}
+
+func TestSetEventsTopicsRejectsInvalid(t *testing.T) {
+	seed(t)
+
+	invalid := []config.TopicConfig{
+		{Name: "", Enabled: true},
+	}
+	if err := config.SetEventsTopics(invalid); !errors.Is(err, config.ErrEventsTopicNameEmpty) {
+		t.Fatalf("expected ErrEventsTopicNameEmpty, got %v", err)
+	}
+}
+
+func TestSetTopicEnabled(t *testing.T) {
+	seed(t)
+
+	topics := []config.TopicConfig{
+		{Name: "tns1:VideoSource/MotionAlarm", Enabled: false},
+	}
+	if err := config.SetEventsTopics(topics); err != nil {
+		t.Fatalf("SetEventsTopics: %v", err)
+	}
+
+	if err := config.SetTopicEnabled("tns1:VideoSource/MotionAlarm", true); err != nil {
+		t.Fatalf("SetTopicEnabled: %v", err)
+	}
+	got := loadOrFail(t)
+	if !got.Events.Topics[0].Enabled {
+		t.Fatalf("topic not enabled after SetTopicEnabled: %+v", got.Events.Topics[0])
+	}
+
+	if err := config.SetTopicEnabled("tns1:NoSuchTopic", true); !errors.Is(err, config.ErrTopicNotFound) {
+		t.Fatalf("expected ErrTopicNotFound, got %v", err)
+	}
+}
