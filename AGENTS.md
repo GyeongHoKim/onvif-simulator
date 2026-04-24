@@ -27,6 +27,7 @@ Use `make` targets rather than calling `go`, `golangci-lint`, or `wails` directl
 | Unit tests (race detector) | `make test` |
 | Coverage | `make coverage` |
 | E2E suite (speaks SOAP against a running simulator) | `make e2e` |
+| Browse Go doc in browser | `make manual` / `make manual DOCS_PORT=3000` |
 | One-time repo setup (hooks + commitlint) | `make setup` |
 
 Run a single Go test: `go test -race -run TestName ./internal/<pkg>/...`.
