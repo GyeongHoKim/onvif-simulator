@@ -42,7 +42,10 @@ func TestParseISO8601Duration(t *testing.T) {
 func TestNewSubscriptionID_Unique(t *testing.T) {
 	seen := make(map[string]bool, 100)
 	for range 100 {
-		id := newSubscriptionID()
+		id, err := newSubscriptionID()
+		if err != nil {
+			t.Fatalf("newSubscriptionID: unexpected error: %v", err)
+		}
 		if seen[id] {
 			t.Fatalf("duplicate subscription ID: %s", id)
 		}

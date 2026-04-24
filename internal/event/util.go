@@ -20,10 +20,13 @@ var (
 const subscriptionIDBytes = 8
 
 // newSubscriptionID returns a random opaque subscription token.
-func newSubscriptionID() string {
+// Returns an error if the underlying random source fails.
+func newSubscriptionID() (string, error) {
 	b := make([]byte, subscriptionIDBytes)
-	_, _ = rand.Read(b)
-	return "sub-" + hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("event: generate subscription ID: %w", err)
+	}
+	return "sub-" + hex.EncodeToString(b), nil
 }
 
 // parseISO8601Duration parses a Go duration string (e.g. "1h", "30m") or a
