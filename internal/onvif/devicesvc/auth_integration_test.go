@@ -84,6 +84,9 @@ func (stubProvider) GetUsers(context.Context) ([]devicesvc.UserInfo, error) {
 func (stubProvider) CreateUsers(context.Context, []devicesvc.UserInfo) error { return nil }
 func (stubProvider) SetUser(context.Context, []devicesvc.UserInfo) error     { return nil }
 func (stubProvider) DeleteUsers(context.Context, []string) error             { return nil }
+func (stubProvider) SetNetworkInterfaces(context.Context, []devicesvc.NetworkInterfaceInfo) error {
+	return nil
+}
 
 const envelopeGet = `<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/GyeongHoKim/onvif-simulator/internal/auth"
@@ -29,6 +30,11 @@ var (
 	errNoServices       = errors.New("devicesvc: no services available")
 	errEmptySOAPBody    = errors.New("devicesvc: empty soap body")
 	errDecodePayload    = errors.New("devicesvc: malformed request payload")
+
+	errSetNetworkInterfacesTokenRequired = errors.New(
+		"devicesvc: SetNetworkInterfaces: InterfaceToken is required")
+	errSetNetworkInterfacesTokenMismatch = errors.New(
+		"devicesvc: SetNetworkInterfaces: NetworkInterface token does not match InterfaceToken")
 )
 
 // Handler serves the ONVIF device management endpoint.
@@ -399,7 +405,8 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 			if iface.IPv4 != nil {
 				manual := make([]prefixedAddressEnvelope, len(iface.IPv4.Manual))
 				for j, m := range iface.IPv4.Manual {
-					manual[j] = prefixedAddressEnvelope{Address: m}
+					addr, prefix := splitCIDR(m)
+					manual[j] = prefixedAddressEnvelope{Address: addr, PrefixLength: prefix}
 				}
 				env.IPv4 = &ipv4ConfigEnvelope{
 					Enabled: iface.IPv4.Enabled,
@@ -412,6 +419,44 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 			envs[i] = env
 		}
 		return xml.Marshal(getNetworkInterfacesResponse{XMLNS: DeviceNamespace, NetworkInterfaces: envs})
+
+	case "SetNetworkInterfaces":
+		var req struct {
+			InterfaceToken   string                   `xml:"InterfaceToken"`
+			NetworkInterface networkInterfaceEnvelope `xml:"NetworkInterface"`
+		}
+		if err := xml.Unmarshal(payload, &req); err != nil {
+			return nil, errors.Join(errDecodePayload, fmt.Errorf("devicesvc: decode SetNetworkInterfaces: %w", err))
+		}
+		env := req.NetworkInterface
+		if strings.TrimSpace(req.InterfaceToken) == "" {
+			return nil, errors.Join(errDecodePayload, errSetNetworkInterfacesTokenRequired)
+		}
+		if env.Token != "" && env.Token != req.InterfaceToken {
+			return nil, errors.Join(errDecodePayload,
+				fmt.Errorf("%w: got %q, want %q", errSetNetworkInterfacesTokenMismatch, env.Token, req.InterfaceToken))
+		}
+		iface := NetworkInterfaceInfo{
+			Token:     req.InterfaceToken,
+			Enabled:   env.Enabled,
+			HwAddress: env.HwAddress,
+			MTU:       env.MTU,
+		}
+		if env.IPv4 != nil {
+			manual := make([]string, len(env.IPv4.Config.Manual))
+			for j, m := range env.IPv4.Config.Manual {
+				manual[j] = joinCIDR(m.Address, m.PrefixLength)
+			}
+			iface.IPv4 = &IPv4Config{
+				Enabled: env.IPv4.Enabled,
+				DHCP:    env.IPv4.Config.DHCP,
+				Manual:  manual,
+			}
+		}
+		if err := s.provider.SetNetworkInterfaces(ctx, []NetworkInterfaceInfo{iface}); err != nil {
+			return nil, err
+		}
+		return xml.Marshal(setNetworkInterfacesResponse{XMLNS: DeviceNamespace})
 
 	case "GetNetworkProtocols":
 		protocols, err := s.provider.GetNetworkProtocols(ctx)
@@ -920,7 +965,8 @@ type getDNSResponse struct {
 }
 
 type prefixedAddressEnvelope struct {
-	Address string `xml:"Address,omitempty"`
+	Address      string `xml:"Address,omitempty"`
+	PrefixLength int    `xml:"PrefixLength"`
 }
 
 type ipv4NetworkConfigEnvelope struct {
@@ -945,6 +991,12 @@ type getNetworkInterfacesResponse struct {
 	XMLName           xml.Name                   `xml:"GetNetworkInterfacesResponse"`
 	XMLNS             string                     `xml:"xmlns,attr"`
 	NetworkInterfaces []networkInterfaceEnvelope `xml:"NetworkInterfaces"`
+}
+
+type setNetworkInterfacesResponse struct {
+	XMLName      xml.Name `xml:"SetNetworkInterfacesResponse"`
+	XMLNS        string   `xml:"xmlns,attr"`
+	RebootNeeded bool     `xml:"RebootNeeded"`
 }
 
 type networkProtocolEnvelope struct {
@@ -1037,4 +1089,25 @@ func envelopesToUsers(envs []userEnvelope) []UserInfo {
 // isIPv6Addr reports whether addr is an IPv6 address (contains a colon).
 func isIPv6Addr(addr string) bool {
 	return strings.Contains(addr, ":")
+}
+
+// splitCIDR breaks "192.168.1.10/24" into ("192.168.1.10", 24). If raw has
+// no slash or the prefix is not numeric, the whole string is returned as
+// the address with a zero prefix so the input round-trips unchanged.
+func splitCIDR(raw string) (addr string, prefix int) {
+	idx := strings.LastIndexByte(raw, '/')
+	if idx < 0 {
+		return raw, 0
+	}
+	p, err := strconv.Atoi(raw[idx+1:])
+	if err != nil {
+		return raw, 0
+	}
+	return raw[:idx], p
+}
+
+// joinCIDR recombines an ONVIF PrefixedIPv4Address (Address + PrefixLength)
+// into CIDR notation for storage in IPv4Config.Manual.
+func joinCIDR(addr string, prefix int) string {
+	return addr + "/" + strconv.Itoa(prefix)
 }

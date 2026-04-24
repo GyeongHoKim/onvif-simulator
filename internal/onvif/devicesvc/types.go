@@ -278,6 +278,10 @@ type Provider interface {
 	// GetNetworkInterfaces returns the list of network interfaces.
 	// The simulator returns a single virtual interface derived from the config.
 	GetNetworkInterfaces(ctx context.Context) ([]NetworkInterfaceInfo, error)
+	// SetNetworkInterfaces persists the network interface list.
+	// The simulator stores the supplied values in RuntimeConfig; it does not
+	// apply them to the host OS network stack.
+	SetNetworkInterfaces(ctx context.Context, ifaces []NetworkInterfaceInfo) error
 	// GetNetworkProtocols returns the enabled/disabled status of HTTP, HTTPS, RTSP.
 	GetNetworkProtocols(ctx context.Context) ([]NetworkProtocol, error)
 	// SetNetworkProtocols updates the protocol list; persists via config.SetNetworkProtocols.

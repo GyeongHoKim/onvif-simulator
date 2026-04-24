@@ -29,6 +29,12 @@ var ErrProfileAlreadyExists = errors.New("config: profile already exists")
 // ErrTopicNotFound is returned by SetTopicEnabled when the topic name does not exist.
 var ErrTopicNotFound = errors.New("config: topic not found")
 
+// ErrMetadataNotFound is returned when no metadata configuration has the given token.
+var ErrMetadataNotFound = errors.New("config: metadata configuration not found")
+
+// ErrMetadataAlreadyExists is returned by AddMetadataConfig when the token is taken.
+var ErrMetadataAlreadyExists = errors.New("config: metadata configuration already exists")
+
 // Update loads the on-disk config, applies mutate in memory, validates, and
 // saves atomically. Concurrent Update calls are serialized. If mutate
 // returns a non-nil error, Save is skipped and the error is returned
@@ -247,10 +253,68 @@ func SetNetworkProtocols(protocols []NetworkProtocol) error {
 	})
 }
 
+// SetNetworkInterfaces replaces the full network interface list and persists.
+// This is called by the devicesvc SetNetworkInterfaces handler.
+func SetNetworkInterfaces(ifaces []NetworkInterfaceConfig) error {
+	return Update(func(c *Config) error {
+		c.Runtime.NetworkInterfaces = append([]NetworkInterfaceConfig(nil), ifaces...)
+		return nil
+	})
+}
+
 // SetSystemDateAndTime persists the system date/time configuration.
 func SetSystemDateAndTime(cfg SystemDateTimeConfig) error {
 	return Update(func(c *Config) error {
 		c.Runtime.SystemDateAndTime = cfg
+		return nil
+	})
+}
+
+// AddMetadataConfig appends a metadata configuration entry.
+// Returns ErrMetadataAlreadyExists if the token is already taken.
+func AddMetadataConfig(m MetadataConfig) error {
+	return Update(func(c *Config) error {
+		for i := range c.Media.MetadataConfigurations {
+			if c.Media.MetadataConfigurations[i].Token == m.Token {
+				return fmt.Errorf("%w: %s", ErrMetadataAlreadyExists, m.Token)
+			}
+		}
+		c.Media.MetadataConfigurations = append(c.Media.MetadataConfigurations, m)
+		return nil
+	})
+}
+
+// RemoveMetadataConfig deletes the metadata configuration with the given token.
+// Returns ErrMetadataNotFound if no such entry exists.
+func RemoveMetadataConfig(token string) error {
+	return Update(func(c *Config) error {
+		filtered := c.Media.MetadataConfigurations[:0]
+		removed := false
+		for i := range c.Media.MetadataConfigurations {
+			if c.Media.MetadataConfigurations[i].Token == token {
+				removed = true
+				continue
+			}
+			filtered = append(filtered, c.Media.MetadataConfigurations[i])
+		}
+		if !removed {
+			return fmt.Errorf("%w: %s", ErrMetadataNotFound, token)
+		}
+		c.Media.MetadataConfigurations = filtered
+		return nil
+	})
+}
+
+// UpsertMetadataConfig inserts or replaces the metadata configuration with the matching token.
+func UpsertMetadataConfig(m MetadataConfig) error {
+	return Update(func(c *Config) error {
+		for i := range c.Media.MetadataConfigurations {
+			if c.Media.MetadataConfigurations[i].Token == m.Token {
+				c.Media.MetadataConfigurations[i] = m
+				return nil
+			}
+		}
+		c.Media.MetadataConfigurations = append(c.Media.MetadataConfigurations, m)
 		return nil
 	})
 }

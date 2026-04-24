@@ -38,6 +38,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -86,12 +87,32 @@ type NetworkConfig struct {
 // ONVIF Device Management operations; they are persisted so that the simulator
 // survives restarts with the last applied values.
 type RuntimeConfig struct {
-	DiscoveryMode     string               `json:"discovery_mode,omitempty"`
-	Hostname          string               `json:"hostname,omitempty"`
-	DNS               DNSConfig            `json:"dns,omitempty"`
-	DefaultGateway    DefaultGatewayConfig `json:"default_gateway,omitempty"`
-	NetworkProtocols  []NetworkProtocol    `json:"network_protocols,omitempty"`
-	SystemDateAndTime SystemDateTimeConfig `json:"system_date_and_time,omitempty"`
+	DiscoveryMode     string                   `json:"discovery_mode,omitempty"`
+	Hostname          string                   `json:"hostname,omitempty"`
+	DNS               DNSConfig                `json:"dns,omitempty"`
+	DefaultGateway    DefaultGatewayConfig     `json:"default_gateway,omitempty"`
+	NetworkProtocols  []NetworkProtocol        `json:"network_protocols,omitempty"`
+	NetworkInterfaces []NetworkInterfaceConfig `json:"network_interfaces,omitempty"`
+	SystemDateAndTime SystemDateTimeConfig     `json:"system_date_and_time,omitempty"`
+}
+
+// NetworkInterfaceConfig mirrors the ONVIF NetworkInterface type for
+// SetNetworkInterfaces / GetNetworkInterfaces persistence.
+type NetworkInterfaceConfig struct {
+	// Token is the interface identifier (e.g. "eth0").
+	Token     string                `json:"token"`
+	Enabled   bool                  `json:"enabled"`
+	HwAddress string                `json:"hw_address,omitempty"`
+	MTU       int                   `json:"mtu,omitempty"`
+	IPv4      *NetworkInterfaceIPv4 `json:"ipv4,omitempty"`
+}
+
+// NetworkInterfaceIPv4 holds the IPv4 settings for one interface.
+type NetworkInterfaceIPv4 struct {
+	Enabled bool `json:"enabled"`
+	DHCP    bool `json:"dhcp"`
+	// Manual holds manually assigned addresses in CIDR notation (e.g. "192.168.1.10/24").
+	Manual []string `json:"manual,omitempty"`
 }
 
 // DNSConfig mirrors the ONVIF DNSInformation type.
@@ -159,6 +180,25 @@ type TopicConfig struct {
 // MediaConfig holds the list of ONVIF media profiles this device advertises.
 type MediaConfig struct {
 	Profiles []ProfileConfig `json:"profiles"`
+	// MaxVideoEncoderInstances is returned by GetGuaranteedNumberOfVideoEncoderInstances.
+	// 0 means "report 1 per profile" (safe simulator default).
+	MaxVideoEncoderInstances int              `json:"max_video_encoder_instances,omitempty"`
+	MetadataConfigurations   []MetadataConfig `json:"metadata_configurations,omitempty"`
+}
+
+// MetadataConfig describes one ONVIF metadata configuration entry.
+// The simulator does not produce a real metadata RTP stream; these values
+// are returned verbatim by the Metadata Configuration operations so that
+// clients can discover and bind metadata configurations to profiles.
+type MetadataConfig struct {
+	Token string `json:"token"`
+	Name  string `json:"name"`
+	// Analytics enables the analytics module in this metadata stream.
+	Analytics bool `json:"analytics,omitempty"`
+	// PTZStatus enables PTZ position/move status in this metadata stream.
+	PTZStatus bool `json:"ptz_status,omitempty"`
+	// Events enables event notifications in this metadata stream.
+	Events bool `json:"events,omitempty"`
 }
 
 // ProfileConfig describes a single ONVIF media profile.
@@ -277,6 +317,25 @@ var (
 
 	// ErrNetworkProtocolNameEmpty means a network protocol entry has an empty name.
 	ErrNetworkProtocolNameEmpty = errors.New("config: runtime.network_protocols entry requires a non-empty name")
+
+	// ErrNetworkInterfaceTokenRequired means a network interface entry has an empty token.
+	ErrNetworkInterfaceTokenRequired = errors.New(
+		"config: runtime.network_interfaces entry requires a non-empty token")
+	// ErrNetworkInterfaceTokenDuplicate means two network interface entries share the same token.
+	ErrNetworkInterfaceTokenDuplicate = errors.New("config: runtime.network_interfaces token must be unique")
+	// ErrNetworkInterfaceMTU means a network interface entry has an out-of-range MTU.
+	ErrNetworkInterfaceMTU = errors.New("config: runtime.network_interfaces entry mtu must be between 0 and 65535")
+	// ErrNetworkInterfaceHwAddress means a network interface entry has a malformed MAC address.
+	ErrNetworkInterfaceHwAddress = errors.New(
+		"config: runtime.network_interfaces entry hw_address must be a valid MAC address")
+	// ErrNetworkInterfaceCIDR means a network interface manual address is not valid CIDR notation.
+	ErrNetworkInterfaceCIDR = errors.New(
+		"config: runtime.network_interfaces entry ipv4.manual must be valid CIDR notation (e.g. 192.168.1.10/24)")
+
+	// ErrMetadataTokenRequired means a metadata configuration entry has an empty token.
+	ErrMetadataTokenRequired = errors.New("config: media.metadata_configurations entry requires a non-empty token")
+	// ErrMetadataTokenDuplicate means two metadata configuration entries share the same token.
+	ErrMetadataTokenDuplicate = errors.New("config: media.metadata_configurations token must be unique")
 
 	// ErrEventsSubscriptionTimeoutInvalid means events.subscription_timeout is not a valid duration.
 	ErrEventsSubscriptionTimeoutInvalid = errors.New(
@@ -397,6 +456,24 @@ func validateMedia(m *MediaConfig) error {
 			return err
 		}
 	}
+	seenMetadataTokens := make(map[string]bool, len(m.MetadataConfigurations))
+	for i := range m.MetadataConfigurations {
+		if err := validateMetadataConfig(i, &m.MetadataConfigurations[i], seenMetadataTokens); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateMetadataConfig(i int, m *MetadataConfig, seen map[string]bool) error {
+	prefix := fmt.Sprintf("media.metadata_configurations[%d]", i)
+	if strings.TrimSpace(m.Token) == "" {
+		return fmt.Errorf("config: %s: %w", prefix, ErrMetadataTokenRequired)
+	}
+	if seen[m.Token] {
+		return fmt.Errorf("config: %s.token %q: %w", prefix, m.Token, ErrMetadataTokenDuplicate)
+	}
+	seen[m.Token] = true
 	return nil
 }
 
@@ -609,12 +686,45 @@ func validateRuntime(r *RuntimeConfig) error {
 			return fmt.Errorf("config: runtime.network_protocols[%d]: %w", i, ErrNetworkProtocolNameEmpty)
 		}
 	}
+	seenInterfaceTokens := make(map[string]bool, len(r.NetworkInterfaces))
+	for i := range r.NetworkInterfaces {
+		if err := validateNetworkInterface(i, &r.NetworkInterfaces[i], seenInterfaceTokens); err != nil {
+			return err
+		}
+	}
 	if r.SystemDateAndTime.ManualDateTimeUTC != "" {
 		if _, err := time.Parse(time.RFC3339, r.SystemDateAndTime.ManualDateTimeUTC); err != nil {
 			return fmt.Errorf(
 				"config: runtime.system_date_and_time.manual_date_time_utc %q: "+
 					"must be RFC3339 (e.g. 2006-01-02T15:04:05Z): %w",
 				r.SystemDateAndTime.ManualDateTimeUTC, err)
+		}
+	}
+	return nil
+}
+
+func validateNetworkInterface(i int, iface *NetworkInterfaceConfig, seen map[string]bool) error {
+	prefix := fmt.Sprintf("runtime.network_interfaces[%d]", i)
+	if strings.TrimSpace(iface.Token) == "" {
+		return fmt.Errorf("config: %s: %w", prefix, ErrNetworkInterfaceTokenRequired)
+	}
+	if seen[iface.Token] {
+		return fmt.Errorf("config: %s.token %q: %w", prefix, iface.Token, ErrNetworkInterfaceTokenDuplicate)
+	}
+	seen[iface.Token] = true
+	if iface.MTU < 0 || iface.MTU > 65535 {
+		return fmt.Errorf("config: %s.mtu %d: %w", prefix, iface.MTU, ErrNetworkInterfaceMTU)
+	}
+	if iface.HwAddress != "" {
+		if _, err := net.ParseMAC(iface.HwAddress); err != nil {
+			return fmt.Errorf("config: %s.hw_address %q: %w", prefix, iface.HwAddress, ErrNetworkInterfaceHwAddress)
+		}
+	}
+	if iface.IPv4 != nil {
+		for j, m := range iface.IPv4.Manual {
+			if _, _, err := net.ParseCIDR(m); err != nil {
+				return fmt.Errorf("config: %s.ipv4.manual[%d] %q: %w", prefix, j, m, ErrNetworkInterfaceCIDR)
+			}
 		}
 	}
 	return nil

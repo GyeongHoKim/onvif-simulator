@@ -106,6 +106,9 @@ func (stubProvider) GetUsers(context.Context) ([]UserInfo, error) {
 func (stubProvider) CreateUsers(context.Context, []UserInfo) error { return nil }
 func (stubProvider) SetUser(context.Context, []UserInfo) error     { return nil }
 func (stubProvider) DeleteUsers(context.Context, []string) error   { return nil }
+func (stubProvider) SetNetworkInterfaces(context.Context, []NetworkInterfaceInfo) error {
+	return nil
+}
 
 var errProviderBoom = errors.New("provider boom")
 
@@ -178,6 +181,9 @@ func (errProvider) GetUsers(context.Context) ([]UserInfo, error)          { retu
 func (errProvider) CreateUsers(context.Context, []UserInfo) error         { return errProviderBoom }
 func (errProvider) SetUser(context.Context, []UserInfo) error             { return errProviderBoom }
 func (errProvider) DeleteUsers(context.Context, []string) error           { return errProviderBoom }
+func (errProvider) SetNetworkInterfaces(context.Context, []NetworkInterfaceInfo) error {
+	return errProviderBoom
+}
 
 type emptyServicesProvider struct{ stubProvider }
 
@@ -662,6 +668,38 @@ func TestServeHTTP_GetNetworkInterfaces(t *testing.T) {
 	}
 }
 
+func TestServeHTTP_SetNetworkInterfaces(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	inner := `<InterfaceToken>eth0</InterfaceToken>` +
+		`<NetworkInterface><Enabled>true</Enabled>` +
+		`<IPv4><Enabled>true</Enabled><Config><DHCP>false</DHCP>` +
+		`<Manual><Address>192.168.1.10</Address><PrefixLength>24</PrefixLength></Manual>` +
+		`</Config></IPv4></NetworkInterface>`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetNetworkInterfaces", inner)))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "SetNetworkInterfacesResponse") {
+		t.Fatalf("body missing SetNetworkInterfacesResponse: %s", body)
+	}
+	if !strings.Contains(body, "<RebootNeeded>false</RebootNeeded>") {
+		t.Fatalf("body missing RebootNeeded: %s", body)
+	}
+}
+
+func TestServeHTTP_SetNetworkInterfacesBadPayload(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetNetworkInterfaces", "<bad><xml")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
 func TestServeHTTP_GetNetworkProtocols(t *testing.T) {
 	svc := NewHandler(stubProvider{})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetNetworkProtocols", "")))
@@ -848,6 +886,7 @@ func TestServeHTTP_ProviderErrors_NewOps(t *testing.T) {
 		{"GetDNS", ""},
 		{"SetDNS", "<FromDHCP>false</FromDHCP>"},
 		{"GetNetworkInterfaces", ""},
+		{"SetNetworkInterfaces", `<InterfaceToken>eth0</InterfaceToken><NetworkInterface><Enabled>true</Enabled></NetworkInterface>`},
 		{"GetNetworkProtocols", ""},
 		{"SetNetworkProtocols", "<NetworkProtocols><Name>HTTP</Name><Enabled>true</Enabled></NetworkProtocols>"},
 		{"GetNetworkDefaultGateway", ""},

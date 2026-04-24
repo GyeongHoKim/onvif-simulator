@@ -444,3 +444,91 @@ func TestSetTopicEnabled(t *testing.T) {
 		t.Fatalf("expected ErrTopicNotFound, got %v", err)
 	}
 }
+
+func TestSetNetworkInterfaces(t *testing.T) {
+	seed(t)
+
+	ifaces := []config.NetworkInterfaceConfig{
+		{
+			Token:   "eth0",
+			Enabled: true,
+			IPv4: &config.NetworkInterfaceIPv4{
+				Enabled: true,
+				DHCP:    false,
+				Manual:  []string{"192.168.1.100/24"},
+			},
+		},
+	}
+	if err := config.SetNetworkInterfaces(ifaces); err != nil {
+		t.Fatalf("SetNetworkInterfaces: %v", err)
+	}
+	got := loadOrFail(t)
+	if len(got.Runtime.NetworkInterfaces) != 1 {
+		t.Fatalf("network interfaces not persisted: %+v", got.Runtime.NetworkInterfaces)
+	}
+	if got.Runtime.NetworkInterfaces[0].Token != "eth0" {
+		t.Fatalf("wrong token: %q", got.Runtime.NetworkInterfaces[0].Token)
+	}
+	if len(got.Runtime.NetworkInterfaces[0].IPv4.Manual) == 0 ||
+		got.Runtime.NetworkInterfaces[0].IPv4.Manual[0] != "192.168.1.100/24" {
+		t.Fatalf("wrong address: %+v", got.Runtime.NetworkInterfaces[0].IPv4)
+	}
+}
+
+func TestAddRemoveUpsertMetadataConfig(t *testing.T) {
+	seed(t)
+
+	mc := config.MetadataConfig{
+		Token:     "meta0",
+		PTZStatus: true,
+		Analytics: false,
+	}
+
+	// AddMetadataConfig happy path
+	if err := config.AddMetadataConfig(mc); err != nil {
+		t.Fatalf("AddMetadataConfig: %v", err)
+	}
+	got := loadOrFail(t)
+	if len(got.Media.MetadataConfigurations) != 1 {
+		t.Fatalf("metadata config not persisted: %+v", got.Media.MetadataConfigurations)
+	}
+
+	// AddMetadataConfig duplicate
+	if err := config.AddMetadataConfig(mc); !errors.Is(err, config.ErrMetadataAlreadyExists) {
+		t.Fatalf("expected ErrMetadataAlreadyExists, got %v", err)
+	}
+
+	// UpsertMetadataConfig updates existing
+	mc.PTZStatus = false
+	if err := config.UpsertMetadataConfig(mc); err != nil {
+		t.Fatalf("UpsertMetadataConfig update: %v", err)
+	}
+	got = loadOrFail(t)
+	if got.Media.MetadataConfigurations[0].PTZStatus {
+		t.Fatalf("PTZStatus not updated by upsert")
+	}
+
+	// UpsertMetadataConfig inserts new
+	mc2 := config.MetadataConfig{Token: "meta1", Name: "Meta 1"}
+	if err := config.UpsertMetadataConfig(mc2); err != nil {
+		t.Fatalf("UpsertMetadataConfig insert: %v", err)
+	}
+	got = loadOrFail(t)
+	if len(got.Media.MetadataConfigurations) != 2 {
+		t.Fatalf("upsert did not insert: %+v", got.Media.MetadataConfigurations)
+	}
+
+	// RemoveMetadataConfig happy path
+	if err := config.RemoveMetadataConfig("meta0"); err != nil {
+		t.Fatalf("RemoveMetadataConfig: %v", err)
+	}
+	got = loadOrFail(t)
+	if len(got.Media.MetadataConfigurations) != 1 {
+		t.Fatalf("remove did not delete: %+v", got.Media.MetadataConfigurations)
+	}
+
+	// RemoveMetadataConfig not found
+	if err := config.RemoveMetadataConfig("noSuch"); !errors.Is(err, config.ErrMetadataNotFound) {
+		t.Fatalf("expected ErrMetadataNotFound, got %v", err)
+	}
+}
