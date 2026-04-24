@@ -115,13 +115,142 @@ type CapabilitySet struct {
 	Imaging ServiceCapability
 }
 
+// DiscoveryInfo is returned by GetDiscoveryMode and consumed by SetDiscoveryMode.
+type DiscoveryInfo struct {
+	// DiscoveryMode is "Discoverable" or "NonDiscoverable".
+	DiscoveryMode string
+}
+
+// ScopeEntry represents one scope item returned by GetScopes.
+type ScopeEntry struct {
+	// ScopeDef is "Fixed" or "Configurable".
+	ScopeDef string
+	// ScopeItem is the absolute URI, e.g. "onvif://www.onvif.org/name/…".
+	ScopeItem string
+}
+
+// HostnameInfo is returned by GetHostname.
+type HostnameInfo struct {
+	// FromDHCP indicates whether the hostname was obtained via DHCP.
+	FromDHCP bool
+	// Name is the current hostname. May be empty if not configured.
+	Name string
+}
+
+// DNSInfo is returned by GetDNS.
+type DNSInfo struct {
+	FromDHCP     bool
+	SearchDomain []string
+	// DNSManual holds manually configured DNS server addresses.
+	DNSManual []string
+}
+
+// NetworkInterfaceInfo represents one network interface returned by
+// GetNetworkInterfaces.
+type NetworkInterfaceInfo struct {
+	Token   string
+	Enabled bool
+	// HwAddress is the MAC address, e.g. "aa:bb:cc:dd:ee:ff".
+	HwAddress string
+	// MTU is the interface MTU. 0 means not reported.
+	MTU int
+	// IPv4 holds IPv4 configuration. Nil if not configured.
+	IPv4 *IPv4Config
+}
+
+// IPv4Config holds the IPv4 configuration for one interface.
+type IPv4Config struct {
+	Enabled bool
+	DHCP    bool
+	// Manual holds manually assigned addresses (CIDR notation, e.g. "192.168.1.10/24").
+	Manual []string
+}
+
+// NetworkProtocol mirrors the ONVIF NetworkProtocol type for one protocol entry.
+type NetworkProtocol struct {
+	Name    string
+	Enabled bool
+	Port    []int
+}
+
+// DefaultGatewayInfo is returned by GetNetworkDefaultGateway.
+type DefaultGatewayInfo struct {
+	IPv4Address []string
+	IPv6Address []string
+}
+
+// SystemDateAndTimeInfo is returned by GetSystemDateAndTime.
+type SystemDateAndTimeInfo struct {
+	// DateTimeType is "Manual" or "NTP".
+	DateTimeType    string
+	DaylightSavings bool
+	// TZ is the POSIX timezone string, e.g. "UTC".
+	TZ string
+	// UTCDateTime is the current UTC time. Zero value is acceptable for
+	// implementations that defer to the host clock.
+	UTCDateTime SystemDateTime
+}
+
+// SystemDateTime carries year/month/day and hour/minute/second.
+type SystemDateTime struct {
+	Year, Month, Day     int
+	Hour, Minute, Second int
+}
+
+// SetSystemDateAndTimeParams carries the parameters for SetSystemDateAndTime.
+type SetSystemDateAndTimeParams struct {
+	DateTimeType    string
+	DaylightSavings bool
+	TZ              string
+	UTCDateTime     SystemDateTime
+}
+
+// UserInfo represents one ONVIF user entry.
+type UserInfo struct {
+	Username  string
+	Password  string
+	UserLevel string
+}
+
 // Provider supplies operation data for a Device Service.
 type Provider interface {
+	// --- Identity / capabilities ---
 	DeviceInfo(ctx context.Context) (DeviceInfo, error)
 	Services(ctx context.Context, includeCapability bool) ([]ServiceDescriptor, error)
 	GetServiceCapabilities(ctx context.Context) (DeviceServiceCapabilities, error)
 	GetCapabilities(ctx context.Context, category string) (CapabilitySet, error)
 	WsdlURL(ctx context.Context) (string, error)
+
+	// --- Discovery (§7.3) ---
+	GetDiscoveryMode(ctx context.Context) (DiscoveryInfo, error)
+	SetDiscoveryMode(ctx context.Context, mode string) error
+	GetScopes(ctx context.Context) ([]ScopeEntry, error)
+	SetScopes(ctx context.Context, scopes []string) error
+	AddScopes(ctx context.Context, scopes []string) error
+	RemoveScopes(ctx context.Context, scopes []string) ([]string, error)
+
+	// --- Network configuration (§7.4) ---
+	GetHostname(ctx context.Context) (HostnameInfo, error)
+	SetHostname(ctx context.Context, name string) error
+	GetDNS(ctx context.Context) (DNSInfo, error)
+	SetDNS(ctx context.Context, info DNSInfo) error
+	GetNetworkInterfaces(ctx context.Context) ([]NetworkInterfaceInfo, error)
+	GetNetworkProtocols(ctx context.Context) ([]NetworkProtocol, error)
+	SetNetworkProtocols(ctx context.Context, protocols []NetworkProtocol) error
+	GetNetworkDefaultGateway(ctx context.Context) (DefaultGatewayInfo, error)
+	SetNetworkDefaultGateway(ctx context.Context, info DefaultGatewayInfo) error
+
+	// --- System (§7.5) ---
+	GetSystemDateAndTime(ctx context.Context) (SystemDateAndTimeInfo, error)
+	SetSystemDateAndTime(ctx context.Context, params SetSystemDateAndTimeParams) error
+	SetSystemFactoryDefault(ctx context.Context, factoryDefault string) error
+	SystemReboot(ctx context.Context) (string, error)
+
+	// --- User handling (§7.6) ---
+	GetUsers(ctx context.Context) ([]UserInfo, error)
+	CreateUsers(ctx context.Context, users []UserInfo) error
+	SetUser(ctx context.Context, users []UserInfo) error
+	DeleteUsers(ctx context.Context, usernames []string) error
 }
 
 // AuthHook authorizes one request before the operation is executed.

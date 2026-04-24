@@ -50,6 +50,61 @@ func (stubProvider) WsdlURL(context.Context) (string, error) {
 	return "http://www.onvif.org/ver10/device/wsdl/devicemgmt.wsdl", nil
 }
 
+// --- Discovery stubs ---
+
+func (stubProvider) GetDiscoveryMode(context.Context) (DiscoveryInfo, error) {
+	return DiscoveryInfo{DiscoveryMode: "Discoverable"}, nil
+}
+func (stubProvider) SetDiscoveryMode(context.Context, string) error { return nil }
+func (stubProvider) GetScopes(context.Context) ([]ScopeEntry, error) {
+	return []ScopeEntry{{ScopeDef: "Fixed", ScopeItem: "onvif://www.onvif.org/type/video_encoder"}}, nil
+}
+func (stubProvider) SetScopes(context.Context, []string) error                { return nil }
+func (stubProvider) AddScopes(context.Context, []string) error                { return nil }
+func (stubProvider) RemoveScopes(context.Context, []string) ([]string, error) { return nil, nil }
+
+// --- Network stubs ---
+
+func (stubProvider) GetHostname(context.Context) (HostnameInfo, error) {
+	return HostnameInfo{Name: "simulator"}, nil
+}
+func (stubProvider) SetHostname(context.Context, string) error { return nil }
+func (stubProvider) GetDNS(context.Context) (DNSInfo, error)   { return DNSInfo{}, nil }
+func (stubProvider) SetDNS(context.Context, DNSInfo) error     { return nil }
+func (stubProvider) GetNetworkInterfaces(context.Context) ([]NetworkInterfaceInfo, error) {
+	return nil, nil
+}
+func (stubProvider) GetNetworkProtocols(context.Context) ([]NetworkProtocol, error) {
+	return []NetworkProtocol{{Name: "HTTP", Enabled: true, Port: []int{80}}}, nil
+}
+func (stubProvider) SetNetworkProtocols(context.Context, []NetworkProtocol) error { return nil }
+func (stubProvider) GetNetworkDefaultGateway(context.Context) (DefaultGatewayInfo, error) {
+	return DefaultGatewayInfo{}, nil
+}
+func (stubProvider) SetNetworkDefaultGateway(context.Context, DefaultGatewayInfo) error { return nil }
+
+// --- System stubs ---
+
+func (stubProvider) GetSystemDateAndTime(context.Context) (SystemDateAndTimeInfo, error) {
+	return SystemDateAndTimeInfo{DateTimeType: "Manual", TZ: "UTC"}, nil
+}
+func (stubProvider) SetSystemDateAndTime(context.Context, SetSystemDateAndTimeParams) error {
+	return nil
+}
+func (stubProvider) SetSystemFactoryDefault(context.Context, string) error { return nil }
+func (stubProvider) SystemReboot(context.Context) (string, error) {
+	return "Rebooting simulator", nil
+}
+
+// --- User stubs ---
+
+func (stubProvider) GetUsers(context.Context) ([]UserInfo, error) {
+	return []UserInfo{{Username: "admin", UserLevel: "Administrator"}}, nil
+}
+func (stubProvider) CreateUsers(context.Context, []UserInfo) error { return nil }
+func (stubProvider) SetUser(context.Context, []UserInfo) error     { return nil }
+func (stubProvider) DeleteUsers(context.Context, []string) error   { return nil }
+
 var errProviderBoom = errors.New("provider boom")
 
 type errProvider struct{}
@@ -73,6 +128,54 @@ func (errProvider) GetCapabilities(context.Context, string) (CapabilitySet, erro
 func (errProvider) WsdlURL(context.Context) (string, error) {
 	return "", errProviderBoom
 }
+
+// errProvider stubs for new operations — all return errProviderBoom.
+
+func (errProvider) GetDiscoveryMode(context.Context) (DiscoveryInfo, error) {
+	return DiscoveryInfo{}, errProviderBoom
+}
+func (errProvider) SetDiscoveryMode(context.Context, string) error { return errProviderBoom }
+func (errProvider) GetScopes(context.Context) ([]ScopeEntry, error) {
+	return nil, errProviderBoom
+}
+func (errProvider) SetScopes(context.Context, []string) error { return errProviderBoom }
+func (errProvider) AddScopes(context.Context, []string) error { return errProviderBoom }
+func (errProvider) RemoveScopes(context.Context, []string) ([]string, error) {
+	return nil, errProviderBoom
+}
+func (errProvider) GetHostname(context.Context) (HostnameInfo, error) {
+	return HostnameInfo{}, errProviderBoom
+}
+func (errProvider) SetHostname(context.Context, string) error { return errProviderBoom }
+func (errProvider) GetDNS(context.Context) (DNSInfo, error)   { return DNSInfo{}, errProviderBoom }
+func (errProvider) SetDNS(context.Context, DNSInfo) error     { return errProviderBoom }
+func (errProvider) GetNetworkInterfaces(context.Context) ([]NetworkInterfaceInfo, error) {
+	return nil, errProviderBoom
+}
+func (errProvider) GetNetworkProtocols(context.Context) ([]NetworkProtocol, error) {
+	return nil, errProviderBoom
+}
+func (errProvider) SetNetworkProtocols(context.Context, []NetworkProtocol) error {
+	return errProviderBoom
+}
+func (errProvider) GetNetworkDefaultGateway(context.Context) (DefaultGatewayInfo, error) {
+	return DefaultGatewayInfo{}, errProviderBoom
+}
+func (errProvider) SetNetworkDefaultGateway(context.Context, DefaultGatewayInfo) error {
+	return errProviderBoom
+}
+func (errProvider) GetSystemDateAndTime(context.Context) (SystemDateAndTimeInfo, error) {
+	return SystemDateAndTimeInfo{}, errProviderBoom
+}
+func (errProvider) SetSystemDateAndTime(context.Context, SetSystemDateAndTimeParams) error {
+	return errProviderBoom
+}
+func (errProvider) SetSystemFactoryDefault(context.Context, string) error { return errProviderBoom }
+func (errProvider) SystemReboot(context.Context) (string, error)          { return "", errProviderBoom }
+func (errProvider) GetUsers(context.Context) ([]UserInfo, error)          { return nil, errProviderBoom }
+func (errProvider) CreateUsers(context.Context, []UserInfo) error         { return errProviderBoom }
+func (errProvider) SetUser(context.Context, []UserInfo) error             { return errProviderBoom }
+func (errProvider) DeleteUsers(context.Context, []string) error           { return errProviderBoom }
 
 type emptyServicesProvider struct{ stubProvider }
 
@@ -139,7 +242,7 @@ func TestServeHTTP_GetDeviceInformation(t *testing.T) {
 
 func TestServeHTTP_UnsupportedOperationFault(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetUsers", "")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetUnknownOp", "")))
 	rec := httptest.NewRecorder()
 
 	svc.ServeHTTP(rec, req)
