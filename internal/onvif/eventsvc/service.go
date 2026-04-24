@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/GyeongHoKim/onvif-simulator/internal/auth"
@@ -188,11 +189,18 @@ func (h *EventServiceHandler) handleCreatePullPointSubscription(ctx context.Cont
 		return nil, err
 	}
 
-	addr := h.subscriptionManagerAddr
-	if addr == "" {
-		addr = SubscriptionManagerPath
+	rawAddr := h.subscriptionManagerAddr
+	if rawAddr == "" {
+		rawAddr = SubscriptionManagerPath
 	}
-	addr = addr + "?id=" + info.SubscriptionID
+	u, err := url.Parse(rawAddr)
+	if err != nil {
+		return nil, fmt.Errorf("eventsvc: parse subscription manager addr: %w", err)
+	}
+	q := u.Query()
+	q.Set("id", info.SubscriptionID)
+	u.RawQuery = q.Encode()
+	addr := u.String()
 
 	return xml.Marshal(createPullPointSubscriptionResponse{
 		XMLNS:    EventsNamespace,
