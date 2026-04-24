@@ -26,8 +26,8 @@ const (
 )
 
 // TopicConfig mirrors config.TopicConfig to avoid a circular import.
-// Set Enabled=false to hide a topic from GetEventProperties; Publish still
-// routes messages to any subscription that explicitly filters on that topic.
+// Set Enabled=false to hide a topic from GetEventProperties and to prevent
+// Publish from routing messages for that topic.
 type TopicConfig struct {
 	Name    string
 	Enabled bool
@@ -122,9 +122,14 @@ func (b *Broker) Stop() {
 //	 </tt:Message>`
 //
 // Publish is safe for concurrent use and returns immediately.
+// If the topic is not in the broker's topic list or is disabled, Publish is a no-op.
 func (b *Broker) Publish(topic, message string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if !b.topicEnabledLocked(topic) {
+		return
+	}
 
 	now := time.Now()
 	for id, sub := range b.subs {
@@ -141,6 +146,17 @@ func (b *Broker) Publish(topic, message string) {
 		})
 		_ = id
 	}
+}
+
+// topicEnabledLocked reports whether topic is in the broker's config and enabled.
+// Must be called with b.mu held.
+func (b *Broker) topicEnabledLocked(topic string) bool {
+	for _, t := range b.cfg.Topics {
+		if t.Name == topic {
+			return t.Enabled
+		}
+	}
+	return false
 }
 
 // UpdateConfig replaces the broker's runtime configuration. Active
@@ -208,7 +224,10 @@ func (b *Broker) CreatePullPointSubscription(
 		}
 	}
 
-	id := newSubscriptionID()
+	id, err := newSubscriptionID()
+	if err != nil {
+		return eventsvc.SubscriptionInfo{}, err
+	}
 	now := time.Now()
 	sub := &subscription{
 		id:              id,
@@ -229,6 +248,12 @@ func (b *Broker) CreatePullPointSubscription(
 func (b *Broker) PullMessages(
 	_ context.Context, subscriptionID string, params eventsvc.PullMessagesParams,
 ) (eventsvc.PullMessagesResult, error) {
+	if params.MessageLimit < 0 {
+		return eventsvc.PullMessagesResult{}, fmt.Errorf(
+			"%w: MessageLimit must be non-negative (got %d) for subscription %s",
+			eventsvc.ErrInvalidArgs, params.MessageLimit, subscriptionID)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -290,8 +315,13 @@ func (b *Broker) Unsubscribe(_ context.Context, subscriptionID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.subs[subscriptionID]; !ok {
+	sub, ok := b.subs[subscriptionID]
+	if !ok {
 		return fmt.Errorf("%w: %s", eventsvc.ErrSubscriptionNotFound, subscriptionID)
+	}
+	if time.Now().After(sub.terminationTime) {
+		delete(b.subs, subscriptionID)
+		return fmt.Errorf("%w: %s (expired)", eventsvc.ErrSubscriptionNotFound, subscriptionID)
 	}
 	delete(b.subs, subscriptionID)
 	return nil
