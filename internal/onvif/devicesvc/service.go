@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/GyeongHoKim/onvif-simulator/internal/auth"
@@ -399,7 +400,8 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 			if iface.IPv4 != nil {
 				manual := make([]prefixedAddressEnvelope, len(iface.IPv4.Manual))
 				for j, m := range iface.IPv4.Manual {
-					manual[j] = prefixedAddressEnvelope{Address: m}
+					addr, prefix := splitCIDR(m)
+					manual[j] = prefixedAddressEnvelope{Address: addr, PrefixLength: prefix}
 				}
 				env.IPv4 = &ipv4ConfigEnvelope{
 					Enabled: iface.IPv4.Enabled,
@@ -431,7 +433,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 		if env.IPv4 != nil {
 			manual := make([]string, len(env.IPv4.Config.Manual))
 			for j, m := range env.IPv4.Config.Manual {
-				manual[j] = m.Address
+				manual[j] = joinCIDR(m.Address, m.PrefixLength)
 			}
 			iface.IPv4 = &IPv4Config{
 				Enabled: env.IPv4.Enabled,
@@ -951,7 +953,8 @@ type getDNSResponse struct {
 }
 
 type prefixedAddressEnvelope struct {
-	Address string `xml:"Address,omitempty"`
+	Address      string `xml:"Address,omitempty"`
+	PrefixLength int    `xml:"PrefixLength"`
 }
 
 type ipv4NetworkConfigEnvelope struct {
@@ -1074,4 +1077,25 @@ func envelopesToUsers(envs []userEnvelope) []UserInfo {
 // isIPv6Addr reports whether addr is an IPv6 address (contains a colon).
 func isIPv6Addr(addr string) bool {
 	return strings.Contains(addr, ":")
+}
+
+// splitCIDR breaks "192.168.1.10/24" into ("192.168.1.10", 24). If raw has
+// no slash or the prefix is not numeric, the whole string is returned as
+// the address with a zero prefix so the input round-trips unchanged.
+func splitCIDR(raw string) (addr string, prefix int) {
+	idx := strings.LastIndexByte(raw, '/')
+	if idx < 0 {
+		return raw, 0
+	}
+	p, err := strconv.Atoi(raw[idx+1:])
+	if err != nil {
+		return raw, 0
+	}
+	return raw[:idx], p
+}
+
+// joinCIDR recombines an ONVIF PrefixedIPv4Address (Address + PrefixLength)
+// into CIDR notation for storage in IPv4Config.Manual.
+func joinCIDR(addr string, prefix int) string {
+	return addr + "/" + strconv.Itoa(prefix)
 }

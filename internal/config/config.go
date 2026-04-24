@@ -38,6 +38,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -317,6 +318,25 @@ var (
 	// ErrNetworkProtocolNameEmpty means a network protocol entry has an empty name.
 	ErrNetworkProtocolNameEmpty = errors.New("config: runtime.network_protocols entry requires a non-empty name")
 
+	// ErrNetworkInterfaceTokenRequired means a network interface entry has an empty token.
+	ErrNetworkInterfaceTokenRequired = errors.New(
+		"config: runtime.network_interfaces entry requires a non-empty token")
+	// ErrNetworkInterfaceTokenDuplicate means two network interface entries share the same token.
+	ErrNetworkInterfaceTokenDuplicate = errors.New("config: runtime.network_interfaces token must be unique")
+	// ErrNetworkInterfaceMTU means a network interface entry has an out-of-range MTU.
+	ErrNetworkInterfaceMTU = errors.New("config: runtime.network_interfaces entry mtu must be between 0 and 65535")
+	// ErrNetworkInterfaceHwAddress means a network interface entry has a malformed MAC address.
+	ErrNetworkInterfaceHwAddress = errors.New(
+		"config: runtime.network_interfaces entry hw_address must be a valid MAC address")
+	// ErrNetworkInterfaceCIDR means a network interface manual address is not valid CIDR notation.
+	ErrNetworkInterfaceCIDR = errors.New(
+		"config: runtime.network_interfaces entry ipv4.manual must be valid CIDR notation (e.g. 192.168.1.10/24)")
+
+	// ErrMetadataTokenRequired means a metadata configuration entry has an empty token.
+	ErrMetadataTokenRequired = errors.New("config: media.metadata_configurations entry requires a non-empty token")
+	// ErrMetadataTokenDuplicate means two metadata configuration entries share the same token.
+	ErrMetadataTokenDuplicate = errors.New("config: media.metadata_configurations token must be unique")
+
 	// ErrEventsSubscriptionTimeoutInvalid means events.subscription_timeout is not a valid duration.
 	ErrEventsSubscriptionTimeoutInvalid = errors.New(
 		"config: events.subscription_timeout must be a Go duration (e.g. 1h) or ISO 8601 PT duration (e.g. PT1H)")
@@ -436,6 +456,24 @@ func validateMedia(m *MediaConfig) error {
 			return err
 		}
 	}
+	seenMetadataTokens := make(map[string]bool, len(m.MetadataConfigurations))
+	for i := range m.MetadataConfigurations {
+		if err := validateMetadataConfig(i, &m.MetadataConfigurations[i], seenMetadataTokens); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateMetadataConfig(i int, m *MetadataConfig, seen map[string]bool) error {
+	prefix := fmt.Sprintf("media.metadata_configurations[%d]", i)
+	if strings.TrimSpace(m.Token) == "" {
+		return fmt.Errorf("config: %s: %w", prefix, ErrMetadataTokenRequired)
+	}
+	if seen[m.Token] {
+		return fmt.Errorf("config: %s.token %q: %w", prefix, m.Token, ErrMetadataTokenDuplicate)
+	}
+	seen[m.Token] = true
 	return nil
 }
 
@@ -648,12 +686,45 @@ func validateRuntime(r *RuntimeConfig) error {
 			return fmt.Errorf("config: runtime.network_protocols[%d]: %w", i, ErrNetworkProtocolNameEmpty)
 		}
 	}
+	seenInterfaceTokens := make(map[string]bool, len(r.NetworkInterfaces))
+	for i := range r.NetworkInterfaces {
+		if err := validateNetworkInterface(i, &r.NetworkInterfaces[i], seenInterfaceTokens); err != nil {
+			return err
+		}
+	}
 	if r.SystemDateAndTime.ManualDateTimeUTC != "" {
 		if _, err := time.Parse(time.RFC3339, r.SystemDateAndTime.ManualDateTimeUTC); err != nil {
 			return fmt.Errorf(
 				"config: runtime.system_date_and_time.manual_date_time_utc %q: "+
 					"must be RFC3339 (e.g. 2006-01-02T15:04:05Z): %w",
 				r.SystemDateAndTime.ManualDateTimeUTC, err)
+		}
+	}
+	return nil
+}
+
+func validateNetworkInterface(i int, iface *NetworkInterfaceConfig, seen map[string]bool) error {
+	prefix := fmt.Sprintf("runtime.network_interfaces[%d]", i)
+	if strings.TrimSpace(iface.Token) == "" {
+		return fmt.Errorf("config: %s: %w", prefix, ErrNetworkInterfaceTokenRequired)
+	}
+	if seen[iface.Token] {
+		return fmt.Errorf("config: %s.token %q: %w", prefix, iface.Token, ErrNetworkInterfaceTokenDuplicate)
+	}
+	seen[iface.Token] = true
+	if iface.MTU < 0 || iface.MTU > 65535 {
+		return fmt.Errorf("config: %s.mtu %d: %w", prefix, iface.MTU, ErrNetworkInterfaceMTU)
+	}
+	if iface.HwAddress != "" {
+		if _, err := net.ParseMAC(iface.HwAddress); err != nil {
+			return fmt.Errorf("config: %s.hw_address %q: %w", prefix, iface.HwAddress, ErrNetworkInterfaceHwAddress)
+		}
+	}
+	if iface.IPv4 != nil {
+		for j, m := range iface.IPv4.Manual {
+			if _, _, err := net.ParseCIDR(m); err != nil {
+				return fmt.Errorf("config: %s.ipv4.manual[%d] %q: %w", prefix, j, m, ErrNetworkInterfaceCIDR)
+			}
 		}
 	}
 	return nil
