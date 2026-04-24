@@ -122,6 +122,11 @@ type SystemDateTimeConfig struct {
 	DaylightSavings bool   `json:"daylight_savings,omitempty"`
 	// TZ is the POSIX timezone string, e.g. "UTC" or "KST-9".
 	TZ string `json:"tz,omitempty"`
+	// ManualDateTimeUTC holds the manually set UTC time when DateTimeType is
+	// "Manual". Format: RFC3339, e.g. "2026-01-15T12:00:00Z". The provider
+	// restores this value on startup and prefers it over the system clock when
+	// DateTimeType == "Manual".
+	ManualDateTimeUTC string `json:"manual_date_time_utc,omitempty"`
 }
 
 // EventsConfig configures the Event Service and the set of topics the
@@ -130,9 +135,10 @@ type EventsConfig struct {
 	// MaxPullPoints is the maximum number of concurrent pull-point
 	// subscriptions. 0 means no limit is advertised (defaults to 10).
 	MaxPullPoints int `json:"max_pull_points,omitempty"`
-	// SubscriptionTimeout is the default ISO 8601 duration used when a
+	// SubscriptionTimeout is the default duration used when a
 	// CreatePullPointSubscription request omits InitialTerminationTime.
-	// Example: "PT1H". Defaults to "PT1H" if empty.
+	// Accepts Go durations (e.g. "1h", "30m") or ISO 8601 PT durations
+	// (e.g. "PT1H", "PT30M"). Defaults to "1h" if empty.
 	SubscriptionTimeout string `json:"subscription_timeout,omitempty"`
 	// Topics declares which ONVIF event topics the simulator supports.
 	// Each entry controls whether the topic appears in GetEventProperties
@@ -272,8 +278,9 @@ var (
 	// ErrNetworkProtocolNameEmpty means a network protocol entry has an empty name.
 	ErrNetworkProtocolNameEmpty = errors.New("config: runtime.network_protocols entry requires a non-empty name")
 
-	// ErrEventsSubscriptionTimeoutInvalid means events.subscription_timeout is not a valid ISO 8601 duration.
-	ErrEventsSubscriptionTimeoutInvalid = errors.New("config: events.subscription_timeout must be a Go duration (e.g. 1h)")
+	// ErrEventsSubscriptionTimeoutInvalid means events.subscription_timeout is not a valid duration.
+	ErrEventsSubscriptionTimeoutInvalid = errors.New(
+		"config: events.subscription_timeout must be a Go duration (e.g. 1h) or ISO 8601 PT duration (e.g. PT1H)")
 
 	// ErrEventsTopicNameEmpty means a topic entry has an empty name.
 	ErrEventsTopicNameEmpty = errors.New("config: events.topics entry requires a non-empty name")
@@ -602,12 +609,52 @@ func validateRuntime(r *RuntimeConfig) error {
 			return fmt.Errorf("config: runtime.network_protocols[%d]: %w", i, ErrNetworkProtocolNameEmpty)
 		}
 	}
+	if r.SystemDateAndTime.ManualDateTimeUTC != "" {
+		if _, err := time.Parse(time.RFC3339, r.SystemDateAndTime.ManualDateTimeUTC); err != nil {
+			return fmt.Errorf(
+				"config: runtime.system_date_and_time.manual_date_time_utc %q: "+
+					"must be RFC3339 (e.g. 2006-01-02T15:04:05Z): %w",
+				r.SystemDateAndTime.ManualDateTimeUTC, err)
+		}
+	}
 	return nil
+}
+
+// isValidSubscriptionTimeout reports whether s is a valid subscription timeout:
+// either a Go duration (e.g. "1h", "30m") or an ISO 8601 PT duration subset
+// (e.g. "PT1H", "PT30M", "PT1H30M").
+func isValidSubscriptionTimeout(s string) bool {
+	if _, err := time.ParseDuration(s); err == nil {
+		return true
+	}
+	upper := strings.ToUpper(s)
+	if !strings.HasPrefix(upper, "PT") {
+		return false
+	}
+	rest := upper[2:]
+	if rest == "" {
+		return false
+	}
+	for rest != "" {
+		i := 0
+		for i < len(rest) && rest[i] >= '0' && rest[i] <= '9' {
+			i++
+		}
+		if i == 0 || i >= len(rest) {
+			return false
+		}
+		unit := rest[i]
+		rest = rest[i+1:]
+		if unit != 'H' && unit != 'M' && unit != 'S' {
+			return false
+		}
+	}
+	return true
 }
 
 func validateEvents(e *EventsConfig) error {
 	if e.SubscriptionTimeout != "" {
-		if _, err := time.ParseDuration(e.SubscriptionTimeout); err != nil {
+		if !isValidSubscriptionTimeout(e.SubscriptionTimeout) {
 			return fmt.Errorf("config: events.subscription_timeout %q: %w",
 				e.SubscriptionTimeout, ErrEventsSubscriptionTimeoutInvalid)
 		}
