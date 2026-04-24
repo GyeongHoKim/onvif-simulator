@@ -406,6 +406,20 @@ func TestParseOperation(t *testing.T) {
 	}
 }
 
+func TestParseOperation_RejectsUnexpectedNamespace(t *testing.T) {
+	req := `<?xml version="1.0" encoding="UTF-8"?>` +
+		`<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:bad="http://example.com/other">` +
+		`<env:Body><bad:GetProfiles/></env:Body></env:Envelope>`
+
+	_, _, err := parseOperation([]byte(req))
+	if !errors.Is(err, errInvalidNamespace) {
+		t.Fatalf("parseOperation error = %v, want %v", err, errInvalidNamespace)
+	}
+	if !strings.Contains(err.Error(), "http://example.com/other") {
+		t.Fatalf("error = %v, want namespace in message", err)
+	}
+}
+
 func TestResponseEnvelopeValid(t *testing.T) {
 	// Sanity: response body must unmarshal as a soap envelope with a non-empty Body.
 	svc := NewHandler(stubProvider{})

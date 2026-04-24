@@ -30,6 +30,7 @@ var (
 	errUnsupportedOp    = errors.New("mediasvc: unsupported operation")
 	errEmptySOAPBody    = errors.New("mediasvc: empty soap body")
 	errDecodePayload    = errors.New("mediasvc: malformed request payload")
+	errInvalidNamespace = errors.New("mediasvc: unexpected operation namespace")
 
 	// ErrProfileNotFound indicates the requested profile token does not
 	// exist. Provider implementations return this; the Handler maps it to
@@ -282,14 +283,30 @@ func parseOperation(data []byte) (payload []byte, operation string, err error) {
 	if len(env.Body.Inner) == 0 {
 		return nil, "", errEmptySOAPBody
 	}
-	decoder := xml.NewDecoder(bytes.NewReader(env.Body.Inner))
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	inBody := false
 	for {
 		tok, err := decoder.Token()
 		if err != nil {
 			return nil, "", fmt.Errorf("parse soap body: %w", err)
 		}
-		if start, ok := tok.(xml.StartElement); ok {
+		switch start := tok.(type) {
+		case xml.StartElement:
+			if start.Name.Local == "Body" && start.Name.Space == soapNamespace {
+				inBody = true
+				continue
+			}
+			if !inBody {
+				continue
+			}
+			if start.Name.Space != MediaNamespace {
+				return nil, "", fmt.Errorf("%w: %s", errInvalidNamespace, start.Name.Space)
+			}
 			return env.Body.Inner, start.Name.Local, nil
+		case xml.EndElement:
+			if inBody && start.Name.Local == "Body" && start.Name.Space == soapNamespace {
+				return nil, "", errEmptySOAPBody
+			}
 		}
 	}
 }
