@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
@@ -193,16 +194,17 @@ func TestValidateRejectsProfileExtras(t *testing.T) {
 	}
 
 	cases := []struct {
-		name   string
-		mutate func(*config.ProfileConfig)
+		name      string
+		wantField string
+		mutate    func(*config.ProfileConfig)
 	}{
-		{"bitrate negative", func(p *config.ProfileConfig) { p.Bitrate = -1 }},
-		{"gop length negative", func(p *config.ProfileConfig) { p.GOPLength = -1 }},
-		{"snapshot uri malformed", func(p *config.ProfileConfig) { p.SnapshotURI = "://not-a-url" }},
-		{"snapshot uri wrong scheme", func(p *config.ProfileConfig) { p.SnapshotURI = "ftp://host/snap.jpg" }},
-		{"snapshot uri no host", func(p *config.ProfileConfig) { p.SnapshotURI = "http:///snap.jpg" }},
-		{"video source token with space", func(p *config.ProfileConfig) { p.VideoSourceToken = "bad token" }},
-		{"video source token whitespace only", func(p *config.ProfileConfig) { p.VideoSourceToken = "   " }},
+		{"bitrate negative", ".bitrate", func(p *config.ProfileConfig) { p.Bitrate = -1 }},
+		{"gop length negative", ".gop_length", func(p *config.ProfileConfig) { p.GOPLength = -1 }},
+		{"snapshot uri malformed", ".snapshot_uri", func(p *config.ProfileConfig) { p.SnapshotURI = "://not-a-url" }},
+		{"snapshot uri wrong scheme", ".snapshot_uri", func(p *config.ProfileConfig) { p.SnapshotURI = "ftp://host/snap.jpg" }},
+		{"snapshot uri no host", ".snapshot_uri", func(p *config.ProfileConfig) { p.SnapshotURI = "http:///snap.jpg" }},
+		{"video source token with space", ".video_source_token", func(p *config.ProfileConfig) { p.VideoSourceToken = "bad token" }},
+		{"video source token whitespace only", ".video_source_token", func(p *config.ProfileConfig) { p.VideoSourceToken = "   " }},
 	}
 
 	for _, tc := range cases {
@@ -212,8 +214,12 @@ func TestValidateRejectsProfileExtras(t *testing.T) {
 			p := base()
 			tc.mutate(&p)
 			c.Media.Profiles = []config.ProfileConfig{p}
-			if err := config.Validate(&c); err == nil {
+			err := config.Validate(&c)
+			if err == nil {
 				t.Fatalf("%s: expected validation error, got nil", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.wantField) {
+				t.Fatalf("%s: error %q missing field token %q", tc.name, err.Error(), tc.wantField)
 			}
 		})
 	}
