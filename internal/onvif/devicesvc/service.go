@@ -413,6 +413,42 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 		}
 		return xml.Marshal(getNetworkInterfacesResponse{XMLNS: DeviceNamespace, NetworkInterfaces: envs})
 
+	case "SetNetworkInterfaces":
+		var req struct {
+			NetworkInterfaces []networkInterfaceEnvelope `xml:"NetworkInterface"`
+		}
+		if err := xml.Unmarshal(payload, &req); err != nil {
+			return nil, errors.Join(errDecodePayload, fmt.Errorf("devicesvc: decode SetNetworkInterfaces: %w", err))
+		}
+		ifaces := make([]NetworkInterfaceInfo, len(req.NetworkInterfaces))
+		for i, env := range req.NetworkInterfaces {
+			iface := NetworkInterfaceInfo{
+				Token:     env.Token,
+				Enabled:   env.Enabled,
+				HwAddress: env.HwAddress,
+				MTU:       env.MTU,
+			}
+			if env.IPv4 != nil {
+				manual := make([]string, len(env.IPv4.Config.Manual))
+				for j, m := range env.IPv4.Config.Manual {
+					manual[j] = m.Address
+				}
+				iface.IPv4 = &IPv4Config{
+					Enabled: env.IPv4.Enabled,
+					DHCP:    env.IPv4.Config.DHCP,
+					Manual:  manual,
+				}
+			}
+			ifaces[i] = iface
+		}
+		if err := s.provider.SetNetworkInterfaces(ctx, ifaces); err != nil {
+			return nil, err
+		}
+		return xml.Marshal(emptyResponse{
+			XMLName: xml.Name{Local: "SetNetworkInterfacesResponse"},
+			XMLNS:   DeviceNamespace,
+		})
+
 	case "GetNetworkProtocols":
 		protocols, err := s.provider.GetNetworkProtocols(ctx)
 		if err != nil {

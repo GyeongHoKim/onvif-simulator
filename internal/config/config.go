@@ -86,12 +86,32 @@ type NetworkConfig struct {
 // ONVIF Device Management operations; they are persisted so that the simulator
 // survives restarts with the last applied values.
 type RuntimeConfig struct {
-	DiscoveryMode     string               `json:"discovery_mode,omitempty"`
-	Hostname          string               `json:"hostname,omitempty"`
-	DNS               DNSConfig            `json:"dns,omitempty"`
-	DefaultGateway    DefaultGatewayConfig `json:"default_gateway,omitempty"`
-	NetworkProtocols  []NetworkProtocol    `json:"network_protocols,omitempty"`
-	SystemDateAndTime SystemDateTimeConfig `json:"system_date_and_time,omitempty"`
+	DiscoveryMode     string                   `json:"discovery_mode,omitempty"`
+	Hostname          string                   `json:"hostname,omitempty"`
+	DNS               DNSConfig                `json:"dns,omitempty"`
+	DefaultGateway    DefaultGatewayConfig     `json:"default_gateway,omitempty"`
+	NetworkProtocols  []NetworkProtocol        `json:"network_protocols,omitempty"`
+	NetworkInterfaces []NetworkInterfaceConfig `json:"network_interfaces,omitempty"`
+	SystemDateAndTime SystemDateTimeConfig     `json:"system_date_and_time,omitempty"`
+}
+
+// NetworkInterfaceConfig mirrors the ONVIF NetworkInterface type for
+// SetNetworkInterfaces / GetNetworkInterfaces persistence.
+type NetworkInterfaceConfig struct {
+	// Token is the interface identifier (e.g. "eth0").
+	Token     string                `json:"token"`
+	Enabled   bool                  `json:"enabled"`
+	HwAddress string                `json:"hw_address,omitempty"`
+	MTU       int                   `json:"mtu,omitempty"`
+	IPv4      *NetworkInterfaceIPv4 `json:"ipv4,omitempty"`
+}
+
+// NetworkInterfaceIPv4 holds the IPv4 settings for one interface.
+type NetworkInterfaceIPv4 struct {
+	Enabled bool `json:"enabled"`
+	DHCP    bool `json:"dhcp"`
+	// Manual holds manually assigned addresses in CIDR notation (e.g. "192.168.1.10/24").
+	Manual []string `json:"manual,omitempty"`
 }
 
 // DNSConfig mirrors the ONVIF DNSInformation type.
@@ -159,6 +179,25 @@ type TopicConfig struct {
 // MediaConfig holds the list of ONVIF media profiles this device advertises.
 type MediaConfig struct {
 	Profiles []ProfileConfig `json:"profiles"`
+	// MaxVideoEncoderInstances is returned by GetGuaranteedNumberOfVideoEncoderInstances.
+	// 0 means "report 1 per profile" (safe simulator default).
+	MaxVideoEncoderInstances int              `json:"max_video_encoder_instances,omitempty"`
+	MetadataConfigurations   []MetadataConfig `json:"metadata_configurations,omitempty"`
+}
+
+// MetadataConfig describes one ONVIF metadata configuration entry.
+// The simulator does not produce a real metadata RTP stream; these values
+// are returned verbatim by the Metadata Configuration operations so that
+// clients can discover and bind metadata configurations to profiles.
+type MetadataConfig struct {
+	Token string `json:"token"`
+	Name  string `json:"name"`
+	// Analytics enables the analytics module in this metadata stream.
+	Analytics bool `json:"analytics,omitempty"`
+	// PTZStatus enables PTZ position/move status in this metadata stream.
+	PTZStatus bool `json:"ptz_status,omitempty"`
+	// Events enables event notifications in this metadata stream.
+	Events bool `json:"events,omitempty"`
 }
 
 // ProfileConfig describes a single ONVIF media profile.
