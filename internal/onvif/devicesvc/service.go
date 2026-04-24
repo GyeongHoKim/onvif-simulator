@@ -415,39 +415,34 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 
 	case "SetNetworkInterfaces":
 		var req struct {
-			NetworkInterfaces []networkInterfaceEnvelope `xml:"NetworkInterface"`
+			InterfaceToken   string                   `xml:"InterfaceToken"`
+			NetworkInterface networkInterfaceEnvelope `xml:"NetworkInterface"`
 		}
 		if err := xml.Unmarshal(payload, &req); err != nil {
 			return nil, errors.Join(errDecodePayload, fmt.Errorf("devicesvc: decode SetNetworkInterfaces: %w", err))
 		}
-		ifaces := make([]NetworkInterfaceInfo, len(req.NetworkInterfaces))
-		for i, env := range req.NetworkInterfaces {
-			iface := NetworkInterfaceInfo{
-				Token:     env.Token,
-				Enabled:   env.Enabled,
-				HwAddress: env.HwAddress,
-				MTU:       env.MTU,
-			}
-			if env.IPv4 != nil {
-				manual := make([]string, len(env.IPv4.Config.Manual))
-				for j, m := range env.IPv4.Config.Manual {
-					manual[j] = m.Address
-				}
-				iface.IPv4 = &IPv4Config{
-					Enabled: env.IPv4.Enabled,
-					DHCP:    env.IPv4.Config.DHCP,
-					Manual:  manual,
-				}
-			}
-			ifaces[i] = iface
+		env := req.NetworkInterface
+		iface := NetworkInterfaceInfo{
+			Token:     req.InterfaceToken,
+			Enabled:   env.Enabled,
+			HwAddress: env.HwAddress,
+			MTU:       env.MTU,
 		}
-		if err := s.provider.SetNetworkInterfaces(ctx, ifaces); err != nil {
+		if env.IPv4 != nil {
+			manual := make([]string, len(env.IPv4.Config.Manual))
+			for j, m := range env.IPv4.Config.Manual {
+				manual[j] = m.Address
+			}
+			iface.IPv4 = &IPv4Config{
+				Enabled: env.IPv4.Enabled,
+				DHCP:    env.IPv4.Config.DHCP,
+				Manual:  manual,
+			}
+		}
+		if err := s.provider.SetNetworkInterfaces(ctx, []NetworkInterfaceInfo{iface}); err != nil {
 			return nil, err
 		}
-		return xml.Marshal(emptyResponse{
-			XMLName: xml.Name{Local: "SetNetworkInterfacesResponse"},
-			XMLNS:   DeviceNamespace,
-		})
+		return xml.Marshal(setNetworkInterfacesResponse{XMLNS: DeviceNamespace})
 
 	case "GetNetworkProtocols":
 		protocols, err := s.provider.GetNetworkProtocols(ctx)
@@ -981,6 +976,12 @@ type getNetworkInterfacesResponse struct {
 	XMLName           xml.Name                   `xml:"GetNetworkInterfacesResponse"`
 	XMLNS             string                     `xml:"xmlns,attr"`
 	NetworkInterfaces []networkInterfaceEnvelope `xml:"NetworkInterfaces"`
+}
+
+type setNetworkInterfacesResponse struct {
+	XMLName      xml.Name `xml:"SetNetworkInterfacesResponse"`
+	XMLNS        string   `xml:"xmlns,attr"`
+	RebootNeeded bool     `xml:"RebootNeeded"`
 }
 
 type networkProtocolEnvelope struct {

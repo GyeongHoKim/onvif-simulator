@@ -670,7 +670,8 @@ func TestServeHTTP_GetNetworkInterfaces(t *testing.T) {
 
 func TestServeHTTP_SetNetworkInterfaces(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	inner := `<NetworkInterface token="eth0"><Enabled>true</Enabled>` +
+	inner := `<InterfaceToken>eth0</InterfaceToken>` +
+		`<NetworkInterface><Enabled>true</Enabled>` +
 		`<IPv4><Enabled>true</Enabled><Config><DHCP>false</DHCP>` +
 		`<Manual><Address>192.168.1.10</Address><PrefixLength>24</PrefixLength></Manual>` +
 		`</Config></IPv4></NetworkInterface>`
@@ -680,8 +681,12 @@ func TestServeHTTP_SetNetworkInterfaces(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "SetNetworkInterfacesResponse") {
-		t.Fatalf("body missing SetNetworkInterfacesResponse: %s", rec.Body.String())
+	body := rec.Body.String()
+	if !strings.Contains(body, "SetNetworkInterfacesResponse") {
+		t.Fatalf("body missing SetNetworkInterfacesResponse: %s", body)
+	}
+	if !strings.Contains(body, "<RebootNeeded>false</RebootNeeded>") {
+		t.Fatalf("body missing RebootNeeded: %s", body)
 	}
 }
 
