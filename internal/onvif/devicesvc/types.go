@@ -37,6 +37,10 @@ type ServiceDescriptor struct {
 	Namespace string
 	XAddr     string
 	Version   Version
+	// Capability holds capability data for this service endpoint.
+	// Populated by the provider when Services is called with includeCapability=true.
+	// May be empty string when capability data is not available.
+	Capability string
 }
 
 // NetworkCapabilities is returned by GetServiceCapabilities.
