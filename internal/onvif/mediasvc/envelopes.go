@@ -249,6 +249,87 @@ type h264OptionsEnvelope struct {
 	H264ProfilesSupported []string             `xml:"tt:H264ProfilesSupported"`
 }
 
+// ---------- GetGuaranteedNumberOfVideoEncoderInstances envelope ----------
+
+type getGuaranteedNumberOfVideoEncoderInstancesResponse struct {
+	XMLName     xml.Name `xml:"GetGuaranteedNumberOfVideoEncoderInstancesResponse"`
+	XMLNS       string   `xml:"xmlns,attr"`
+	TotalNumber int      `xml:"TotalNumber"`
+	JPEG        int      `xml:"JPEG,omitempty"`
+	H264        int      `xml:"H264,omitempty"`
+	MPEG4       int      `xml:"MPEG4,omitempty"`
+}
+
+// ---------- Metadata Configuration envelopes ----------
+
+type metadataConfigurationEnvelope struct {
+	Token     string            `xml:"token,attr"`
+	Name      string            `xml:"tt:Name"`
+	UseCount  int               `xml:"tt:UseCount,omitempty"`
+	Analytics bool              `xml:"tt:Analytics,omitempty"`
+	PTZStatus ptzStatusEnvelope `xml:"tt:PTZStatus,omitempty"`
+	Events    eventsEnvelope    `xml:"tt:Events,omitempty"`
+}
+
+type ptzStatusEnvelope struct {
+	Enabled bool `xml:"tt:Enabled"`
+}
+
+type eventsEnvelope struct {
+	Enabled bool `xml:"tt:Enabled"`
+}
+
+type getMetadataConfigurationsResponse struct {
+	XMLName        xml.Name                        `xml:"GetMetadataConfigurationsResponse"`
+	XMLNS          string                          `xml:"xmlns,attr"`
+	XMLNSTT        string                          `xml:"xmlns:tt,attr"`
+	Configurations []metadataConfigurationEnvelope `xml:"Configurations"`
+}
+
+type getMetadataConfigurationResponse struct {
+	XMLName       xml.Name                      `xml:"GetMetadataConfigurationResponse"`
+	XMLNS         string                        `xml:"xmlns,attr"`
+	XMLNSTT       string                        `xml:"xmlns:tt,attr"`
+	Configuration metadataConfigurationEnvelope `xml:"Configuration"`
+}
+
+type addMetadataConfigurationResponse struct {
+	XMLName xml.Name `xml:"AddMetadataConfigurationResponse"`
+	XMLNS   string   `xml:"xmlns,attr"`
+}
+
+type removeMetadataConfigurationResponse struct {
+	XMLName xml.Name `xml:"RemoveMetadataConfigurationResponse"`
+	XMLNS   string   `xml:"xmlns,attr"`
+}
+
+type setMetadataConfigurationResponse struct {
+	XMLName xml.Name `xml:"SetMetadataConfigurationResponse"`
+	XMLNS   string   `xml:"xmlns,attr"`
+}
+
+type getCompatibleMetadataConfigurationsResponse struct {
+	XMLName        xml.Name                        `xml:"GetCompatibleMetadataConfigurationsResponse"`
+	XMLNS          string                          `xml:"xmlns,attr"`
+	XMLNSTT        string                          `xml:"xmlns:tt,attr"`
+	Configurations []metadataConfigurationEnvelope `xml:"Configurations"`
+}
+
+// metadataConfigurationOptionsEnvelope mirrors MetadataConfigurationOptions
+// field-for-field so the two types can be directly converted.
+type metadataConfigurationOptionsEnvelope struct {
+	PTZStatusSupported bool `xml:"tt:PTZStatusSupported,omitempty"`
+	AnalyticsSupported bool `xml:"tt:AnalyticsSupported,omitempty"`
+	EventsSupported    bool `xml:"tt:EventsSupported,omitempty"`
+}
+
+type getMetadataConfigurationOptionsResponse struct {
+	XMLName xml.Name                             `xml:"GetMetadataConfigurationOptionsResponse"`
+	XMLNS   string                               `xml:"xmlns,attr"`
+	XMLNSTT string                               `xml:"xmlns:tt,attr"`
+	Options metadataConfigurationOptionsEnvelope `xml:"Options"`
+}
+
 // ---------- Stream / Snapshot URI envelopes ----------
 
 type getStreamURIResponse struct {

@@ -164,6 +164,47 @@ func (stubProvider) SnapshotURI(_ context.Context, token string) (MediaURI, erro
 	return MediaURI{URI: "http://127.0.0.1:8080/snapshot/main.jpg", Timeout: "PT0S"}, nil
 }
 
+func (stubProvider) GuaranteedNumberOfVideoEncoderInstances(_ context.Context, token string) (int, error) {
+	if token == "bad_token" {
+		return 0, ErrConfigNotFound
+	}
+	return 2, nil
+}
+
+func stubMetaCfg() MetadataConfiguration {
+	return MetadataConfiguration{
+		Token: "Meta_main", Name: "main", UseCount: 1,
+		Analytics: true, PTZStatus: true, Events: false,
+	}
+}
+
+func (stubProvider) MetadataConfigurations(context.Context) ([]MetadataConfiguration, error) {
+	return []MetadataConfiguration{stubMetaCfg()}, nil
+}
+
+func (stubProvider) MetadataConfiguration(_ context.Context, token string) (MetadataConfiguration, error) {
+	if token != "Meta_main" {
+		return MetadataConfiguration{}, ErrConfigNotFound
+	}
+	return stubMetaCfg(), nil
+}
+
+func (stubProvider) AddMetadataConfiguration(context.Context, string, string) error { return nil }
+
+func (stubProvider) RemoveMetadataConfiguration(context.Context, string) error { return nil }
+
+func (stubProvider) SetMetadataConfiguration(context.Context, MetadataConfiguration) error {
+	return nil
+}
+
+func (stubProvider) CompatibleMetadataConfigurations(context.Context, string) ([]MetadataConfiguration, error) {
+	return []MetadataConfiguration{stubMetaCfg()}, nil
+}
+
+func (stubProvider) MetadataConfigurationOptions(context.Context, string, string) (MetadataConfigurationOptions, error) {
+	return MetadataConfigurationOptions{PTZStatusSupported: true, AnalyticsSupported: true, EventsSupported: true}, nil
+}
+
 // errProvider always returns errProviderBoom; used to prove the 500/Receiver mapping.
 type errProvider struct{ stubProvider }
 
@@ -673,4 +714,228 @@ type noSnapshotProvider struct{ stubProvider }
 
 func (noSnapshotProvider) SnapshotURI(context.Context, string) (MediaURI, error) {
 	return MediaURI{}, ErrNoSnapshot
+}
+
+// ---------- GetGuaranteedNumberOfVideoEncoderInstances ----------
+
+func TestServeHTTP_GetGuaranteedNumberOfVideoEncoderInstances(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	rec := doRequest(t, svc, "GetGuaranteedNumberOfVideoEncoderInstances",
+		"<ConfigurationToken>VEConfig_main</ConfigurationToken>")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		XMLName     xml.Name `xml:"GetGuaranteedNumberOfVideoEncoderInstancesResponse"`
+		TotalNumber int      `xml:"TotalNumber"`
+		H264        int      `xml:"H264"`
+	}
+	unmarshalSOAPBody(t, rec.Body.Bytes(), &resp)
+
+	if resp.TotalNumber != 2 {
+		t.Fatalf("TotalNumber = %d, want 2", resp.TotalNumber)
+	}
+	if resp.H264 != 2 {
+		t.Fatalf("H264 = %d, want 2", resp.H264)
+	}
+}
+
+func TestServeHTTP_GetGuaranteedNumberOfVideoEncoderInstances_ProviderError(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	rec := doRequest(t, svc, "GetGuaranteedNumberOfVideoEncoderInstances",
+		"<ConfigurationToken>bad_token</ConfigurationToken>")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "env:Sender") {
+		t.Fatalf("body missing Sender fault: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_GetGuaranteedNumberOfVideoEncoderInstances_BadPayload(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	rec := doRequest(t, svc, "GetGuaranteedNumberOfVideoEncoderInstances", "<Broken><")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// ---------- Metadata Configuration ----------
+
+type metadataConfigsResponseView struct {
+	XMLName        xml.Name `xml:"GetMetadataConfigurationsResponse"`
+	Configurations []struct {
+		Token     string `xml:"token,attr"`
+		Name      string `xml:"Name"`
+		Analytics bool   `xml:"Analytics"`
+	} `xml:"Configurations"`
+}
+
+type metadataConfigResponseView struct {
+	XMLName       xml.Name `xml:"GetMetadataConfigurationResponse"`
+	Configuration struct {
+		Token string `xml:"token,attr"`
+		Name  string `xml:"Name"`
+	} `xml:"Configuration"`
+}
+
+type metadataConfigOptionsResponseView struct {
+	XMLName xml.Name `xml:"GetMetadataConfigurationOptionsResponse"`
+	Options struct {
+		PTZStatusSupported bool `xml:"PTZStatusSupported"`
+		AnalyticsSupported bool `xml:"AnalyticsSupported"`
+		EventsSupported    bool `xml:"EventsSupported"`
+	} `xml:"Options"`
+}
+
+func TestServeHTTP_GetMetadataConfigurations(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	rec := doRequest(t, svc, "GetMetadataConfigurations", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp metadataConfigsResponseView
+	unmarshalSOAPBody(t, rec.Body.Bytes(), &resp)
+
+	if len(resp.Configurations) != 1 {
+		t.Fatalf("configurations len = %d, want 1", len(resp.Configurations))
+	}
+	if resp.Configurations[0].Token != "Meta_main" {
+		t.Fatalf("token = %q, want Meta_main", resp.Configurations[0].Token)
+	}
+	if !resp.Configurations[0].Analytics {
+		t.Fatal("Analytics must be true")
+	}
+}
+
+func TestServeHTTP_GetMetadataConfiguration(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	rec := doRequest(t, svc, "GetMetadataConfiguration",
+		"<ConfigurationToken>Meta_main</ConfigurationToken>")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp metadataConfigResponseView
+	unmarshalSOAPBody(t, rec.Body.Bytes(), &resp)
+
+	if resp.Configuration.Token != "Meta_main" {
+		t.Fatalf("token = %q, want Meta_main", resp.Configuration.Token)
+	}
+}
+
+func TestServeHTTP_GetMetadataConfiguration_NotFound(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	rec := doRequest(t, svc, "GetMetadataConfiguration",
+		"<ConfigurationToken>ghost</ConfigurationToken>")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "env:Sender") {
+		t.Fatalf("body missing Sender fault: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_AddMetadataConfiguration(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	rec := doRequest(t, svc, "AddMetadataConfiguration",
+		"<ProfileToken>profile_main</ProfileToken><ConfigurationToken>Meta_main</ConfigurationToken>")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	name := soapBodyRootName(t, rec.Body.Bytes())
+	if name.Local != "AddMetadataConfigurationResponse" {
+		t.Fatalf("root element = %q, want AddMetadataConfigurationResponse", name.Local)
+	}
+}
+
+func TestServeHTTP_RemoveMetadataConfiguration(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	rec := doRequest(t, svc, "RemoveMetadataConfiguration",
+		"<ProfileToken>profile_main</ProfileToken>")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	name := soapBodyRootName(t, rec.Body.Bytes())
+	if name.Local != "RemoveMetadataConfigurationResponse" {
+		t.Fatalf("root element = %q, want RemoveMetadataConfigurationResponse", name.Local)
+	}
+}
+
+func TestServeHTTP_SetMetadataConfiguration(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	body := `<Configuration token="Meta_main"><tt:Name xmlns:tt="http://www.onvif.org/ver10/schema">main</tt:Name></Configuration>`
+	rec := doRequest(t, svc, "SetMetadataConfiguration", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	name := soapBodyRootName(t, rec.Body.Bytes())
+	if name.Local != "SetMetadataConfigurationResponse" {
+		t.Fatalf("root element = %q, want SetMetadataConfigurationResponse", name.Local)
+	}
+}
+
+func TestServeHTTP_GetCompatibleMetadataConfigurations(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	rec := doRequest(t, svc, "GetCompatibleMetadataConfigurations",
+		"<ProfileToken>profile_main</ProfileToken>")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		XMLName        xml.Name `xml:"GetCompatibleMetadataConfigurationsResponse"`
+		Configurations []struct {
+			Token string `xml:"token,attr"`
+		} `xml:"Configurations"`
+	}
+	unmarshalSOAPBody(t, rec.Body.Bytes(), &resp)
+	if len(resp.Configurations) != 1 {
+		t.Fatalf("configurations len = %d, want 1", len(resp.Configurations))
+	}
+}
+
+func TestServeHTTP_GetMetadataConfigurationOptions(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	rec := doRequest(t, svc, "GetMetadataConfigurationOptions",
+		"<ConfigurationToken>Meta_main</ConfigurationToken><ProfileToken>profile_main</ProfileToken>")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp metadataConfigOptionsResponseView
+	unmarshalSOAPBody(t, rec.Body.Bytes(), &resp)
+
+	if !resp.Options.PTZStatusSupported {
+		t.Fatal("PTZStatusSupported must be true")
+	}
+	if !resp.Options.AnalyticsSupported {
+		t.Fatal("AnalyticsSupported must be true")
+	}
+}
+
+func TestServeHTTP_MetadataBadPayloads(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	malformed := "<Broken><"
+	ops := []string{
+		"GetMetadataConfiguration",
+		"AddMetadataConfiguration",
+		"RemoveMetadataConfiguration",
+		"SetMetadataConfiguration",
+		"GetCompatibleMetadataConfigurations",
+		"GetMetadataConfigurationOptions",
+	}
+	for _, op := range ops {
+		t.Run(op, func(t *testing.T) {
+			rec := doRequest(t, svc, op, malformed)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "env:Sender") {
+				t.Fatalf("body missing Sender fault: %s", rec.Body.String())
+			}
+		})
+	}
 }

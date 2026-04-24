@@ -98,6 +98,34 @@ func (stubProvider) SnapshotURI(context.Context, string) (mediasvc.MediaURI, err
 	return mediasvc.MediaURI{URI: "http://x/snap.jpg"}, nil
 }
 
+func (stubProvider) GuaranteedNumberOfVideoEncoderInstances(context.Context, string) (int, error) {
+	return 1, nil
+}
+
+func (stubProvider) MetadataConfigurations(context.Context) ([]mediasvc.MetadataConfiguration, error) {
+	return nil, nil
+}
+
+func (stubProvider) MetadataConfiguration(context.Context, string) (mediasvc.MetadataConfiguration, error) {
+	return mediasvc.MetadataConfiguration{}, nil
+}
+
+func (stubProvider) AddMetadataConfiguration(context.Context, string, string) error { return nil }
+
+func (stubProvider) RemoveMetadataConfiguration(context.Context, string) error { return nil }
+
+func (stubProvider) SetMetadataConfiguration(context.Context, mediasvc.MetadataConfiguration) error {
+	return nil
+}
+
+func (stubProvider) CompatibleMetadataConfigurations(context.Context, string) ([]mediasvc.MetadataConfiguration, error) {
+	return nil, nil
+}
+
+func (stubProvider) MetadataConfigurationOptions(context.Context, string, string) (mediasvc.MetadataConfigurationOptions, error) {
+	return mediasvc.MetadataConfigurationOptions{}, nil
+}
+
 // ---------- helpers ----------
 
 func envelopeFor(op string) string {

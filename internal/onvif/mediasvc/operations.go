@@ -396,6 +396,152 @@ func (h *Handler) handleGetVideoEncoderConfigurationOptions(ctx context.Context,
 	})
 }
 
+// ---------- Metadata Configuration ----------
+
+func (h *Handler) handleGetMetadataConfigurations(ctx context.Context) ([]byte, error) {
+	cfgs, err := h.provider.MetadataConfigurations(ctx)
+	if err != nil {
+		return nil, err
+	}
+	env := make([]metadataConfigurationEnvelope, len(cfgs))
+	for i := range cfgs {
+		env[i] = metadataConfigToEnvelope(&cfgs[i])
+	}
+	return xml.Marshal(getMetadataConfigurationsResponse{
+		XMLNS:          MediaNamespace,
+		XMLNSTT:        SchemaNamespace,
+		Configurations: env,
+	})
+}
+
+//nolint:dupl // dispatch handlers follow the same ONVIF request/response shape by design
+func (h *Handler) handleGetMetadataConfiguration(ctx context.Context, payload []byte) ([]byte, error) {
+	var req struct {
+		ConfigurationToken string `xml:"ConfigurationToken"`
+	}
+	if err := xml.Unmarshal(payload, &req); err != nil {
+		return nil, errors.Join(errDecodePayload, fmt.Errorf("mediasvc: decode GetMetadataConfiguration: %w", err))
+	}
+	cfg, err := h.provider.MetadataConfiguration(ctx, req.ConfigurationToken)
+	if err != nil {
+		return nil, err
+	}
+	return xml.Marshal(getMetadataConfigurationResponse{
+		XMLNS:         MediaNamespace,
+		XMLNSTT:       SchemaNamespace,
+		Configuration: metadataConfigToEnvelope(&cfg),
+	})
+}
+
+func (h *Handler) handleAddMetadataConfiguration(ctx context.Context, payload []byte) ([]byte, error) {
+	var req struct {
+		ProfileToken       string `xml:"ProfileToken"`
+		ConfigurationToken string `xml:"ConfigurationToken"`
+	}
+	if err := xml.Unmarshal(payload, &req); err != nil {
+		return nil, errors.Join(errDecodePayload, fmt.Errorf("mediasvc: decode AddMetadataConfiguration: %w", err))
+	}
+	if err := h.provider.AddMetadataConfiguration(ctx, req.ProfileToken, req.ConfigurationToken); err != nil {
+		return nil, err
+	}
+	return xml.Marshal(addMetadataConfigurationResponse{XMLNS: MediaNamespace})
+}
+
+func (h *Handler) handleRemoveMetadataConfiguration(ctx context.Context, payload []byte) ([]byte, error) {
+	var req struct {
+		ProfileToken string `xml:"ProfileToken"`
+	}
+	if err := xml.Unmarshal(payload, &req); err != nil {
+		return nil, errors.Join(errDecodePayload, fmt.Errorf("mediasvc: decode RemoveMetadataConfiguration: %w", err))
+	}
+	if err := h.provider.RemoveMetadataConfiguration(ctx, req.ProfileToken); err != nil {
+		return nil, err
+	}
+	return xml.Marshal(removeMetadataConfigurationResponse{XMLNS: MediaNamespace})
+}
+
+func (h *Handler) handleSetMetadataConfiguration(ctx context.Context, payload []byte) ([]byte, error) {
+	var req struct {
+		Configuration metadataConfigurationEnvelope `xml:"Configuration"`
+	}
+	if err := xml.Unmarshal(payload, &req); err != nil {
+		return nil, errors.Join(errDecodePayload, fmt.Errorf("mediasvc: decode SetMetadataConfiguration: %w", err))
+	}
+	cfg := envelopeToMetadataConfig(&req.Configuration)
+	if err := h.provider.SetMetadataConfiguration(ctx, cfg); err != nil {
+		return nil, err
+	}
+	return xml.Marshal(setMetadataConfigurationResponse{XMLNS: MediaNamespace})
+}
+
+//nolint:dupl // dispatch handlers follow the same ONVIF request/response shape by design
+func (h *Handler) handleGetCompatibleMetadataConfigurations(ctx context.Context, payload []byte) ([]byte, error) {
+	var req struct {
+		ProfileToken string `xml:"ProfileToken"`
+	}
+	if err := xml.Unmarshal(payload, &req); err != nil {
+		return nil, errors.Join(errDecodePayload,
+			fmt.Errorf("mediasvc: decode GetCompatibleMetadataConfigurations: %w", err))
+	}
+	cfgs, err := h.provider.CompatibleMetadataConfigurations(ctx, req.ProfileToken)
+	if err != nil {
+		return nil, err
+	}
+	env := make([]metadataConfigurationEnvelope, len(cfgs))
+	for i := range cfgs {
+		env[i] = metadataConfigToEnvelope(&cfgs[i])
+	}
+	return xml.Marshal(getCompatibleMetadataConfigurationsResponse{
+		XMLNS:          MediaNamespace,
+		XMLNSTT:        SchemaNamespace,
+		Configurations: env,
+	})
+}
+
+func (h *Handler) handleGetMetadataConfigurationOptions(ctx context.Context, payload []byte) ([]byte, error) {
+	var req struct {
+		ConfigurationToken string `xml:"ConfigurationToken"`
+		ProfileToken       string `xml:"ProfileToken"`
+	}
+	if err := xml.Unmarshal(payload, &req); err != nil {
+		return nil, errors.Join(errDecodePayload,
+			fmt.Errorf("mediasvc: decode GetMetadataConfigurationOptions: %w", err))
+	}
+	opt, err := h.provider.MetadataConfigurationOptions(ctx, req.ConfigurationToken, req.ProfileToken)
+	if err != nil {
+		return nil, err
+	}
+	return xml.Marshal(getMetadataConfigurationOptionsResponse{
+		XMLNS:   MediaNamespace,
+		XMLNSTT: SchemaNamespace,
+		Options: metadataConfigurationOptionsEnvelope(opt),
+	})
+}
+
+// ---------- Envelope converters (Metadata) ----------
+
+func metadataConfigToEnvelope(cfg *MetadataConfiguration) metadataConfigurationEnvelope {
+	return metadataConfigurationEnvelope{
+		Token:     cfg.Token,
+		Name:      cfg.Name,
+		UseCount:  cfg.UseCount,
+		Analytics: cfg.Analytics,
+		PTZStatus: ptzStatusEnvelope{Enabled: cfg.PTZStatus},
+		Events:    eventsEnvelope{Enabled: cfg.Events},
+	}
+}
+
+func envelopeToMetadataConfig(env *metadataConfigurationEnvelope) MetadataConfiguration {
+	return MetadataConfiguration{
+		Token:     env.Token,
+		Name:      env.Name,
+		UseCount:  env.UseCount,
+		Analytics: env.Analytics,
+		PTZStatus: env.PTZStatus.Enabled,
+		Events:    env.Events.Enabled,
+	}
+}
+
 // ---------- Stream / Snapshot URI ----------
 
 func (h *Handler) handleGetStreamURI(ctx context.Context, payload []byte) ([]byte, error) {
