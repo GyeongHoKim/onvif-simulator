@@ -80,6 +80,10 @@ func (h *SubscriptionManagerHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 	}
 
 	subscriptionID := r.URL.Query().Get("id")
+	if subscriptionID == "" {
+		writeFault(w, http.StatusBadRequest, faultCodeSender, "missing subscription id")
+		return
+	}
 
 	respPayload, err := h.dispatch(r.Context(), subscriptionID, operation, payload)
 	if err != nil {
