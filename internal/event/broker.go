@@ -132,7 +132,7 @@ func (b *Broker) Publish(topic, message string) {
 	}
 
 	now := time.Now()
-	for id, sub := range b.subs {
+	for _, sub := range b.subs {
 		if now.After(sub.terminationTime) {
 			continue
 		}
@@ -144,7 +144,6 @@ func (b *Broker) Publish(topic, message string) {
 			Topic:                 topic,
 			Message:               message,
 		})
-		_ = id
 	}
 }
 
@@ -395,13 +394,12 @@ func buildTopicSetXML(topics []TopicConfig) string {
 	return sb.String()
 }
 
-func xmlEscape(s string) string {
-	replacer := strings.NewReplacer(
-		"&", "&amp;",
-		"<", "&lt;",
-		">", "&gt;",
-		`"`, "&quot;",
-		"'", "&apos;",
-	)
-	return replacer.Replace(s)
-}
+var xmlEscaper = strings.NewReplacer(
+	"&", "&amp;",
+	"<", "&lt;",
+	">", "&gt;",
+	`"`, "&quot;",
+	"'", "&apos;",
+)
+
+func xmlEscape(s string) string { return xmlEscaper.Replace(s) }
