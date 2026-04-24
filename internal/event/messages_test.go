@@ -48,8 +48,22 @@ func TestMotionAlarm_False(t *testing.T) {
 	}
 }
 
+// defaultCfgWithTopic returns a BrokerConfig identical to defaultCfg but with
+// the given topic explicitly enabled in addition to the defaults.
+func defaultCfgWithTopic(topic string) BrokerConfig {
+	cfg := defaultCfg()
+	for i := range cfg.Topics {
+		if cfg.Topics[i].Name == topic {
+			cfg.Topics[i].Enabled = true
+			return cfg
+		}
+	}
+	cfg.Topics = append(cfg.Topics, TopicConfig{Name: topic, Enabled: true})
+	return cfg
+}
+
 func TestImageTooBlurry(t *testing.T) {
-	b := New(defaultCfg())
+	b := New(defaultCfgWithTopic("tns1:VideoSource/ImageTooBlurry"))
 	msg := publishAndPull(t, b, func() { b.ImageTooBlurry("vs0", true) })
 	if msg.Topic != "tns1:VideoSource/ImageTooBlurry" {
 		t.Errorf("topic = %q", msg.Topic)
@@ -57,7 +71,7 @@ func TestImageTooBlurry(t *testing.T) {
 }
 
 func TestImageTooDark(t *testing.T) {
-	b := New(defaultCfg())
+	b := New(defaultCfgWithTopic("tns1:VideoSource/ImageTooDark"))
 	msg := publishAndPull(t, b, func() { b.ImageTooDark("vs0", true) })
 	if msg.Topic != "tns1:VideoSource/ImageTooDark" {
 		t.Errorf("topic = %q", msg.Topic)
@@ -65,7 +79,7 @@ func TestImageTooDark(t *testing.T) {
 }
 
 func TestImageTooBright(t *testing.T) {
-	b := New(defaultCfg())
+	b := New(defaultCfgWithTopic("tns1:VideoSource/ImageTooBright"))
 	msg := publishAndPull(t, b, func() { b.ImageTooBright("vs0", true) })
 	if msg.Topic != "tns1:VideoSource/ImageTooBright" {
 		t.Errorf("topic = %q", msg.Topic)
@@ -73,7 +87,7 @@ func TestImageTooBright(t *testing.T) {
 }
 
 func TestDigitalInput(t *testing.T) {
-	b := New(defaultCfg())
+	b := New(defaultCfgWithTopic("tns1:Device/Trigger/DigitalInput"))
 	msg := publishAndPull(t, b, func() { b.DigitalInput("DI_0", true) })
 
 	if msg.Topic != "tns1:Device/Trigger/DigitalInput" {
