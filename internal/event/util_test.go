@@ -18,6 +18,10 @@ func TestParseISO8601Duration(t *testing.T) {
 		{"PT1H30M15S", time.Hour + 30*time.Minute + 15*time.Second, true},
 		{"1h", time.Hour, true},
 		{"30m", 30 * time.Minute, true},
+		// past RFC3339 absolute timestamps must be rejected
+		{"2000-01-01T00:00:00Z", 0, false},
+		// non-RFC3339 garbage
+		{"not-a-duration", 0, false},
 		{"", 0, false},
 		{"PD1H", 0, false},
 		{"PT", 0, false},
@@ -36,6 +40,15 @@ func TestParseISO8601Duration(t *testing.T) {
 				t.Errorf("parseISO8601Duration(%q): expected error, got %v", tc.in, d)
 			}
 		}
+	}
+
+	// Future RFC3339 absolute timestamp: duration must be positive and close to 1 hour.
+	future := time.Now().Add(time.Hour).Format(time.RFC3339)
+	d, err := parseISO8601Duration(future)
+	if err != nil {
+		t.Errorf("parseISO8601Duration(future RFC3339): unexpected error: %v", err)
+	} else if d <= 0 || d > time.Hour+2*time.Second {
+		t.Errorf("parseISO8601Duration(future RFC3339) = %v, want (0, ~1h]", d)
 	}
 }
 
