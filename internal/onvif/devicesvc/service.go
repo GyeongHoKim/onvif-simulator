@@ -467,16 +467,25 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 		if err != nil {
 			return nil, err
 		}
+		var tz *timeZoneEnvelope
+		if info.TZ != "" {
+			tz = &timeZoneEnvelope{TZ: info.TZ}
+		}
+		var utcDT *dateTimeEnvelope
+		dt := info.UTCDateTime
+		if dt.Year != 0 || dt.Month != 0 || dt.Day != 0 || dt.Hour != 0 || dt.Minute != 0 || dt.Second != 0 {
+			utcDT = &dateTimeEnvelope{
+				Date: dateEnvelope{Year: dt.Year, Month: dt.Month, Day: dt.Day},
+				Time: timeEnvelope{Hour: dt.Hour, Minute: dt.Minute, Second: dt.Second},
+			}
+		}
 		return xml.Marshal(getSystemDateAndTimeResponse{
 			XMLNS: DeviceNamespace,
 			SystemDateAndTime: systemDateAndTimeEnvelope{
 				DateTimeType:    info.DateTimeType,
 				DaylightSavings: info.DaylightSavings,
-				TimeZone:        timeZoneEnvelope{TZ: info.TZ},
-				UTCDateTime: dateTimeEnvelope{
-					Date: dateEnvelope{Year: info.UTCDateTime.Year, Month: info.UTCDateTime.Month, Day: info.UTCDateTime.Day},
-					Time: timeEnvelope{Hour: info.UTCDateTime.Hour, Minute: info.UTCDateTime.Minute, Second: info.UTCDateTime.Second},
-				},
+				TimeZone:        tz,
+				UTCDateTime:     utcDT,
 			},
 		})
 
@@ -974,10 +983,10 @@ type dateTimeEnvelope struct {
 }
 
 type systemDateAndTimeEnvelope struct {
-	DateTimeType    string           `xml:"DateTimeType"`
-	DaylightSavings bool             `xml:"DaylightSavings"`
-	TimeZone        timeZoneEnvelope `xml:"TimeZone,omitempty"`
-	UTCDateTime     dateTimeEnvelope `xml:"UTCDateTime,omitempty"`
+	DateTimeType    string            `xml:"DateTimeType"`
+	DaylightSavings bool              `xml:"DaylightSavings"`
+	TimeZone        *timeZoneEnvelope `xml:"TimeZone,omitempty"`
+	UTCDateTime     *dateTimeEnvelope `xml:"UTCDateTime,omitempty"`
 }
 
 type getSystemDateAndTimeResponse struct {
