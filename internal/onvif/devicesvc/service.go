@@ -30,6 +30,11 @@ var (
 	errNoServices       = errors.New("devicesvc: no services available")
 	errEmptySOAPBody    = errors.New("devicesvc: empty soap body")
 	errDecodePayload    = errors.New("devicesvc: malformed request payload")
+
+	errSetNetworkInterfacesTokenRequired = errors.New(
+		"devicesvc: SetNetworkInterfaces: InterfaceToken is required")
+	errSetNetworkInterfacesTokenMismatch = errors.New(
+		"devicesvc: SetNetworkInterfaces: NetworkInterface token does not match InterfaceToken")
 )
 
 // Handler serves the ONVIF device management endpoint.
@@ -424,6 +429,13 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 			return nil, errors.Join(errDecodePayload, fmt.Errorf("devicesvc: decode SetNetworkInterfaces: %w", err))
 		}
 		env := req.NetworkInterface
+		if strings.TrimSpace(req.InterfaceToken) == "" {
+			return nil, errors.Join(errDecodePayload, errSetNetworkInterfacesTokenRequired)
+		}
+		if env.Token != "" && env.Token != req.InterfaceToken {
+			return nil, errors.Join(errDecodePayload,
+				fmt.Errorf("%w: got %q, want %q", errSetNetworkInterfacesTokenMismatch, env.Token, req.InterfaceToken))
+		}
 		iface := NetworkInterfaceInfo{
 			Token:     req.InterfaceToken,
 			Enabled:   env.Enabled,
