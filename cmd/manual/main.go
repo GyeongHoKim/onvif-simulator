@@ -1,14 +1,10 @@
 // Command manual starts a pkgsite server for the current module and opens
 // the package index directly in the default browser.
 //
-// Usage (via make):
+// Usage:
 //
 //	make manual
 //	make manual DOCS_PORT=3000
-//
-// Run directly:
-//
-//	go run ./cmd/manual -port 3000
 package main
 
 import (
@@ -55,15 +51,29 @@ func main() {
 	}
 
 	fmt.Printf("waiting for pkgsite on %s ...\n", addr)
-	if err := waitReady(ctx, addr); err != nil {
-		log.Printf("aborting: %v", err)
-		return
-	}
-	fmt.Printf("opening %s\n", url)
-	openBrowser(ctx, url)
 
-	if err := srv.Wait(); err != nil {
-		log.Printf("pkgsite exited: %v", err)
+	readyCh := make(chan error, 1)
+	exitCh := make(chan error, 1)
+	go func() { readyCh <- waitReady(ctx, addr) }()
+	go func() { exitCh <- srv.Wait() }()
+
+	select {
+	case readyErr := <-readyCh:
+		if readyErr != nil {
+			log.Printf("aborting: %v", readyErr)
+			if killErr := srv.Process.Kill(); killErr != nil {
+				log.Printf("kill pkgsite: %v", killErr)
+			}
+			<-exitCh
+			return
+		}
+		fmt.Printf("opening %s\n", url)
+		openBrowser(ctx, url)
+		if exitErr := <-exitCh; exitErr != nil {
+			log.Printf("pkgsite exited: %v", exitErr)
+		}
+	case exitErr := <-exitCh:
+		log.Printf("pkgsite exited unexpectedly: %v", exitErr)
 	}
 }
 
