@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -192,8 +193,8 @@ func TestBroker_PullMessages_EmptyQueue(t *testing.T) {
 func TestBroker_PullMessages_UnknownSubscription(t *testing.T) {
 	b := New(defaultCfg())
 	_, err := b.PullMessages(context.Background(), "nonexistent", eventsvc.PullMessagesParams{})
-	if err == nil {
-		t.Fatal("expected error for unknown subscription ID")
+	if !errors.Is(err, eventsvc.ErrSubscriptionNotFound) {
+		t.Fatalf("expected ErrSubscriptionNotFound, got %v", err)
 	}
 }
 
@@ -216,8 +217,8 @@ func TestBroker_Renew(t *testing.T) {
 func TestBroker_Renew_UnknownSubscription(t *testing.T) {
 	b := New(defaultCfg())
 	_, err := b.Renew(context.Background(), "nonexistent", eventsvc.RenewParams{})
-	if err == nil {
-		t.Fatal("expected error for unknown subscription ID")
+	if !errors.Is(err, eventsvc.ErrSubscriptionNotFound) {
+		t.Fatalf("expected ErrSubscriptionNotFound, got %v", err)
 	}
 }
 
@@ -238,8 +239,9 @@ func TestBroker_Unsubscribe(t *testing.T) {
 
 func TestBroker_Unsubscribe_UnknownSubscription(t *testing.T) {
 	b := New(defaultCfg())
-	if err := b.Unsubscribe(context.Background(), "nonexistent"); err == nil {
-		t.Fatal("expected error for unknown subscription ID")
+	err := b.Unsubscribe(context.Background(), "nonexistent")
+	if !errors.Is(err, eventsvc.ErrSubscriptionNotFound) {
+		t.Fatalf("expected ErrSubscriptionNotFound, got %v", err)
 	}
 }
 
@@ -255,8 +257,9 @@ func TestBroker_SetSynchronizationPoint(t *testing.T) {
 
 func TestBroker_SetSynchronizationPoint_Unknown(t *testing.T) {
 	b := New(defaultCfg())
-	if err := b.SetSynchronizationPoint(context.Background(), "none"); err == nil {
-		t.Fatal("expected error for unknown subscription ID")
+	err := b.SetSynchronizationPoint(context.Background(), "none")
+	if !errors.Is(err, eventsvc.ErrSubscriptionNotFound) {
+		t.Fatalf("expected ErrSubscriptionNotFound, got %v", err)
 	}
 }
 
