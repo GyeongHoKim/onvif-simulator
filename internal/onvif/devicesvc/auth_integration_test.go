@@ -30,6 +30,61 @@ func (stubProvider) GetCapabilities(context.Context, string) (devicesvc.Capabili
 }
 func (stubProvider) WsdlURL(context.Context) (string, error) { return "http://wsdl", nil }
 
+// Discovery stubs
+func (stubProvider) GetDiscoveryMode(context.Context) (devicesvc.DiscoveryInfo, error) {
+	return devicesvc.DiscoveryInfo{DiscoveryMode: "Discoverable"}, nil
+}
+func (stubProvider) SetDiscoveryMode(context.Context, string) error { return nil }
+func (stubProvider) GetScopes(context.Context) ([]devicesvc.ScopeEntry, error) {
+	return nil, nil
+}
+func (stubProvider) SetScopes(context.Context, []string) error                { return nil }
+func (stubProvider) AddScopes(context.Context, []string) error                { return nil }
+func (stubProvider) RemoveScopes(context.Context, []string) ([]string, error) { return nil, nil }
+
+// Network stubs
+func (stubProvider) GetHostname(context.Context) (devicesvc.HostnameInfo, error) {
+	return devicesvc.HostnameInfo{}, nil
+}
+func (stubProvider) SetHostname(context.Context, string) error { return nil }
+func (stubProvider) GetDNS(context.Context) (devicesvc.DNSInfo, error) {
+	return devicesvc.DNSInfo{}, nil
+}
+func (stubProvider) SetDNS(context.Context, devicesvc.DNSInfo) error { return nil }
+func (stubProvider) GetNetworkInterfaces(context.Context) ([]devicesvc.NetworkInterfaceInfo, error) {
+	return nil, nil
+}
+func (stubProvider) GetNetworkProtocols(context.Context) ([]devicesvc.NetworkProtocol, error) {
+	return nil, nil
+}
+func (stubProvider) SetNetworkProtocols(context.Context, []devicesvc.NetworkProtocol) error {
+	return nil
+}
+func (stubProvider) GetNetworkDefaultGateway(context.Context) (devicesvc.DefaultGatewayInfo, error) {
+	return devicesvc.DefaultGatewayInfo{}, nil
+}
+func (stubProvider) SetNetworkDefaultGateway(context.Context, devicesvc.DefaultGatewayInfo) error {
+	return nil
+}
+
+// System stubs
+func (stubProvider) GetSystemDateAndTime(context.Context) (devicesvc.SystemDateAndTimeInfo, error) {
+	return devicesvc.SystemDateAndTimeInfo{DateTimeType: "Manual", TZ: "UTC"}, nil
+}
+func (stubProvider) SetSystemDateAndTime(context.Context, devicesvc.SetSystemDateAndTimeParams) error {
+	return nil
+}
+func (stubProvider) SetSystemFactoryDefault(context.Context, string) error { return nil }
+func (stubProvider) SystemReboot(context.Context) (string, error)          { return "ok", nil }
+
+// User stubs
+func (stubProvider) GetUsers(context.Context) ([]devicesvc.UserInfo, error) {
+	return []devicesvc.UserInfo{{Username: "admin", UserLevel: "Administrator"}}, nil
+}
+func (stubProvider) CreateUsers(context.Context, []devicesvc.UserInfo) error { return nil }
+func (stubProvider) SetUser(context.Context, []devicesvc.UserInfo) error     { return nil }
+func (stubProvider) DeleteUsers(context.Context, []string) error             { return nil }
+
 const envelopeGet = `<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">
   <s:Body>

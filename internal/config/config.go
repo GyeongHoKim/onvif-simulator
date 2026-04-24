@@ -1,4 +1,36 @@
-// Package config loads and validates onvif-simulator.json.
+// Package config manages the on-disk configuration for the ONVIF simulator.
+//
+// # File location
+//
+// The config file is named "onvif-simulator.json" and is read from (and
+// written to) the process working directory. Copy onvif-simulator.example.json
+// to get started.
+//
+// # Schema versioning
+//
+// Every config file must set "version": 1. Future breaking changes will
+// increment this number; the loader rejects mismatches immediately.
+//
+// # Typical usage
+//
+// Load once at startup and pass the result to the simulator:
+//
+//	cfg, err := config.Load()
+//
+// Mutate individual fields at runtime via the targeted helpers; never
+// construct or overwrite a Config value by hand:
+//
+//	// Persist a new media profile added by the user via GUI/TUI
+//	if err := config.AddProfile(config.ProfileConfig{...}); err != nil { ... }
+//
+//	// Flip the discovery mode from the TUI
+//	if err := config.SetDiscoveryMode("NonDiscoverable"); err != nil { ... }
+//
+//	// Toggle an event topic on/off
+//	if err := config.SetTopicEnabled("tns1:VideoSource/MotionAlarm", true); err != nil { ... }
+//
+// All helpers load → mutate → validate → save atomically; concurrent calls
+// are serialized by an internal mutex.
 package config
 
 import (
@@ -27,6 +59,8 @@ type Config struct {
 	Network NetworkConfig `json:"network"`
 	Media   MediaConfig   `json:"media"`
 	Auth    AuthConfig    `json:"auth,omitempty"`
+	Events  EventsConfig  `json:"events,omitempty"`
+	Runtime RuntimeConfig `json:"runtime,omitempty"`
 }
 
 // DeviceConfig describes who this device is.
@@ -44,6 +78,82 @@ type NetworkConfig struct {
 	HTTPPort  int      `json:"http_port"`
 	Interface string   `json:"interface,omitempty"`
 	XAddrs    []string `json:"xaddrs,omitempty"`
+}
+
+// RuntimeConfig holds simulator state that the Device Service exposes via
+// Get/Set operations (discovery mode, hostname, DNS, gateway, protocols,
+// system date/time). These fields are read and written at runtime through the
+// ONVIF Device Management operations; they are persisted so that the simulator
+// survives restarts with the last applied values.
+type RuntimeConfig struct {
+	DiscoveryMode     string               `json:"discovery_mode,omitempty"`
+	Hostname          string               `json:"hostname,omitempty"`
+	DNS               DNSConfig            `json:"dns,omitempty"`
+	DefaultGateway    DefaultGatewayConfig `json:"default_gateway,omitempty"`
+	NetworkProtocols  []NetworkProtocol    `json:"network_protocols,omitempty"`
+	SystemDateAndTime SystemDateTimeConfig `json:"system_date_and_time,omitempty"`
+}
+
+// DNSConfig mirrors the ONVIF DNSInformation type.
+type DNSConfig struct {
+	FromDHCP     bool     `json:"from_dhcp,omitempty"`
+	SearchDomain []string `json:"search_domain,omitempty"`
+	// DNSManual holds manually configured DNS server addresses.
+	DNSManual []string `json:"dns_manual,omitempty"`
+}
+
+// DefaultGatewayConfig mirrors the ONVIF NetworkGateway type.
+type DefaultGatewayConfig struct {
+	IPv4Address []string `json:"ipv4_address,omitempty"`
+	IPv6Address []string `json:"ipv6_address,omitempty"`
+}
+
+// NetworkProtocol mirrors the ONVIF NetworkProtocol type.
+type NetworkProtocol struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	Port    []int  `json:"port,omitempty"`
+}
+
+// SystemDateTimeConfig mirrors the ONVIF SystemDateTime type.
+type SystemDateTimeConfig struct {
+	// DateTimeType is "Manual" or "NTP".
+	DateTimeType    string `json:"date_time_type,omitempty"`
+	DaylightSavings bool   `json:"daylight_savings,omitempty"`
+	// TZ is the POSIX timezone string, e.g. "UTC" or "KST-9".
+	TZ string `json:"tz,omitempty"`
+	// ManualDateTimeUTC holds the manually set UTC time when DateTimeType is
+	// "Manual". Format: RFC3339, e.g. "2026-01-15T12:00:00Z". The provider
+	// restores this value on startup and prefers it over the system clock when
+	// DateTimeType == "Manual".
+	ManualDateTimeUTC string `json:"manual_date_time_utc,omitempty"`
+}
+
+// EventsConfig configures the Event Service and the set of topics the
+// simulator advertises.
+type EventsConfig struct {
+	// MaxPullPoints is the maximum number of concurrent pull-point
+	// subscriptions. 0 means no limit is advertised (defaults to 10).
+	MaxPullPoints int `json:"max_pull_points,omitempty"`
+	// SubscriptionTimeout is the default duration used when a
+	// CreatePullPointSubscription request omits InitialTerminationTime.
+	// Accepts Go durations (e.g. "1h", "30m") or ISO 8601 PT durations
+	// (e.g. "PT1H", "PT30M"). Defaults to "1h" if empty.
+	SubscriptionTimeout string `json:"subscription_timeout,omitempty"`
+	// Topics declares which ONVIF event topics the simulator supports.
+	// Each entry controls whether the topic appears in GetEventProperties
+	// and can be triggered via the EventBroker.Publish API.
+	Topics []TopicConfig `json:"topics,omitempty"`
+}
+
+// TopicConfig describes one ONVIF event topic the simulator advertises.
+type TopicConfig struct {
+	// Name is the tns1: topic expression, e.g.
+	// "tns1:VideoSource/MotionAlarm".
+	Name string `json:"name"`
+	// Enabled controls whether the topic appears in GetEventProperties and
+	// whether EventBroker.Publish accepts it.
+	Enabled bool `json:"enabled"`
 }
 
 // MediaConfig holds the list of ONVIF media profiles this device advertises.
@@ -161,6 +271,22 @@ var (
 	ErrAuthJWTClockSkew = errors.New("config: auth.jwt.clock_skew must be a Go duration (e.g. 30s)")
 	// ErrAuthJWTKeyMaterial means jwt is enabled but no JWKS URL or PEM key was configured.
 	ErrAuthJWTKeyMaterial = errors.New("config: auth.jwt requires jwks_url or public_key_pem when enabled")
+
+	// ErrDiscoveryModeInvalid means runtime.discovery_mode is not a supported value.
+	ErrDiscoveryModeInvalid = errors.New("config: runtime.discovery_mode must be Discoverable or NonDiscoverable")
+
+	// ErrNetworkProtocolNameEmpty means a network protocol entry has an empty name.
+	ErrNetworkProtocolNameEmpty = errors.New("config: runtime.network_protocols entry requires a non-empty name")
+
+	// ErrEventsSubscriptionTimeoutInvalid means events.subscription_timeout is not a valid duration.
+	ErrEventsSubscriptionTimeoutInvalid = errors.New(
+		"config: events.subscription_timeout must be a Go duration (e.g. 1h) or ISO 8601 PT duration (e.g. PT1H)")
+
+	// ErrEventsTopicNameEmpty means a topic entry has an empty name.
+	ErrEventsTopicNameEmpty = errors.New("config: events.topics entry requires a non-empty name")
+
+	// ErrEventsTopicNameDuplicate means two topic entries share the same name.
+	ErrEventsTopicNameDuplicate = errors.New("config: events.topics name must be unique")
 )
 
 var (
@@ -221,7 +347,13 @@ func Validate(c *Config) error {
 	if err := validateMedia(&c.Media); err != nil {
 		return err
 	}
-	return validateAuth(&c.Auth)
+	if err := validateAuth(&c.Auth); err != nil {
+		return err
+	}
+	if err := validateRuntime(&c.Runtime); err != nil {
+		return err
+	}
+	return validateEvents(&c.Events)
 }
 
 func validateDevice(d *DeviceConfig) error {
@@ -463,7 +595,93 @@ func validateRTSPURI(field, raw string) error {
 	return nil
 }
 
-// Load reads and validates ./onvif-simulator.json relative to the process working directory.
+var validDiscoveryModes = map[string]bool{
+	"Discoverable":    true,
+	"NonDiscoverable": true,
+}
+
+func validateRuntime(r *RuntimeConfig) error {
+	if r.DiscoveryMode != "" && !validDiscoveryModes[r.DiscoveryMode] {
+		return fmt.Errorf("config: runtime.discovery_mode %q: %w", r.DiscoveryMode, ErrDiscoveryModeInvalid)
+	}
+	for i, p := range r.NetworkProtocols {
+		if strings.TrimSpace(p.Name) == "" {
+			return fmt.Errorf("config: runtime.network_protocols[%d]: %w", i, ErrNetworkProtocolNameEmpty)
+		}
+	}
+	if r.SystemDateAndTime.ManualDateTimeUTC != "" {
+		if _, err := time.Parse(time.RFC3339, r.SystemDateAndTime.ManualDateTimeUTC); err != nil {
+			return fmt.Errorf(
+				"config: runtime.system_date_and_time.manual_date_time_utc %q: "+
+					"must be RFC3339 (e.g. 2006-01-02T15:04:05Z): %w",
+				r.SystemDateAndTime.ManualDateTimeUTC, err)
+		}
+	}
+	return nil
+}
+
+// isValidSubscriptionTimeout reports whether s is a valid subscription timeout:
+// a Go duration (e.g. "1h", "30m") or an ISO 8601 PT duration subset
+// (e.g. "PT1H", "PT30M", "PT1H30M"). Absolute RFC3339 timestamps are not
+// accepted here; subscription_timeout is a duration, not a point in time.
+func isValidSubscriptionTimeout(s string) bool {
+	if _, err := time.ParseDuration(s); err == nil {
+		return true
+	}
+	upper := strings.ToUpper(s)
+	if !strings.HasPrefix(upper, "PT") {
+		return false
+	}
+	return validatePTDuration(upper[2:])
+}
+
+// validatePTDuration reports whether rest (already uppercased, "PT" prefix
+// already stripped) is a valid PT-duration token sequence using H, M, S units.
+func validatePTDuration(rest string) bool {
+	if rest == "" {
+		return false
+	}
+	for rest != "" {
+		i := 0
+		for i < len(rest) && rest[i] >= '0' && rest[i] <= '9' {
+			i++
+		}
+		if i == 0 || i >= len(rest) {
+			return false
+		}
+		unit := rest[i]
+		rest = rest[i+1:]
+		if unit != 'H' && unit != 'M' && unit != 'S' {
+			return false
+		}
+	}
+	return true
+}
+
+func validateEvents(e *EventsConfig) error {
+	if e.SubscriptionTimeout != "" {
+		if !isValidSubscriptionTimeout(e.SubscriptionTimeout) {
+			return fmt.Errorf("config: events.subscription_timeout %q: %w",
+				e.SubscriptionTimeout, ErrEventsSubscriptionTimeoutInvalid)
+		}
+	}
+	seen := make(map[string]bool, len(e.Topics))
+	for i, t := range e.Topics {
+		if strings.TrimSpace(t.Name) == "" {
+			return fmt.Errorf("config: events.topics[%d]: %w", i, ErrEventsTopicNameEmpty)
+		}
+		if seen[t.Name] {
+			return fmt.Errorf("config: events.topics[%d].name %q: %w", i, t.Name, ErrEventsTopicNameDuplicate)
+		}
+		seen[t.Name] = true
+	}
+	return nil
+}
+
+// Load reads and validates onvif-simulator.json relative to the process
+// working directory. On success it returns the fully validated Config that
+// callers should treat as read-only; mutate individual fields only through
+// the targeted helpers in update.go.
 func Load() (Config, error) {
 	wd, err := os.Getwd()
 	if err != nil {
@@ -483,8 +701,10 @@ func Load() (Config, error) {
 	return c, nil
 }
 
-// Save writes cfg to ./onvif-simulator.json relative to the working directory.
-// It validates before writing and replaces the destination atomically when possible.
+// Save validates cfg and writes it to onvif-simulator.json in the working
+// directory.  The write is atomic (write-to-temp + rename) to prevent
+// corruption on crash.  Prefer the targeted helpers in update.go over calling
+// Save directly; they load, mutate, and save under the package mutex.
 func Save(cfg *Config) error {
 	if cfg == nil {
 		return errNilConfig

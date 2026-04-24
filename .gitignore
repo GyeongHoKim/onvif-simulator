@@ -15,6 +15,12 @@ onvif-simulator.json
 
 # Go
 vendor/
+coverage.out
+coverage/
+
+# Build artifacts from go build/run in project root
+*.exe
+*.test
 
 # Web
 

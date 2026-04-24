@@ -16,7 +16,7 @@ else
   GUI_OUT  := build/bin/$(BINARY)-gui
 endif
 
-.PHONY: cli gui format lint test coverage e2e clean setup
+.PHONY: cli gui format lint test coverage e2e clean setup manual
 
 cli:
 	$(GO) build -o $(CLI_OUT) ./cmd/cli
@@ -51,3 +51,8 @@ clean:
 setup:
 	npm install
 	git config core.hooksPath .githooks
+
+DOCS_PORT ?= 8080
+
+manual:
+	$(GO) run ./cmd/manual -port=$(DOCS_PORT)

@@ -10,6 +10,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/GyeongHoKim/onvif-simulator/internal/auth"
 )
 
 type stubProvider struct{}
@@ -50,6 +52,61 @@ func (stubProvider) WsdlURL(context.Context) (string, error) {
 	return "http://www.onvif.org/ver10/device/wsdl/devicemgmt.wsdl", nil
 }
 
+// --- Discovery stubs ---
+
+func (stubProvider) GetDiscoveryMode(context.Context) (DiscoveryInfo, error) {
+	return DiscoveryInfo{DiscoveryMode: "Discoverable"}, nil
+}
+func (stubProvider) SetDiscoveryMode(context.Context, string) error { return nil }
+func (stubProvider) GetScopes(context.Context) ([]ScopeEntry, error) {
+	return []ScopeEntry{{ScopeDef: "Fixed", ScopeItem: "onvif://www.onvif.org/type/video_encoder"}}, nil
+}
+func (stubProvider) SetScopes(context.Context, []string) error                { return nil }
+func (stubProvider) AddScopes(context.Context, []string) error                { return nil }
+func (stubProvider) RemoveScopes(context.Context, []string) ([]string, error) { return nil, nil }
+
+// --- Network stubs ---
+
+func (stubProvider) GetHostname(context.Context) (HostnameInfo, error) {
+	return HostnameInfo{Name: "simulator"}, nil
+}
+func (stubProvider) SetHostname(context.Context, string) error { return nil }
+func (stubProvider) GetDNS(context.Context) (DNSInfo, error)   { return DNSInfo{}, nil }
+func (stubProvider) SetDNS(context.Context, DNSInfo) error     { return nil }
+func (stubProvider) GetNetworkInterfaces(context.Context) ([]NetworkInterfaceInfo, error) {
+	return nil, nil
+}
+func (stubProvider) GetNetworkProtocols(context.Context) ([]NetworkProtocol, error) {
+	return []NetworkProtocol{{Name: "HTTP", Enabled: true, Port: []int{80}}}, nil
+}
+func (stubProvider) SetNetworkProtocols(context.Context, []NetworkProtocol) error { return nil }
+func (stubProvider) GetNetworkDefaultGateway(context.Context) (DefaultGatewayInfo, error) {
+	return DefaultGatewayInfo{}, nil
+}
+func (stubProvider) SetNetworkDefaultGateway(context.Context, DefaultGatewayInfo) error { return nil }
+
+// --- System stubs ---
+
+func (stubProvider) GetSystemDateAndTime(context.Context) (SystemDateAndTimeInfo, error) {
+	return SystemDateAndTimeInfo{DateTimeType: "Manual", TZ: "UTC"}, nil
+}
+func (stubProvider) SetSystemDateAndTime(context.Context, SetSystemDateAndTimeParams) error {
+	return nil
+}
+func (stubProvider) SetSystemFactoryDefault(context.Context, string) error { return nil }
+func (stubProvider) SystemReboot(context.Context) (string, error) {
+	return "Rebooting simulator", nil
+}
+
+// --- User stubs ---
+
+func (stubProvider) GetUsers(context.Context) ([]UserInfo, error) {
+	return []UserInfo{{Username: "admin", UserLevel: "Administrator"}}, nil
+}
+func (stubProvider) CreateUsers(context.Context, []UserInfo) error { return nil }
+func (stubProvider) SetUser(context.Context, []UserInfo) error     { return nil }
+func (stubProvider) DeleteUsers(context.Context, []string) error   { return nil }
+
 var errProviderBoom = errors.New("provider boom")
 
 type errProvider struct{}
@@ -73,6 +130,54 @@ func (errProvider) GetCapabilities(context.Context, string) (CapabilitySet, erro
 func (errProvider) WsdlURL(context.Context) (string, error) {
 	return "", errProviderBoom
 }
+
+// errProvider stubs for new operations — all return errProviderBoom.
+
+func (errProvider) GetDiscoveryMode(context.Context) (DiscoveryInfo, error) {
+	return DiscoveryInfo{}, errProviderBoom
+}
+func (errProvider) SetDiscoveryMode(context.Context, string) error { return errProviderBoom }
+func (errProvider) GetScopes(context.Context) ([]ScopeEntry, error) {
+	return nil, errProviderBoom
+}
+func (errProvider) SetScopes(context.Context, []string) error { return errProviderBoom }
+func (errProvider) AddScopes(context.Context, []string) error { return errProviderBoom }
+func (errProvider) RemoveScopes(context.Context, []string) ([]string, error) {
+	return nil, errProviderBoom
+}
+func (errProvider) GetHostname(context.Context) (HostnameInfo, error) {
+	return HostnameInfo{}, errProviderBoom
+}
+func (errProvider) SetHostname(context.Context, string) error { return errProviderBoom }
+func (errProvider) GetDNS(context.Context) (DNSInfo, error)   { return DNSInfo{}, errProviderBoom }
+func (errProvider) SetDNS(context.Context, DNSInfo) error     { return errProviderBoom }
+func (errProvider) GetNetworkInterfaces(context.Context) ([]NetworkInterfaceInfo, error) {
+	return nil, errProviderBoom
+}
+func (errProvider) GetNetworkProtocols(context.Context) ([]NetworkProtocol, error) {
+	return nil, errProviderBoom
+}
+func (errProvider) SetNetworkProtocols(context.Context, []NetworkProtocol) error {
+	return errProviderBoom
+}
+func (errProvider) GetNetworkDefaultGateway(context.Context) (DefaultGatewayInfo, error) {
+	return DefaultGatewayInfo{}, errProviderBoom
+}
+func (errProvider) SetNetworkDefaultGateway(context.Context, DefaultGatewayInfo) error {
+	return errProviderBoom
+}
+func (errProvider) GetSystemDateAndTime(context.Context) (SystemDateAndTimeInfo, error) {
+	return SystemDateAndTimeInfo{}, errProviderBoom
+}
+func (errProvider) SetSystemDateAndTime(context.Context, SetSystemDateAndTimeParams) error {
+	return errProviderBoom
+}
+func (errProvider) SetSystemFactoryDefault(context.Context, string) error { return errProviderBoom }
+func (errProvider) SystemReboot(context.Context) (string, error)          { return "", errProviderBoom }
+func (errProvider) GetUsers(context.Context) ([]UserInfo, error)          { return nil, errProviderBoom }
+func (errProvider) CreateUsers(context.Context, []UserInfo) error         { return errProviderBoom }
+func (errProvider) SetUser(context.Context, []UserInfo) error             { return errProviderBoom }
+func (errProvider) DeleteUsers(context.Context, []string) error           { return errProviderBoom }
 
 type emptyServicesProvider struct{ stubProvider }
 
@@ -139,7 +244,7 @@ func TestServeHTTP_GetDeviceInformation(t *testing.T) {
 
 func TestServeHTTP_UnsupportedOperationFault(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetUsers", "")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetUnknownOp", "")))
 	rec := httptest.NewRecorder()
 
 	svc.ServeHTTP(rec, req)
@@ -397,4 +502,444 @@ func soapRequest(op, inner string) string {
 	return `<?xml version="1.0" encoding="UTF-8"?>` +
 		`<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:tds="` + DeviceNamespace + `">` +
 		`<env:Body><tds:` + op + `>` + inner + `</tds:` + op + `></env:Body></env:Envelope>`
+}
+
+// --- Discovery tests ---
+
+func TestServeHTTP_GetDiscoveryMode(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetDiscoveryMode", "")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "<DiscoveryMode>Discoverable</DiscoveryMode>") {
+		t.Fatalf("body missing DiscoveryMode: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_SetDiscoveryMode(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetDiscoveryMode", "<DiscoveryMode>NonDiscoverable</DiscoveryMode>")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "SetDiscoveryModeResponse") {
+		t.Fatalf("body missing SetDiscoveryModeResponse: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_SetDiscoveryModeInvalidPayload(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetDiscoveryMode", "<DiscoveryMode><bad</DiscoveryMode>")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestServeHTTP_GetScopes(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetScopes", "")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "GetScopesResponse") {
+		t.Fatalf("body missing GetScopesResponse: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_SetScopes(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetScopes", "<Scopes>onvif://www.onvif.org/type/video_encoder</Scopes>")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "SetScopesResponse") {
+		t.Fatalf("body missing SetScopesResponse: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_AddScopes(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("AddScopes", "<ScopeItem>onvif://www.onvif.org/type/ptz</ScopeItem>")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "AddScopesResponse") {
+		t.Fatalf("body missing AddScopesResponse: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_RemoveScopes(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("RemoveScopes", "<ScopeItem>onvif://www.onvif.org/type/ptz</ScopeItem>")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "RemoveScopesResponse") {
+		t.Fatalf("body missing RemoveScopesResponse: %s", rec.Body.String())
+	}
+}
+
+// --- Network tests ---
+
+func TestServeHTTP_GetHostname(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetHostname", "")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "<Name>simulator</Name>") {
+		t.Fatalf("body missing hostname: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_SetHostname(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetHostname", "<Name>mycamera</Name>")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "SetHostnameResponse") {
+		t.Fatalf("body missing SetHostnameResponse: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_GetDNS(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetDNS", "")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "GetDNSResponse") {
+		t.Fatalf("body missing GetDNSResponse: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_SetDNS(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	inner := `<FromDHCP>false</FromDHCP><DNSManual><IPv4Address>8.8.8.8</IPv4Address></DNSManual>`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetDNS", inner)))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "SetDNSResponse") {
+		t.Fatalf("body missing SetDNSResponse: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_GetNetworkInterfaces(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetNetworkInterfaces", "")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "GetNetworkInterfacesResponse") {
+		t.Fatalf("body missing GetNetworkInterfacesResponse: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_GetNetworkProtocols(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetNetworkProtocols", "")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "<Name>HTTP</Name>") {
+		t.Fatalf("body missing HTTP protocol: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_SetNetworkProtocols(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	inner := `<NetworkProtocols><Name>HTTP</Name><Enabled>true</Enabled><Port>80</Port></NetworkProtocols>`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetNetworkProtocols", inner)))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "SetNetworkProtocolsResponse") {
+		t.Fatalf("body missing SetNetworkProtocolsResponse: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_GetNetworkDefaultGateway(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetNetworkDefaultGateway", "")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "GetNetworkDefaultGatewayResponse") {
+		t.Fatalf("body missing GetNetworkDefaultGatewayResponse: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_SetNetworkDefaultGateway(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	inner := `<IPv4Address>192.168.1.1</IPv4Address>`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetNetworkDefaultGateway", inner)))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "SetNetworkDefaultGatewayResponse") {
+		t.Fatalf("body missing SetNetworkDefaultGatewayResponse: %s", rec.Body.String())
+	}
+}
+
+// --- System tests ---
+
+func TestServeHTTP_GetSystemDateAndTime(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetSystemDateAndTime", "")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "<DateTimeType>Manual</DateTimeType>") {
+		t.Fatalf("body missing DateTimeType: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_SetSystemDateAndTime(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	inner := `<DateTimeType>Manual</DateTimeType><DaylightSavings>false</DaylightSavings>` +
+		`<TimeZone><TZ>UTC</TZ></TimeZone>` +
+		`<UTCDateTime><Date><Year>2026</Year><Month>4</Month><Day>24</Day></Date>` +
+		`<Time><Hour>12</Hour><Minute>0</Minute><Second>0</Second></Time></UTCDateTime>`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetSystemDateAndTime", inner)))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "SetSystemDateAndTimeResponse") {
+		t.Fatalf("body missing SetSystemDateAndTimeResponse: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_SetSystemFactoryDefault(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetSystemFactoryDefault", "<FactoryDefault>Soft</FactoryDefault>")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "SetSystemFactoryDefaultResponse") {
+		t.Fatalf("body missing SetSystemFactoryDefaultResponse: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_SystemReboot(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SystemReboot", "")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "Rebooting simulator") {
+		t.Fatalf("body missing reboot message: %s", rec.Body.String())
+	}
+}
+
+// --- User tests ---
+
+func TestServeHTTP_GetUsers(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetUsers", "")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "<Username>admin</Username>") {
+		t.Fatalf("body missing admin user: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_CreateUsers(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	inner := `<User><Username>operator</Username><Password>pass</Password><UserLevel>Operator</UserLevel></User>`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("CreateUsers", inner)))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "CreateUsersResponse") {
+		t.Fatalf("body missing CreateUsersResponse: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_SetUser(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	inner := `<User><Username>admin</Username><Password>newpass</Password><UserLevel>Administrator</UserLevel></User>`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetUser", inner)))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "SetUserResponse") {
+		t.Fatalf("body missing SetUserResponse: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_DeleteUsers(t *testing.T) {
+	svc := NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("DeleteUsers", "<Username>admin</Username>")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "DeleteUsersResponse") {
+		t.Fatalf("body missing DeleteUsersResponse: %s", rec.Body.String())
+	}
+}
+
+// --- Provider error tests for new operations ---
+
+func TestServeHTTP_ProviderErrors_NewOps(t *testing.T) {
+	cases := []struct {
+		op    string
+		inner string
+	}{
+		{"GetDiscoveryMode", ""},
+		{"SetDiscoveryMode", "<DiscoveryMode>Discoverable</DiscoveryMode>"},
+		{"GetScopes", ""},
+		{"SetScopes", "<Scopes>onvif://www.onvif.org/type/video_encoder</Scopes>"},
+		{"AddScopes", "<ScopeItem>onvif://www.onvif.org/type/ptz</ScopeItem>"},
+		{"RemoveScopes", "<ScopeItem>onvif://www.onvif.org/type/ptz</ScopeItem>"},
+		{"GetHostname", ""},
+		{"SetHostname", "<Name>host</Name>"},
+		{"GetDNS", ""},
+		{"SetDNS", "<FromDHCP>false</FromDHCP>"},
+		{"GetNetworkInterfaces", ""},
+		{"GetNetworkProtocols", ""},
+		{"SetNetworkProtocols", "<NetworkProtocols><Name>HTTP</Name><Enabled>true</Enabled></NetworkProtocols>"},
+		{"GetNetworkDefaultGateway", ""},
+		{"SetNetworkDefaultGateway", "<IPv4Address>192.168.1.1</IPv4Address>"},
+		{"GetSystemDateAndTime", ""},
+		{"SetSystemFactoryDefault", "<FactoryDefault>Soft</FactoryDefault>"},
+		{"SystemReboot", ""},
+		{"GetUsers", ""},
+		{"CreateUsers", "<User><Username>u</Username><Password>p</Password><UserLevel>User</UserLevel></User>"},
+		{"SetUser", "<User><Username>u</Username><Password>p</Password><UserLevel>User</UserLevel></User>"},
+		{"DeleteUsers", "<Username>u</Username>"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.op, func(t *testing.T) {
+			svc := NewHandler(errProvider{})
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(tc.op, tc.inner)))
+			rec := httptest.NewRecorder()
+			svc.ServeHTTP(rec, req)
+			if rec.Code != http.StatusInternalServerError {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+			}
+			if !strings.Contains(rec.Body.String(), errProviderBoom.Error()) {
+				t.Fatalf("body missing provider error: %s", rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestServeHTTP_SetSystemDateAndTimeProviderError(t *testing.T) {
+	svc := NewHandler(errProvider{})
+	inner := `<DateTimeType>Manual</DateTimeType><DaylightSavings>false</DaylightSavings>` +
+		`<TimeZone><TZ>UTC</TZ></TimeZone>` +
+		`<UTCDateTime><Date><Year>2026</Year><Month>4</Month><Day>24</Day></Date>` +
+		`<Time><Hour>12</Hour><Minute>0</Minute><Second>0</Second></Time></UTCDateTime>`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetSystemDateAndTime", inner)))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+}
+
+var errDigestChallenge = errors.New("digest challenge")
+var errForbiddenChallenge = errors.New("forbidden challenge")
+
+// --- Auth fault path tests ---
+
+func TestServeHTTP_AuthFaultChallengeError(t *testing.T) {
+	challenge := &auth.ChallengeError{
+		Status:  http.StatusUnauthorized,
+		Headers: http.Header{"WWW-Authenticate": []string{`Digest realm="onvif"`}},
+		Err:     errDigestChallenge,
+	}
+	svc := NewHandler(stubProvider{}, WithAuthHook(AuthFunc(func(context.Context, string, *http.Request) error {
+		return challenge
+	})))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetWsdlUrl", "")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+	if rec.Header().Get("WWW-Authenticate") == "" {
+		t.Fatal("WWW-Authenticate header missing from challenge response")
+	}
+}
+
+func TestServeHTTP_AuthFaultForbidden(t *testing.T) {
+	svc := NewHandler(stubProvider{}, WithAuthHook(AuthFunc(func(context.Context, string, *http.Request) error {
+		return auth.ErrForbidden
+	})))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetWsdlUrl", "")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
+
+func TestServeHTTP_AuthFaultChallengeErrorCustomStatus(t *testing.T) {
+	challenge := &auth.ChallengeError{
+		Status:  http.StatusForbidden,
+		Headers: http.Header{},
+		Err:     errForbiddenChallenge,
+	}
+	svc := NewHandler(stubProvider{}, WithAuthHook(AuthFunc(func(context.Context, string, *http.Request) error {
+		return challenge
+	})))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetWsdlUrl", "")))
+	rec := httptest.NewRecorder()
+	svc.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
 }
