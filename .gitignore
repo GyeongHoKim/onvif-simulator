@@ -2,6 +2,7 @@
 bin/
 build/
 !build/appicon.png
+/onvif-simulator
 
 # Local configuration (copy from onvif-simulator.example.json)
 onvif-simulator.json
