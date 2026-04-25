@@ -23,7 +23,7 @@ cli:
 
 gui:
 	mkdir -p build/bin
-	cd cmd/gui && wails build -o ../../$(GUI_OUT)
+	wails build -o $(GUI_OUT)
 
 format:
 	$(GO) fmt ./...
@@ -32,10 +32,10 @@ lint:
 	golangci-lint run ./...
 
 test:
-	$(GO) test -race ./internal/...
+	$(GO) test -race ./internal/... ./cmd/...
 
 coverage:
-	$(GO) test ./internal/... -coverprofile=coverage.out -covermode=atomic
+	$(GO) test ./internal/... ./cmd/... -coverprofile=coverage.out -covermode=atomic
 	$(GO) tool cover -func=coverage.out
 
 e2e:
