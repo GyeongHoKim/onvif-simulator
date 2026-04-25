@@ -16,7 +16,7 @@ else
   GUI_OUT  := build/bin/$(BINARY)-gui
 endif
 
-.PHONY: cli gui format lint test coverage e2e clean setup manual
+.PHONY: cli gui format lint test test-go test-frontend coverage e2e clean setup manual
 
 cli:
 	$(GO) build -o $(CLI_OUT) ./cmd/cli
@@ -31,8 +31,13 @@ format:
 lint:
 	golangci-lint run ./...
 
-test:
+test: test-go test-frontend
+
+test-go:
 	$(GO) test -race ./internal/... ./cmd/...
+
+test-frontend:
+	cd frontend && npm run test:coverage
 
 coverage:
 	$(GO) test ./internal/... ./cmd/... -coverprofile=coverage.out -covermode=atomic
