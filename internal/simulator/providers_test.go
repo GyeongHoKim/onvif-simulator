@@ -1,0 +1,295 @@
+package simulator
+
+import (
+	"context"
+	"testing"
+
+	"github.com/GyeongHoKim/onvif-simulator/internal/config"
+	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/devicesvc"
+	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/mediasvc"
+)
+
+//nolint:gocyclo,cyclop,govet // sweep test exercises many provider methods sequentially.
+func TestDeviceProviderReadsConfig(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+	dp := sim.deviceProv
+	ctx := context.Background()
+
+	info, err := dp.DeviceInfo(ctx)
+	if err != nil {
+		t.Fatalf("DeviceInfo: %v", err)
+	}
+	if info.Manufacturer != "Test" || info.Serial != "SN-1" {
+		t.Fatalf("unexpected device info: %+v", info)
+	}
+
+	svcs, err := dp.Services(ctx, false)
+	if err != nil || len(svcs) != 3 {
+		t.Fatalf("Services: %v %d", err, len(svcs))
+	}
+
+	caps, err := dp.GetServiceCapabilities(ctx)
+	if err != nil || !caps.Security.HTTPDigest {
+		t.Fatalf("GetServiceCapabilities: %v %+v", err, caps)
+	}
+
+	if _, err := dp.GetCapabilities(ctx, "All"); err != nil {
+		t.Fatalf("GetCapabilities: %v", err)
+	}
+
+	if _, err := dp.WsdlURL(ctx); err != nil {
+		t.Fatalf("WsdlURL: %v", err)
+	}
+
+	mode, err := dp.GetDiscoveryMode(ctx)
+	if err != nil || mode.DiscoveryMode == "" {
+		t.Fatalf("GetDiscoveryMode: %v %+v", err, mode)
+	}
+
+	scopes, err := dp.GetScopes(ctx)
+	if err != nil || len(scopes) == 0 {
+		t.Fatalf("GetScopes: %v %v", err, scopes)
+	}
+
+	if err := dp.SetScopes(ctx, []string{"onvif://www.onvif.org/name/test2"}); err != nil {
+		t.Fatalf("SetScopes: %v", err)
+	}
+	if err := dp.AddScopes(ctx, []string{"onvif://www.onvif.org/name/extra"}); err != nil {
+		t.Fatalf("AddScopes: %v", err)
+	}
+	removed, err := dp.RemoveScopes(ctx, []string{"onvif://www.onvif.org/name/extra"})
+	if err != nil || len(removed) != 1 {
+		t.Fatalf("RemoveScopes: %v %v", err, removed)
+	}
+
+	if _, err := dp.GetHostname(ctx); err != nil {
+		t.Fatalf("GetHostname: %v", err)
+	}
+	if _, err := dp.GetDNS(ctx); err != nil {
+		t.Fatalf("GetDNS: %v", err)
+	}
+	if err := dp.SetDNS(ctx, devicesvc.DNSInfo{FromDHCP: true}); err != nil {
+		t.Fatalf("SetDNS: %v", err)
+	}
+	if _, err := dp.GetNetworkInterfaces(ctx); err != nil {
+		t.Fatalf("GetNetworkInterfaces: %v", err)
+	}
+	if err := dp.SetNetworkInterfaces(ctx, nil); err != nil {
+		t.Fatalf("SetNetworkInterfaces: %v", err)
+	}
+	if _, err := dp.GetNetworkProtocols(ctx); err != nil {
+		t.Fatalf("GetNetworkProtocols: %v", err)
+	}
+	if err := dp.SetNetworkProtocols(ctx, nil); err != nil {
+		t.Fatalf("SetNetworkProtocols: %v", err)
+	}
+	if _, err := dp.GetNetworkDefaultGateway(ctx); err != nil {
+		t.Fatalf("GetNetworkDefaultGateway: %v", err)
+	}
+	if err := dp.SetNetworkDefaultGateway(ctx, devicesvc.DefaultGatewayInfo{}); err != nil {
+		t.Fatalf("SetNetworkDefaultGateway: %v", err)
+	}
+	if _, err := dp.GetSystemDateAndTime(ctx); err != nil {
+		t.Fatalf("GetSystemDateAndTime: %v", err)
+	}
+	if err := dp.SetSystemDateAndTime(ctx, devicesvc.SetSystemDateAndTimeParams{
+		DateTimeType: "Manual", TZ: "UTC",
+		UTCDateTime: devicesvc.SystemDateTime{Year: 2026, Month: 1, Day: 1, Hour: 0, Minute: 0, Second: 0},
+	}); err != nil {
+		t.Fatalf("SetSystemDateAndTime: %v", err)
+	}
+	if err := dp.SetSystemFactoryDefault(ctx, "Soft"); err != nil {
+		t.Fatalf("SetSystemFactoryDefault: %v", err)
+	}
+	if _, err := dp.SystemReboot(ctx); err != nil {
+		t.Fatalf("SystemReboot: %v", err)
+	}
+}
+
+func TestDeviceProviderUserOps(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+	dp := sim.deviceProv
+	ctx := context.Background()
+
+	if err := dp.CreateUsers(ctx, []devicesvc.UserInfo{{
+		Username: "bob", Password: "pw", UserLevel: config.RoleOperator,
+	}}); err != nil {
+		t.Fatalf("CreateUsers: %v", err)
+	}
+	users, err := dp.GetUsers(ctx)
+	if err != nil || len(users) != 1 {
+		t.Fatalf("GetUsers: %v %v", err, users)
+	}
+	if err := dp.SetUser(ctx, []devicesvc.UserInfo{{
+		Username: "bob", Password: "newpw", UserLevel: config.RoleAdministrator,
+	}}); err != nil {
+		t.Fatalf("SetUser: %v", err)
+	}
+	if err := dp.DeleteUsers(ctx, []string{"bob"}); err != nil {
+		t.Fatalf("DeleteUsers: %v", err)
+	}
+}
+
+//nolint:gocyclo,cyclop,govet // sweep test exercises every Media provider method.
+func TestMediaProvider(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+	mp := sim.mediaProv
+	ctx := context.Background()
+
+	caps, err := mp.ServiceCapabilities(ctx)
+	if err != nil || !caps.SnapshotURI {
+		t.Fatalf("ServiceCapabilities: %v %+v", err, caps)
+	}
+
+	profiles, err := mp.Profiles(ctx)
+	if err != nil || len(profiles) == 0 {
+		t.Fatalf("Profiles: %v %v", err, profiles)
+	}
+	prof, err := mp.Profile(ctx, profiles[0].Token)
+	if err != nil || prof.Token != profiles[0].Token {
+		t.Fatalf("Profile: %v %+v", err, prof)
+	}
+	if _, err := mp.Profile(ctx, "missing"); err == nil {
+		t.Fatal("expected ErrProfileNotFound")
+	}
+
+	if _, err := mp.CreateProfile(ctx, "x", "x"); err == nil {
+		t.Fatal("expected CreateProfile not supported")
+	}
+	if err := mp.DeleteProfile(ctx, "x"); err == nil {
+		t.Fatal("expected DeleteProfile not supported")
+	}
+
+	if _, err := mp.VideoSources(ctx); err != nil {
+		t.Fatalf("VideoSources: %v", err)
+	}
+	vs, err := mp.VideoSourceConfigurations(ctx)
+	if err != nil || len(vs) == 0 {
+		t.Fatalf("VideoSourceConfigurations: %v", err)
+	}
+	if _, err := mp.VideoSourceConfiguration(ctx, vs[0].SourceToken); err != nil {
+		t.Fatalf("VideoSourceConfiguration: %v", err)
+	}
+	if _, err := mp.VideoSourceConfiguration(ctx, "missing"); err == nil {
+		t.Fatal("expected ErrConfigNotFound")
+	}
+	if err := mp.SetVideoSourceConfiguration(ctx, mediasvc.VideoSourceConfiguration{}); err != nil {
+		t.Fatalf("SetVideoSourceConfiguration: %v", err)
+	}
+	if err := mp.AddVideoSourceConfiguration(ctx, "p", "c"); err != nil {
+		t.Fatalf("AddVideoSourceConfiguration: %v", err)
+	}
+	if err := mp.RemoveVideoSourceConfiguration(ctx, "p"); err != nil {
+		t.Fatalf("RemoveVideoSourceConfiguration: %v", err)
+	}
+	if _, err := mp.CompatibleVideoSourceConfigurations(ctx, "p"); err != nil {
+		t.Fatalf("CompatibleVideoSourceConfigurations: %v", err)
+	}
+	if _, err := mp.VideoSourceConfigurationOptions(ctx, "", ""); err != nil {
+		t.Fatalf("VideoSourceConfigurationOptions: %v", err)
+	}
+
+	encs, err := mp.VideoEncoderConfigurations(ctx)
+	if err != nil || len(encs) == 0 {
+		t.Fatalf("VideoEncoderConfigurations: %v", err)
+	}
+	if _, err := mp.VideoEncoderConfiguration(ctx, profiles[0].Token); err != nil {
+		t.Fatalf("VideoEncoderConfiguration: %v", err)
+	}
+	if _, err := mp.VideoEncoderConfiguration(ctx, "missing"); err == nil {
+		t.Fatal("expected ErrConfigNotFound")
+	}
+	if err := mp.SetVideoEncoderConfiguration(ctx, mediasvc.VideoEncoderConfiguration{}); err != nil {
+		t.Fatalf("SetVideoEncoderConfiguration: %v", err)
+	}
+	if err := mp.AddVideoEncoderConfiguration(ctx, "p", "c"); err != nil {
+		t.Fatalf("AddVideoEncoderConfiguration: %v", err)
+	}
+	if err := mp.RemoveVideoEncoderConfiguration(ctx, "p"); err != nil {
+		t.Fatalf("RemoveVideoEncoderConfiguration: %v", err)
+	}
+	if _, err := mp.CompatibleVideoEncoderConfigurations(ctx, "p"); err != nil {
+		t.Fatalf("CompatibleVideoEncoderConfigurations: %v", err)
+	}
+	if _, err := mp.VideoEncoderConfigurationOptions(ctx, "", ""); err != nil {
+		t.Fatalf("VideoEncoderConfigurationOptions: %v", err)
+	}
+
+	uri, err := mp.StreamURI(ctx, profiles[0].Token, mediasvc.StreamSetup{})
+	if err != nil || uri.URI == "" {
+		t.Fatalf("StreamURI: %v %+v", err, uri)
+	}
+	if _, err := mp.StreamURI(ctx, "missing", mediasvc.StreamSetup{}); err == nil {
+		t.Fatal("expected ErrProfileNotFound")
+	}
+	if _, err := mp.SnapshotURI(ctx, profiles[0].Token); err == nil {
+		t.Fatal("expected ErrNoSnapshot for profile without snapshot")
+	}
+	if _, err := mp.SnapshotURI(ctx, "missing"); err == nil {
+		t.Fatal("expected ErrProfileNotFound")
+	}
+
+	if _, err := mp.GuaranteedNumberOfVideoEncoderInstances(ctx, ""); err != nil {
+		t.Fatalf("GuaranteedNumberOfVideoEncoderInstances: %v", err)
+	}
+
+	if _, err := mp.MetadataConfigurations(ctx); err != nil {
+		t.Fatalf("MetadataConfigurations: %v", err)
+	}
+	if _, err := mp.MetadataConfiguration(ctx, "missing"); err == nil {
+		t.Fatal("expected ErrConfigNotFound")
+	}
+	if err := mp.AddMetadataConfiguration(ctx, "p", "c"); err != nil {
+		t.Fatalf("AddMetadataConfiguration: %v", err)
+	}
+	if err := mp.RemoveMetadataConfiguration(ctx, "p"); err != nil {
+		t.Fatalf("RemoveMetadataConfiguration: %v", err)
+	}
+	if _, err := mp.MetadataConfigurationOptions(ctx, "", ""); err != nil {
+		t.Fatalf("MetadataConfigurationOptions: %v", err)
+	}
+	if _, err := mp.CompatibleMetadataConfigurations(ctx, "p"); err != nil {
+		t.Fatalf("CompatibleMetadataConfigurations: %v", err)
+	}
+}
+
+func TestSnapshotURIWhenSet(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+
+	if err := sim.SetProfileSnapshotURI("profile_main", "http://127.0.0.1/snap.jpg"); err != nil {
+		t.Fatalf("SetProfileSnapshotURI: %v", err)
+	}
+	uri, err := sim.mediaProv.SnapshotURI(context.Background(), "profile_main")
+	if err != nil {
+		t.Fatalf("SnapshotURI: %v", err)
+	}
+	if uri.URI == "" {
+		t.Fatal("expected non-empty snapshot uri")
+	}
+}
+
+func TestNormaliseUserLevel(t *testing.T) {
+	if got := normaliseUserLevel(""); got != config.RoleUser {
+		t.Fatalf("expected default role User, got %q", got)
+	}
+	if got := normaliseUserLevel("  Operator  "); got != "Operator" {
+		t.Fatalf("expected trimmed Operator, got %q", got)
+	}
+}
+
+func TestBaseURLAndHTTPURL(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+
+	url := sim.baseURL(8080)
+	if url == "" {
+		t.Fatal("expected non-empty baseURL")
+	}
+	if got := httpURL("127.0.0.1", 8080, "/x"); got != "http://127.0.0.1:8080/x" {
+		t.Fatalf("unexpected httpURL: %s", got)
+	}
+}
