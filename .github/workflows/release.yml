@@ -51,13 +51,12 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
       - name: Build GUI (NSIS installer)
-        working-directory: cmd/gui
         run: wails build -nsis -platform windows/amd64
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v3.0.0
         with:
-          files: build/bin/*-amd64-installer.exe
+          files: build/bin/onvif-simulator-amd64-installer.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -83,13 +82,12 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
       - name: Build GUI (.app)
-        working-directory: cmd/gui
         run: wails build -platform darwin/amd64
 
       - name: Package as .dmg
         run: |
           hdiutil create -volname "onvif-simulator" \
-            -srcfolder build/bin/onvif-simulator-gui.app \
+            -srcfolder build/bin/onvif-simulator.app \
             -ov -format UDZO \
             onvif-simulator-gui-darwin-amd64.dmg
 
@@ -130,7 +128,6 @@ jobs:
           chmod +x appimagetool
 
       - name: Build GUI
-        working-directory: cmd/gui
         run: wails build -platform linux/amd64
 
       - name: Package as AppImage
