@@ -215,10 +215,13 @@ func runConfig(args []string) error {
 	if err != nil {
 		return err
 	}
-	config.SetPath(resolved)
+	// Same ordering rationale as simulator.New: EnsureExists takes the
+	// path explicitly, so run it first and only mutate the package-level
+	// active path on success.
 	if _, err := config.EnsureExists(resolved); err != nil {
 		return err
 	}
+	config.SetPath(resolved)
 
 	switch sub {
 	case "show":

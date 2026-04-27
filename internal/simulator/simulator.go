@@ -151,10 +151,15 @@ func New(opts Options) (*Simulator, error) {
 	if err != nil {
 		return nil, fmt.Errorf("simulator: resolve config path: %w", err)
 	}
-	config.SetPath(cfgPath)
+	// EnsureExists takes the path as an explicit argument and does not
+	// consult the package-level active path, so we can run it before
+	// SetPath. This keeps the global state untouched if EnsureExists
+	// fails (otherwise a failed New would leak a SetPath into other
+	// callers — e.g. a GUI fallback to the in-memory stub).
 	if _, ensureErr := config.EnsureExists(cfgPath); ensureErr != nil {
 		return nil, fmt.Errorf("simulator: ensure config: %w", ensureErr)
 	}
+	config.SetPath(cfgPath)
 
 	cfg, err := config.Load()
 	if err != nil {

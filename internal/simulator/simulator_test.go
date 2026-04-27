@@ -93,6 +93,37 @@ func TestNewReadsConfig(t *testing.T) {
 	}
 }
 
+// TestNewDoesNotLeakActivePathOnEnsureFailure guards the ordering of
+// SetPath relative to EnsureExists in the constructor. When EnsureExists
+// rejects the path (e.g. because the parent is a regular file rather than
+// a directory), the package-level config.Path() must remain at whatever
+// it was before — otherwise a failed New would silently rebind the global
+// active path for any subsequent caller (a GUI fall-back to the in-memory
+// stub, for example).
+func TestNewDoesNotLeakActivePathOnEnsureFailure(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatalf("seed blocker: %v", err)
+	}
+	// path under a regular file → MkdirAll inside writeTempFile fails.
+	bogus := filepath.Join(blocker, config.FileName)
+
+	// Reset to a clean baseline before the test, snapshot it, and
+	// restore on cleanup so test ordering doesn't matter.
+	config.SetPath("")
+	t.Cleanup(func() { config.SetPath("") })
+	prior := config.Path()
+
+	_, err := New(Options{ConfigPath: bogus})
+	if err == nil {
+		t.Fatal("expected New to fail with bogus path")
+	}
+	if got := config.Path(); got != prior {
+		t.Errorf("config.Path leaked after failed New: got %q, want %q", got, prior)
+	}
+}
+
 func TestLifecycleIdempotency(t *testing.T) {
 	sim, cleanup := newTestSimulator(t)
 	defer cleanup()
