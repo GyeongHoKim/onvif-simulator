@@ -107,19 +107,19 @@ func TestPostSyncEventBadArgs(t *testing.T) {
 }
 
 func TestRunConfigShow(t *testing.T) {
-	cleanup := chdirToTempConfig(t)
+	cfgPath, cleanup := writeTempConfig(t)
 	defer cleanup()
 
-	if err := runConfig([]string{"show"}); err != nil {
+	if err := runConfig([]string{"show", "-config", cfgPath}); err != nil {
 		t.Fatalf("runConfig show: %v", err)
 	}
 }
 
 func TestRunConfigValidate(t *testing.T) {
-	cleanup := chdirToTempConfig(t)
+	cfgPath, cleanup := writeTempConfig(t)
 	defer cleanup()
 
-	if err := runConfig([]string{"validate"}); err != nil {
+	if err := runConfig([]string{"validate", "-config", cfgPath}); err != nil {
 		t.Fatalf("runConfig validate: %v", err)
 	}
 }

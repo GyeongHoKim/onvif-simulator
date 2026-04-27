@@ -33,8 +33,10 @@ func freePort(t *testing.T) int {
 	return addr.Port
 }
 
-// newTestSimulator writes a minimal valid config into a temp working
-// directory and returns a freshly-constructed *Simulator.
+// newTestSimulator writes a minimal valid config into a temp directory and
+// returns a freshly-constructed *Simulator pointed at that file via the
+// explicit ConfigPath option. The cleanup hook resets the package-level
+// config path so subsequent tests do not see a stale value.
 func newTestSimulator(t *testing.T) (sim *Simulator, cleanup func()) {
 	t.Helper()
 	dir := t.TempDir()
@@ -70,18 +72,9 @@ func newTestSimulator(t *testing.T) (sim *Simulator, cleanup func()) {
 		t.Fatalf("write config: %v", writeErr)
 	}
 
-	prev, getErr := os.Getwd()
-	if getErr != nil {
-		t.Fatalf("getwd: %v", getErr)
-	}
-	if chErr := os.Chdir(dir); chErr != nil {
-		t.Fatalf("chdir: %v", chErr)
-	}
-	cleanup = func() {
-		_ = os.Chdir(prev) //nolint:errcheck // restore cwd is best-effort.
-	}
+	cleanup = func() { config.SetPath("") }
 
-	s, newErr := New(Options{EventBufferSize: 16})
+	s, newErr := New(Options{EventBufferSize: 16, ConfigPath: cfgPath})
 	if newErr != nil {
 		cleanup()
 		t.Fatalf("New: %v", newErr)

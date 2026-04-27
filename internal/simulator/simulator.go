@@ -134,17 +134,30 @@ type Simulator struct {
 // New builds a simulator from the on-disk config. Panics only on internal
 // misconfiguration (nil broker construction, unreachable default paths);
 // everything else surfaces as a returned error.
+//
+// Config path resolution:
+//   - opts.ConfigPath (typically the CLI -config flag) wins when non-empty.
+//   - Otherwise we use config.DefaultPath (the OS-standard user config
+//     directory) so double-clicking the macOS .app — where the working
+//     directory is "/" — finds the same file the user edited last run.
+//
+// The resolved path is registered with config.SetPath so every mutation
+// helper writes back to the same location, and config.EnsureExists creates
+// a baseline file on first run.
 func New(opts Options) (*Simulator, error) {
-	cfgPath := opts.ConfigPath
-	if cfgPath == "" {
-		cfgPath = config.FileName
+	cfgPath, err := config.Resolve(opts.ConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("simulator: resolve config path: %w", err)
+	}
+	config.SetPath(cfgPath)
+	if _, ensureErr := config.EnsureExists(cfgPath); ensureErr != nil {
+		return nil, fmt.Errorf("simulator: ensure config: %w", ensureErr)
 	}
 
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, fmt.Errorf("simulator: load config: %w", err)
 	}
-	_ = cfgPath // MVP: config.Load() reads onvif-simulator.json from the working directory.
 
 	store := auth.NewMutableUserStore(nil)
 	controller := auth.NewController(store)

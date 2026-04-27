@@ -199,7 +199,22 @@ func runConfig(args []string) error {
 	if len(args) == 0 {
 		return errConfigSubcommandReq
 	}
-	switch args[0] {
+	sub := args[0]
+	fs := flag.NewFlagSet("config "+sub, flag.ContinueOnError)
+	cfgPath := fs.String("config", "", "path to onvif-simulator.json (defaults to user config dir)")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	resolved, err := config.Resolve(*cfgPath)
+	if err != nil {
+		return err
+	}
+	config.SetPath(resolved)
+	if _, err := config.EnsureExists(resolved); err != nil {
+		return err
+	}
+
+	switch sub {
 	case "show":
 		cfg, err := config.Load()
 		if err != nil {
@@ -215,7 +230,7 @@ func runConfig(args []string) error {
 		fmt.Println("ok")
 		return nil
 	default:
-		return fmt.Errorf("%w: %q", errConfigUnknownSubcommand, args[0])
+		return fmt.Errorf("%w: %q", errConfigUnknownSubcommand, sub)
 	}
 }
 

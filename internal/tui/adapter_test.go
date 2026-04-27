@@ -63,20 +63,9 @@ func newTestAdapter(t *testing.T) (sa *simulatorAdapter, cleanup func()) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	prev, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	if err = os.Chdir(dir); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	cleanup = func() {
-		if chErr := os.Chdir(prev); chErr != nil {
-			t.Errorf("restore working directory: %v", chErr)
-		}
-	}
+	cleanup = func() { config.SetPath("") }
 
-	sim, err := simulator.New(simulator.Options{})
+	sim, err := simulator.New(simulator.Options{ConfigPath: cfgPath})
 	if err != nil {
 		cleanup()
 		t.Fatalf("simulator.New: %v", err)

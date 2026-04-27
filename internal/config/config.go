@@ -2,9 +2,16 @@
 //
 // # File location
 //
-// The config file is named "onvif-simulator.json" and is read from (and
-// written to) the process working directory. Copy onvif-simulator.example.json
-// to get started.
+// The config file is named "onvif-simulator.json". Front-ends resolve its
+// location at startup via DefaultPath (the OS-standard user config dir
+// returned by os.UserConfigDir, joined with "onvif-simulator/") and call
+// SetPath to make Load/Save/Update use it. When SetPath has not been
+// called, Load and Save fall back to the working directory — kept for
+// tests and ad-hoc CLI use.
+//
+// First-run helpers (Default, EnsureExists) create a baseline config at
+// the resolved path so users can launch the GUI by double-clicking the
+// .app bundle without first hand-crafting onvif-simulator.json.
 //
 // # Schema versioning
 //
@@ -37,18 +44,26 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
-// FileName is the default on-disk config file name in the working directory.
+// FileName is the on-disk config file name.
 const FileName = "onvif-simulator.json"
+
+// DirName is the per-app subdirectory under os.UserConfigDir.
+const DirName = "onvif-simulator"
+
+const (
+	configDirMode  os.FileMode = 0o700
+	configFileMode os.FileMode = 0o600
+)
 
 // CurrentVersion is the only supported config schema version.
 const CurrentVersion = 1
@@ -788,22 +803,155 @@ func validateEvents(e *EventsConfig) error {
 	return nil
 }
 
-// Load reads and validates onvif-simulator.json relative to the process
-// working directory. On success it returns the fully validated Config that
-// callers should treat as read-only; mutate individual fields only through
-// the targeted helpers in update.go.
-func Load() (Config, error) {
+// pathMu guards the active config path. Read by every Load/Save, written
+// only by SetPath; an RWMutex keeps the read path lock-free in the common
+// case.
+var (
+	pathMu     sync.RWMutex
+	activePath string
+)
+
+// SetPath overrides the file path Load/Save/Update will use.  Front-ends
+// (CLI, GUI, TUI) call this once at startup with the result of DefaultPath
+// (or an explicit -config flag).  Pass "" to revert to the working-directory
+// fallback (useful in tests).
+func SetPath(p string) {
+	pathMu.Lock()
+	defer pathMu.Unlock()
+	activePath = p
+}
+
+// Path returns the currently configured path, or "" when SetPath has not
+// been called.
+func Path() string {
+	pathMu.RLock()
+	defer pathMu.RUnlock()
+	return activePath
+}
+
+// resolvePath returns the active path. Without SetPath, falls back to
+// FileName in the working directory — kept for tests and ad-hoc CLI use.
+func resolvePath() (string, error) {
+	if p := Path(); p != "" {
+		return p, nil
+	}
 	wd, err := os.Getwd()
 	if err != nil {
-		return Config{}, fmt.Errorf("config: get working directory: %w", err)
+		return "", fmt.Errorf("config: get working directory: %w", err)
 	}
-	data, err := fs.ReadFile(os.DirFS(wd), FileName)
+	return filepath.Join(wd, FileName), nil
+}
+
+// Resolve picks the path Load/Save should target. An explicit override
+// (typically the CLI -config flag) wins when non-empty; otherwise we fall
+// back to DefaultPath. Front-ends call this once at startup, pass the
+// result to SetPath, and (optionally) EnsureExists.
+func Resolve(override string) (string, error) {
+	if override != "" {
+		return override, nil
+	}
+	return DefaultPath()
+}
+
+// DefaultPath returns the OS-standard user config location:
+//
+//	macOS:   ~/Library/Application Support/onvif-simulator/onvif-simulator.json
+//	Linux:   $XDG_CONFIG_HOME/onvif-simulator/onvif-simulator.json
+//	         (or ~/.config/onvif-simulator/onvif-simulator.json)
+//	Windows: %AppData%\onvif-simulator\onvif-simulator.json
+//
+// This is what GUI/TUI/CLI callers should use when the user has not passed
+// an explicit -config flag.
+func DefaultPath() (string, error) {
+	base, err := os.UserConfigDir()
 	if err != nil {
-		return Config{}, fmt.Errorf("config: read %s: %w", FileName, err)
+		return "", fmt.Errorf("config: resolve user config dir: %w", err)
+	}
+	return filepath.Join(base, DirName, FileName), nil
+}
+
+// Default returns a baseline Config that passes Validate. Used by
+// EnsureExists on first-run when the resolved path does not exist yet.
+// The values mirror onvif-simulator.example.json's minimum viable shape
+// (auth disabled so the simulator boots without credentials).
+func Default() Config {
+	return Config{
+		Version: CurrentVersion,
+		Device: DeviceConfig{
+			UUID:         "urn:uuid:00000000-0000-4000-8000-000000000001",
+			Manufacturer: "ONVIF Simulator",
+			Model:        "SimCam-100",
+			Serial:       "SN-0001",
+			Firmware:     "0.1.0",
+			Scopes: []string{
+				"onvif://www.onvif.org/Profile/Streaming",
+				"onvif://www.onvif.org/name/simulator",
+				"onvif://www.onvif.org/hardware/virtual",
+			},
+		},
+		Network: NetworkConfig{HTTPPort: 8080},
+		Media: MediaConfig{
+			Profiles: []ProfileConfig{{
+				Name:     "main",
+				Token:    "profile_main",
+				RTSP:     "rtsp://127.0.0.1:8554/main",
+				Encoding: "H264",
+				Width:    1920,
+				Height:   1080,
+				FPS:      30,
+			}},
+		},
+		Events: EventsConfig{
+			MaxPullPoints:       defaultMaxPullPoints,
+			SubscriptionTimeout: "1h",
+			Topics: []TopicConfig{
+				{Name: "tns1:VideoSource/MotionAlarm", Enabled: true},
+				{Name: "tns1:VideoSource/ImageTooBlurry", Enabled: true},
+				{Name: "tns1:VideoSource/ImageTooDark", Enabled: true},
+				{Name: "tns1:VideoSource/ImageTooBright", Enabled: true},
+				{Name: "tns1:Device/Trigger/DigitalInput", Enabled: true},
+			},
+		},
+		Runtime: RuntimeConfig{DiscoveryMode: "Discoverable"},
+	}
+}
+
+const defaultMaxPullPoints = 10
+
+// EnsureExists writes Default() to p when p does not yet exist, creating
+// the parent directory as needed. Returns true if it created the file.
+// Existing files are left untouched.
+func EnsureExists(p string) (bool, error) {
+	if _, err := os.Stat(p); err == nil {
+		return false, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("config: stat %s: %w", p, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(p), configDirMode); err != nil {
+		return false, fmt.Errorf("config: mkdir %s: %w", filepath.Dir(p), err)
+	}
+	cfg := Default()
+	if err := writeAtomic(p, &cfg); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// Load reads and validates the active config file. On success it returns a
+// fully validated Config that callers should treat as read-only; mutate
+// individual fields only through the targeted helpers in update.go.
+func Load() (Config, error) {
+	p, err := resolvePath()
+	if err != nil {
+		return Config{}, err
+	}
+	data, err := os.ReadFile(p) //nolint:gosec // p comes from SetPath/working dir, both trusted.
+	if err != nil {
+		return Config{}, fmt.Errorf("config: read %s: %w", filepath.Base(p), err)
 	}
 	var c Config
 	if err := json.Unmarshal(data, &c); err != nil {
-		return Config{}, fmt.Errorf("config: parse %s: %w", FileName, err)
+		return Config{}, fmt.Errorf("config: parse %s: %w", filepath.Base(p), err)
 	}
 	if err := Validate(&c); err != nil {
 		return Config{}, err
@@ -811,10 +959,10 @@ func Load() (Config, error) {
 	return c, nil
 }
 
-// Save validates cfg and writes it to onvif-simulator.json in the working
-// directory.  The write is atomic (write-to-temp + rename) to prevent
-// corruption on crash.  Prefer the targeted helpers in update.go over calling
-// Save directly; they load, mutate, and save under the package mutex.
+// Save validates cfg and writes it to the active path. The write is atomic
+// (write-to-temp + rename) to prevent corruption on crash. Prefer the
+// targeted helpers in update.go over calling Save directly; they load,
+// mutate, and save under the package mutex.
 func Save(cfg *Config) error {
 	if cfg == nil {
 		return errNilConfig
@@ -822,32 +970,53 @@ func Save(cfg *Config) error {
 	if err := Validate(cfg); err != nil {
 		return err
 	}
+	p, err := resolvePath()
+	if err != nil {
+		return err
+	}
+	return writeAtomic(p, cfg)
+}
+
+// writeAtomic marshals cfg and writes it to path via temp file + rename,
+// creating the parent directory if needed. Caller has already validated.
+func writeAtomic(path string, cfg *Config) error {
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("config: marshal: %w", err)
 	}
 	data = append(data, '\n')
 
-	wd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("config: get working directory: %w", err)
+	dir := filepath.Dir(path)
+	if mkErr := os.MkdirAll(dir, configDirMode); mkErr != nil {
+		return fmt.Errorf("config: mkdir %s: %w", dir, mkErr)
 	}
-	path := filepath.Join(wd, FileName)
-
-	tmp, err := os.CreateTemp(wd, "."+FileName+".tmp-*")
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
-		return fmt.Errorf("config: create temp in %q: %w", wd, err)
+		return fmt.Errorf("config: create temp in %q: %w", dir, err)
 	}
 	tmpPath := tmp.Name()
-
+	if chmodErr := os.Chmod(tmpPath, configFileMode); chmodErr != nil {
+		return joinSaveErrors(
+			fmt.Errorf("config: chmod temp: %w", chmodErr),
+			tmp.Close(),
+			os.Remove(tmpPath),
+		)
+	}
 	if _, werr := tmp.Write(data); werr != nil {
-		return joinSaveErrors(fmt.Errorf("config: write temp: %w", werr), tmp.Close(), os.Remove(tmpPath))
+		return joinSaveErrors(
+			fmt.Errorf("config: write temp: %w", werr),
+			tmp.Close(),
+			os.Remove(tmpPath),
+		)
 	}
 	if cerr := tmp.Close(); cerr != nil {
 		return joinSaveErrors(fmt.Errorf("config: close temp: %w", cerr), os.Remove(tmpPath))
 	}
 	if rerr := os.Rename(tmpPath, path); rerr != nil {
-		return joinSaveErrors(fmt.Errorf("config: rename to %s: %w", FileName, rerr), os.Remove(tmpPath))
+		return joinSaveErrors(
+			fmt.Errorf("config: rename to %s: %w", filepath.Base(path), rerr),
+			os.Remove(tmpPath),
+		)
 	}
 	return nil
 }
