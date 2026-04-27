@@ -31,7 +31,7 @@ import { Field, FieldLabel, FieldGroup } from "@/components/ui/field"
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { cn } from "@/lib/utils"
 import { useSim } from "@/store/simulator"
-import * as App from "@/lib/wails/wailsjs/go/main/App"
+import * as App from "@/lib/wails/wailsjs/go/gui/App"
 
 type TriggerKind = "motion" | "blurry" | "dark" | "bright" | "digital" | "raw"
 

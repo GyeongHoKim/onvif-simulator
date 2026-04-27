@@ -2,14 +2,14 @@
 // Zustand over alternatives.
 
 import { create } from "zustand"
-import * as App from "@/lib/wails/wailsjs/go/main/App"
+import * as App from "@/lib/wails/wailsjs/go/gui/App"
 import * as wruntime from "@/lib/wails/wailsjs/runtime/runtime"
-import { config as cfgNs, main as mainNs } from "@/lib/wails/wailsjs/go/models"
+import { config as cfgNs, gui as guiNs } from "@/lib/wails/wailsjs/go/models"
 
-type Status = mainNs.Status
+type Status = guiNs.Status
 type Config = cfgNs.Config
-type UserView = mainNs.UserView
-type EventRecord = mainNs.EventRecord
+type UserView = guiNs.UserView
+type EventRecord = guiNs.EventRecord
 
 export type LogEntry =
   | { kind: "event"; time: string; topic: string; source: string; payload: string }

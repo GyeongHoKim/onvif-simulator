@@ -44,7 +44,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useSim } from "@/store/simulator"
-import * as App from "@/lib/wails/wailsjs/go/main/App"
+import * as App from "@/lib/wails/wailsjs/go/gui/App"
 import { config as cfgNs } from "@/lib/wails/wailsjs/go/models"
 
 type Profile = cfgNs.ProfileConfig

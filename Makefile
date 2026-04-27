@@ -24,7 +24,6 @@ cli:
 	$(GO) build -o $(CLI_OUT) ./cmd/cli
 
 gui:
-	mkdir -p build/bin
 	cd cmd/gui && wails build -o ../../$(GUI_OUT)
 
 format:

@@ -491,7 +491,7 @@ export namespace config {
 
 }
 
-export namespace main {
+export namespace gui {
 	
 	export class EventRecord {
 	    // Go type: time

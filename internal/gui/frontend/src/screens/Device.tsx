@@ -8,7 +8,7 @@ import { Field, FieldGroup, FieldLabel, FieldError } from "@/components/ui/field
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { useSim } from "@/store/simulator"
-import * as App from "@/lib/wails/wailsjs/go/main/App"
+import * as App from "@/lib/wails/wailsjs/go/gui/App"
 import { config as cfgNs } from "@/lib/wails/wailsjs/go/models"
 
 type Config = cfgNs.Config

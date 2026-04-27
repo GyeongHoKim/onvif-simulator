@@ -6,7 +6,7 @@ import { appMocks, runtimeMocks, resetWailsMocks } from "./wails-mock"
 
 // Global mock for Wails-generated modules. Tests that need a different
 // behaviour can override individual functions on appMocks or runtimeMocks.
-vi.mock("@/lib/wails/wailsjs/go/main/App", () => appMocks)
+vi.mock("@/lib/wails/wailsjs/go/gui/App", () => appMocks)
 vi.mock("@/lib/wails/wailsjs/runtime/runtime", () => runtimeMocks)
 
 afterEach(() => {

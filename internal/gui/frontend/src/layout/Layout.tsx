@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { useTheme } from "@/components/theme-provider"
 import { useSim } from "@/store/simulator"
-import * as App from "@/lib/wails/wailsjs/go/main/App"
+import * as App from "@/lib/wails/wailsjs/go/gui/App"
 import { cn } from "@/lib/utils"
 
 import { DashboardScreen } from "@/screens/Dashboard"

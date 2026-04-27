@@ -46,7 +46,7 @@ import {
 } from "@/components/ui/field"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useSim } from "@/store/simulator"
-import * as App from "@/lib/wails/wailsjs/go/main/App"
+import * as App from "@/lib/wails/wailsjs/go/gui/App"
 import { config as cfgNs } from "@/lib/wails/wailsjs/go/models"
 
 const BUILTIN_ROLES = ["Administrator", "Operator", "User", "Extended"]
