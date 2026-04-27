@@ -21,6 +21,7 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/devicesvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/eventsvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/mediasvc"
+	"github.com/GyeongHoKim/onvif-simulator/internal/rtsp"
 )
 
 // Options configures a new simulator at construction time.
@@ -102,6 +103,7 @@ type Simulator struct {
 	running         bool
 	started         time.Time
 	server          *http.Server
+	rtspServer      *rtsp.Server
 	listenAddr      string
 	discoveryCancel context.CancelFunc
 	discoveryDone   chan struct{}

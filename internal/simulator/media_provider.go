@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
@@ -261,11 +263,30 @@ func (p *mediaProvider) StreamURI(
 ) (mediasvc.MediaURI, error) {
 	cfg := p.sim.snapshotConfig()
 	for i := range cfg.Media.Profiles {
-		if cfg.Media.Profiles[i].Token == profileToken {
-			return mediasvc.MediaURI{URI: cfg.Media.Profiles[i].RTSP, Timeout: "PT0S"}, nil
+		prof := &cfg.Media.Profiles[i]
+		if prof.Token != profileToken {
+			continue
 		}
+		uri := streamURIFor(&cfg, prof)
+		return mediasvc.MediaURI{URI: uri, Timeout: "PT0S"}, nil
 	}
 	return mediasvc.MediaURI{}, fmt.Errorf("%w: %s", mediasvc.ErrProfileNotFound, profileToken)
+}
+
+// streamURIFor computes the URI returned by GetStreamUri.
+//
+// When the profile has MediaFilePath set, the simulator hosts the stream
+// itself: the URI points at the embedded RTSP server (rtsp://<advertised
+// host>:<RTSPPort>/<token>). Otherwise we fall back to the deprecated
+// pass-through ProfileConfig.RTSP field for backwards compatibility while
+// the rest of the codebase migrates to MediaFilePath.
+func streamURIFor(cfg *config.Config, p *config.ProfileConfig) string {
+	if p.MediaFilePath == "" {
+		return p.RTSP
+	}
+	host := localAddrForXAddr()
+	port := cfg.Network.RTSPPortOrDefault()
+	return "rtsp://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/" + p.Token
 }
 
 func (p *mediaProvider) SnapshotURI(_ context.Context, profileToken string) (mediasvc.MediaURI, error) {
