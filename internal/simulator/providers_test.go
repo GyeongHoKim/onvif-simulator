@@ -293,3 +293,233 @@ func TestBaseURLAndHTTPURL(t *testing.T) {
 		t.Fatalf("unexpected httpURL: %s", got)
 	}
 }
+
+func TestGetSystemDateAndTimeManual(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	if err := sim.deviceProv.SetSystemDateAndTime(ctx, devicesvc.SetSystemDateAndTimeParams{
+		DateTimeType: "Manual",
+		TZ:           "UTC",
+		UTCDateTime:  devicesvc.SystemDateTime{Year: 2026, Month: 4, Day: 1, Hour: 12},
+	}); err != nil {
+		t.Fatalf("SetSystemDateAndTime: %v", err)
+	}
+	if err := sim.reloadFromDisk(); err != nil {
+		t.Fatalf("reloadFromDisk: %v", err)
+	}
+	info, err := sim.deviceProv.GetSystemDateAndTime(ctx)
+	if err != nil {
+		t.Fatalf("GetSystemDateAndTime: %v", err)
+	}
+	if info.DateTimeType != "Manual" {
+		t.Fatalf("expected Manual DateTimeType, got %q", info.DateTimeType)
+	}
+}
+
+func TestSetNetworkInterfacesWithIPv4(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	ifaces := []devicesvc.NetworkInterfaceInfo{
+		{
+			Token:   "eth0",
+			Enabled: true,
+			IPv4: &devicesvc.IPv4Config{
+				Enabled: true,
+				DHCP:    false,
+				Manual:  []string{"192.168.1.100/24"},
+			},
+		},
+	}
+	if err := sim.deviceProv.SetNetworkInterfaces(ctx, ifaces); err != nil {
+		t.Fatalf("SetNetworkInterfaces: %v", err)
+	}
+	if err := sim.reloadFromDisk(); err != nil {
+		t.Fatalf("reloadFromDisk: %v", err)
+	}
+	got, err := sim.deviceProv.GetNetworkInterfaces(ctx)
+	if err != nil {
+		t.Fatalf("GetNetworkInterfaces: %v", err)
+	}
+	if len(got) != 1 || got[0].IPv4 == nil {
+		t.Fatalf("expected 1 interface with IPv4 config, got %+v", got)
+	}
+}
+
+func TestGetNetworkProtocolsRoundTrip(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	want := []devicesvc.NetworkProtocol{
+		{Name: "HTTP", Enabled: true, Port: []int{80}},
+		{Name: "HTTPS", Enabled: false, Port: []int{443}},
+	}
+	if err := sim.deviceProv.SetNetworkProtocols(ctx, want); err != nil {
+		t.Fatalf("SetNetworkProtocols: %v", err)
+	}
+	if err := sim.reloadFromDisk(); err != nil {
+		t.Fatalf("reloadFromDisk: %v", err)
+	}
+	got, err := sim.deviceProv.GetNetworkProtocols(ctx)
+	if err != nil {
+		t.Fatalf("GetNetworkProtocols: %v", err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d protocols, got %d", len(want), len(got))
+	}
+}
+
+func TestVideoSourcesDeduplicated(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+
+	// Add a second profile sharing the same video source token.
+	if err := sim.AddProfile(config.ProfileConfig{
+		Name:             "sub",
+		Token:            "profile_sub",
+		RTSP:             "rtsp://127.0.0.1:8554/sub",
+		Encoding:         "H264",
+		Width:            640,
+		Height:           480,
+		FPS:              15,
+		VideoSourceToken: config.DefaultVideoSourceToken,
+	}); err != nil {
+		t.Fatalf("AddProfile: %v", err)
+	}
+
+	ctx := context.Background()
+	srcs, err := sim.mediaProv.VideoSources(ctx)
+	if err != nil {
+		t.Fatalf("VideoSources: %v", err)
+	}
+	if len(srcs) != 1 {
+		t.Fatalf("expected 1 deduplicated VideoSource, got %d", len(srcs))
+	}
+
+	vsCfgs, err := sim.mediaProv.VideoSourceConfigurations(ctx)
+	if err != nil {
+		t.Fatalf("VideoSourceConfigurations: %v", err)
+	}
+	if len(vsCfgs) != 1 {
+		t.Fatalf("expected 1 deduplicated VideoSourceConfiguration, got %d", len(vsCfgs))
+	}
+}
+
+func TestMetadataConfigurationFoundAndSet(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	if err := sim.mediaProv.SetMetadataConfiguration(ctx, mediasvc.MetadataConfiguration{
+		Token:     "md_tok",
+		Name:      "md_name",
+		Analytics: true,
+	}); err != nil {
+		t.Fatalf("SetMetadataConfiguration: %v", err)
+	}
+	if err := sim.reloadFromDisk(); err != nil {
+		t.Fatalf("reloadFromDisk: %v", err)
+	}
+	got, err := sim.mediaProv.MetadataConfiguration(ctx, "md_tok")
+	if err != nil {
+		t.Fatalf("MetadataConfiguration: %v", err)
+	}
+	if got.Token != "md_tok" || !got.Analytics {
+		t.Fatalf("unexpected metadata config: %+v", got)
+	}
+}
+
+func TestGuaranteedEncoderInstancesCustomMax(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+
+	if err := config.Update(func(c *config.Config) error {
+		c.Media.MaxVideoEncoderInstances = 4
+		return nil
+	}); err != nil {
+		t.Fatalf("config.Update: %v", err)
+	}
+	if err := sim.reloadFromDisk(); err != nil {
+		t.Fatalf("reloadFromDisk: %v", err)
+	}
+	n, err := sim.mediaProv.GuaranteedNumberOfVideoEncoderInstances(context.Background(), "")
+	if err != nil {
+		t.Fatalf("GuaranteedNumberOfVideoEncoderInstances: %v", err)
+	}
+	if n != 4 {
+		t.Fatalf("expected 4 encoder instances, got %d", n)
+	}
+}
+
+func TestVideoEncoderConfigurationH264Fields(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+
+	enc, err := sim.mediaProv.VideoEncoderConfiguration(context.Background(), "profile_main")
+	if err != nil {
+		t.Fatalf("VideoEncoderConfiguration: %v", err)
+	}
+	if enc.H264.H264Profile == "" {
+		t.Fatal("expected H264Profile to be set for H264 encoding")
+	}
+}
+
+func TestSetHostnameRoundTrip(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	if err := sim.deviceProv.SetHostname(ctx, "mydevice"); err != nil {
+		t.Fatalf("SetHostname: %v", err)
+	}
+	info, err := sim.deviceProv.GetHostname(ctx)
+	if err != nil {
+		t.Fatalf("GetHostname: %v", err)
+	}
+	if info.Name != "mydevice" {
+		t.Fatalf("expected hostname 'mydevice', got %q", info.Name)
+	}
+}
+
+func TestSetDiscoveryModeRoundTrip(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	if err := sim.deviceProv.SetDiscoveryMode(ctx, "NonDiscoverable"); err != nil {
+		t.Fatalf("SetDiscoveryMode: %v", err)
+	}
+	info, err := sim.deviceProv.GetDiscoveryMode(ctx)
+	if err != nil {
+		t.Fatalf("GetDiscoveryMode: %v", err)
+	}
+	if info.DiscoveryMode != "NonDiscoverable" {
+		t.Fatalf("expected NonDiscoverable, got %q", info.DiscoveryMode)
+	}
+}
+
+func TestGetDefaultGatewayRoundTrip(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	if err := sim.deviceProv.SetNetworkDefaultGateway(ctx, devicesvc.DefaultGatewayInfo{
+		IPv4Address: []string{"192.168.1.1"},
+	}); err != nil {
+		t.Fatalf("SetNetworkDefaultGateway: %v", err)
+	}
+	if err := sim.reloadFromDisk(); err != nil {
+		t.Fatalf("reloadFromDisk: %v", err)
+	}
+	info, err := sim.deviceProv.GetNetworkDefaultGateway(ctx)
+	if err != nil {
+		t.Fatalf("GetNetworkDefaultGateway: %v", err)
+	}
+	if len(info.IPv4Address) == 0 {
+		t.Fatal("expected IPv4Address in gateway info")
+	}
+}

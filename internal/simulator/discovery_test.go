@@ -71,3 +71,58 @@ func TestReplyToOrAnonymous(t *testing.T) {
 		t.Fatalf("expected verbatim address, got %q", got)
 	}
 }
+
+func TestSendHelloMulticastNonDiscoverable(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+
+	if err := sim.SetDiscoveryMode("NonDiscoverable"); err != nil {
+		t.Fatalf("SetDiscoveryMode: %v", err)
+	}
+	sim.sendHelloMulticast() // no-op; must not panic
+}
+
+func TestSendByeMulticastNonDiscoverable(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+
+	if err := sim.SetDiscoveryMode("NonDiscoverable"); err != nil {
+		t.Fatalf("SetDiscoveryMode: %v", err)
+	}
+	sim.sendByeMulticast() // no-op; must not panic
+}
+
+func TestBuildHelloParams(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+
+	params := sim.buildHelloParams()
+	if params == nil {
+		t.Fatal("expected non-nil hello params")
+	}
+	if params.Address == "" {
+		t.Fatal("expected device UUID in Address")
+	}
+	if len(params.XAddrs) == 0 {
+		t.Fatal("expected at least one XAddr in hello params")
+	}
+}
+
+func TestHandleDiscoveryDatagramWhenDisabled(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+
+	if err := sim.SetDiscoveryMode("NonDiscoverable"); err != nil {
+		t.Fatalf("SetDiscoveryMode: %v", err)
+	}
+	// Must return early without crashing when discovery is disabled.
+	sim.handleDiscoveryDatagram(nil, []byte("garbage"), "127.0.0.1", 8080)
+}
+
+func TestHandleDiscoveryDatagramInvalidPayload(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+
+	// ParseProbe fails on non-XML; handleDiscoveryDatagram must return silently.
+	sim.handleDiscoveryDatagram(nil, []byte("not xml"), "127.0.0.1", 8080)
+}

@@ -216,3 +216,97 @@ func TestClampBufferSize(t *testing.T) {
 		}
 	}
 }
+
+func TestBrokerConfigFromConfigCustomTimeout(t *testing.T) {
+	cfg := &config.Config{
+		Events: config.EventsConfig{
+			SubscriptionTimeout: "2m",
+			Topics: []config.TopicConfig{
+				{Name: "tns1:VideoSource/MotionAlarm", Enabled: true},
+			},
+		},
+	}
+	bc := brokerConfigFromConfig(cfg)
+	if bc.SubscriptionTimeout == 0 {
+		t.Fatal("expected non-zero custom subscription timeout")
+	}
+}
+
+func TestBrokerConfigFromConfigInvalidTimeout(t *testing.T) {
+	cfg := &config.Config{
+		Events: config.EventsConfig{
+			SubscriptionTimeout: "not-a-duration",
+		},
+	}
+	bc := brokerConfigFromConfig(cfg)
+	// Invalid duration falls back to the event package default (non-zero).
+	if bc.SubscriptionTimeout == 0 {
+		t.Fatal("expected fallback subscription timeout")
+	}
+}
+
+func TestBrokerConfigWithAddr(t *testing.T) {
+	wantAddr := "http://127.0.0.1:9000/mgr"
+	got := brokerConfigWithAddr(brokerConfigFromConfig(&config.Config{}), wantAddr)
+	if got.SubscriptionManagerAddr != wantAddr {
+		t.Fatalf("brokerConfigWithAddr: got %q, want %q", got.SubscriptionManagerAddr, wantAddr)
+	}
+}
+
+func TestLocalAddrForXAddr(t *testing.T) {
+	addr := localAddrForXAddr()
+	if addr == "" {
+		t.Fatal("expected non-empty local addr from localAddrForXAddr")
+	}
+}
+
+func TestCloneConfigNetworkInterfaces(t *testing.T) {
+	cfg := &config.Config{
+		Runtime: config.RuntimeConfig{
+			NetworkInterfaces: []config.NetworkInterfaceConfig{
+				{
+					Token:   "eth0",
+					Enabled: true,
+					IPv4: &config.NetworkInterfaceIPv4{
+						Enabled: true,
+						DHCP:    false,
+						Manual:  []string{"192.168.1.10/24"},
+					},
+				},
+			},
+		},
+	}
+	out := cloneConfig(cfg)
+	if len(out.Runtime.NetworkInterfaces) != 1 {
+		t.Fatal("expected 1 interface in clone")
+	}
+	if out.Runtime.NetworkInterfaces[0].IPv4 == nil {
+		t.Fatal("expected IPv4 config preserved in clone")
+	}
+	out.Runtime.NetworkInterfaces[0].IPv4.Manual[0] = "10.0.0.1/8"
+	if cfg.Runtime.NetworkInterfaces[0].IPv4.Manual[0] != "192.168.1.10/24" {
+		t.Fatal("clone should not share slice backing with original")
+	}
+}
+
+func TestCloneConfigNilSlices(t *testing.T) {
+	cfg := &config.Config{}
+	out := cloneConfig(cfg)
+	if out.Device.Scopes != nil {
+		t.Fatal("nil Scopes should remain nil after clone")
+	}
+	if out.Network.XAddrs != nil {
+		t.Fatal("nil XAddrs should remain nil after clone")
+	}
+}
+
+func TestStatusTopicCountOnlyEnabled(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+
+	st := sim.Status()
+	// Config has MotionAlarm (enabled) and ImageTooDark (disabled) → 1 enabled.
+	if st.TopicCount != 1 {
+		t.Fatalf("expected 1 enabled topic in Status, got %d", st.TopicCount)
+	}
+}
