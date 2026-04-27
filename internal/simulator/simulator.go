@@ -159,7 +159,17 @@ func New(opts Options) (*Simulator, error) {
 	if _, ensureErr := config.EnsureExists(cfgPath); ensureErr != nil {
 		return nil, fmt.Errorf("simulator: ensure config: %w", ensureErr)
 	}
+	prevPath := config.Path()
 	config.SetPath(cfgPath)
+	// Roll the global active path back if any subsequent step (Load,
+	// rebuildAuthChain, …) errors out. The flag flips to true at the
+	// very end of New, after every fallible step has succeeded.
+	committed := false
+	defer func() {
+		if !committed {
+			config.SetPath(prevPath)
+		}
+	}()
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -192,6 +202,7 @@ func New(opts Options) (*Simulator, error) {
 	if err := sim.rebuildAuthChain(&cfg); err != nil {
 		return nil, fmt.Errorf("simulator: build auth chain: %w", err)
 	}
+	committed = true
 
 	sim.devHandler = devicesvc.NewHandler(sim.deviceProv, devicesvc.WithAuthHook(
 		devicesvc.AuthFunc(sim.deviceAuthHook),

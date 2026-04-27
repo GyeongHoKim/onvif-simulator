@@ -73,7 +73,10 @@ func newTestSimulator(t *testing.T) (sim *Simulator, cleanup func()) {
 		t.Fatalf("write config: %v", writeErr)
 	}
 
-	cleanup = func() { config.SetPath("") }
+	// Capture the active path before construction so cleanup restores
+	// whatever was set globally (instead of clobbering it with "").
+	priorPath := config.Path()
+	cleanup = func() { config.SetPath(priorPath) }
 
 	s, newErr := New(Options{EventBufferSize: 16, ConfigPath: cfgPath})
 	if newErr != nil {
@@ -109,18 +112,48 @@ func TestNewDoesNotLeakActivePathOnEnsureFailure(t *testing.T) {
 	// path under a regular file → MkdirAll inside writeTempFile fails.
 	bogus := filepath.Join(blocker, config.FileName)
 
-	// Reset to a clean baseline before the test, snapshot it, and
-	// restore on cleanup so test ordering doesn't matter.
-	config.SetPath("")
-	t.Cleanup(func() { config.SetPath("") })
-	prior := config.Path()
+	// Snapshot whatever was set before the test, install a non-empty
+	// sentinel as the "prior" we expect to be preserved, and restore
+	// the original value on cleanup so test ordering does not matter.
+	original := config.Path()
+	t.Cleanup(func() { config.SetPath(original) })
+	const sentinel = "/some/sentinel/onvif-simulator.json"
+	config.SetPath(sentinel)
 
 	_, err := New(Options{ConfigPath: bogus})
 	if err == nil {
 		t.Fatal("expected New to fail with bogus path")
 	}
-	if got := config.Path(); got != prior {
-		t.Errorf("config.Path leaked after failed New: got %q, want %q", got, prior)
+	if got := config.Path(); got != sentinel {
+		t.Errorf("config.Path leaked after failed New: got %q, want %q", got, sentinel)
+	}
+}
+
+// TestNewDoesNotLeakActivePathOnLoadFailure complements the
+// EnsureExists case: even after EnsureExists succeeds and SetPath has
+// fired, a Load failure (e.g. a corrupted config file written by a
+// concurrent editor) must roll the global path back to its prior
+// value via the deferred restore in New.
+func TestNewDoesNotLeakActivePathOnLoadFailure(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, config.FileName)
+	// Seed a file that EnsureExists treats as already-present (no-op)
+	// but Load rejects because it is not valid JSON.
+	if err := os.WriteFile(cfgPath, []byte("not json"), 0o600); err != nil {
+		t.Fatalf("seed corrupted config: %v", err)
+	}
+
+	original := config.Path()
+	t.Cleanup(func() { config.SetPath(original) })
+	const sentinel = "/some/sentinel/onvif-simulator.json"
+	config.SetPath(sentinel)
+
+	_, err := New(Options{ConfigPath: cfgPath})
+	if err == nil {
+		t.Fatal("expected New to fail when config file is corrupt")
+	}
+	if got := config.Path(); got != sentinel {
+		t.Errorf("config.Path leaked after Load failure: got %q, want %q", got, sentinel)
 	}
 }
 

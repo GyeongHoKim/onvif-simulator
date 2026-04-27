@@ -961,6 +961,14 @@ func EnsureExists(p string) (bool, error) {
 		return false, fmt.Errorf("config: stat %s: %w", p, err)
 	}
 	cfg := Default()
+	// Belt-and-braces: Validate Default() before persisting so a future
+	// regression in the baseline can never write a file that Load would
+	// immediately reject. TestDefaultPassesValidate locks the happy path,
+	// but this guard turns any drift into an EnsureExists error instead
+	// of a corrupted on-disk state.
+	if err := Validate(&cfg); err != nil {
+		return false, fmt.Errorf("config: default config failed validation: %w", err)
+	}
 	tmpPath, err := writeTempFile(p, &cfg)
 	if err != nil {
 		return false, err
