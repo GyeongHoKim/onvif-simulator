@@ -242,6 +242,85 @@ func TestValidateAcceptsProfileExtras(t *testing.T) {
 	}
 }
 
+// TestValidateAcceptsMediaFilePathOnlyProfile ensures a profile authored for
+// the embedded RTSP server (media_file_path set, RTSP omitted, encoder fields
+// 0 to be auto-detected) passes validation.
+func TestValidateAcceptsMediaFilePathOnlyProfile(t *testing.T) {
+	t.Parallel()
+	c := validConfig
+	c.Media.Profiles = []config.ProfileConfig{{
+		Name:          "main",
+		Token:         "profile_main",
+		MediaFilePath: "/var/onvif-simulator/main.mp4",
+	}}
+	if err := config.Validate(&c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateRejectsMediaFilePathWhitespace(t *testing.T) {
+	t.Parallel()
+	c := validConfig
+	c.Media.Profiles = []config.ProfileConfig{{
+		Name:          "main",
+		Token:         "profile_main",
+		MediaFilePath: "   ",
+	}}
+	err := config.Validate(&c)
+	if err == nil {
+		t.Fatal("expected validation error for whitespace media_file_path")
+	}
+	if !strings.Contains(err.Error(), ".media_file_path") {
+		t.Fatalf("expected error to mention media_file_path, got %v", err)
+	}
+}
+
+func TestValidateNetworkRTSPPort(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		http     int
+		rtsp     int
+		wantErr  error
+		wantPass bool
+	}{
+		{"rtsp 0 falls back to default", 8080, 0, nil, true},
+		{"rtsp 8554 explicit", 8080, 8554, nil, true},
+		{"rtsp negative", 8080, -1, config.ErrNetworkRTSPPortInvalid, false},
+		{"rtsp out of range", 8080, 70000, config.ErrNetworkRTSPPortInvalid, false},
+		{"rtsp clashes with http", 8080, 8080, config.ErrNetworkPortConflict, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := validConfig
+			c.Network.HTTPPort = tc.http
+			c.Network.RTSPPort = tc.rtsp
+			err := config.Validate(&c)
+			if tc.wantPass {
+				if err != nil {
+					t.Fatalf("expected pass, got %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("expected %v, got %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestRTSPPortOrDefault(t *testing.T) {
+	t.Parallel()
+	if got := (config.NetworkConfig{}).RTSPPortOrDefault(); got != config.DefaultRTSPPort {
+		t.Errorf("zero RTSPPort = %d, want %d", got, config.DefaultRTSPPort)
+	}
+	if got := (config.NetworkConfig{RTSPPort: 9554}).RTSPPortOrDefault(); got != 9554 {
+		t.Errorf("explicit RTSPPort = %d, want 9554", got)
+	}
+}
+
 func TestLoadSaveRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)

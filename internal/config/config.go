@@ -91,9 +91,26 @@ type DeviceConfig struct {
 
 // NetworkConfig describes how clients reach this device.
 type NetworkConfig struct {
-	HTTPPort  int      `json:"http_port"`
+	HTTPPort int `json:"http_port"`
+	// RTSPPort is the TCP port the embedded RTSP server listens on. 0 means
+	// "use DefaultRTSPPort"; the simulator reads RTSPPortOrDefault rather
+	// than the raw field so older configs keep working without migration.
+	RTSPPort  int      `json:"rtsp_port,omitempty"`
 	Interface string   `json:"interface,omitempty"`
 	XAddrs    []string `json:"xaddrs,omitempty"`
+}
+
+// DefaultRTSPPort is the standard RTSP control port. Used when
+// NetworkConfig.RTSPPort is 0.
+const DefaultRTSPPort = 8554
+
+// RTSPPortOrDefault returns the explicit RTSPPort when non-zero, otherwise
+// DefaultRTSPPort. Callers should use this instead of reading the raw field.
+func (n NetworkConfig) RTSPPortOrDefault() int {
+	if n.RTSPPort == 0 {
+		return DefaultRTSPPort
+	}
+	return n.RTSPPort
 }
 
 // RuntimeConfig holds simulator state that the Device Service exposes via
@@ -218,20 +235,27 @@ type MetadataConfig struct {
 
 // ProfileConfig describes a single ONVIF media profile.
 //
-// RTSP and SnapshotURI are pass-through: the simulator does not run an RTP
-// server or snapshot endpoint itself — it returns these URIs verbatim from
-// GetStreamUri / GetSnapshotUri so clients can connect to a user-provided
-// external process.
+// MediaFilePath is the path to a local mp4 file that the embedded RTSP
+// server loops to produce this profile's stream. SnapshotURI is still
+// pass-through (the simulator does not synthesize snapshots yet).
+//
+// The RTSP field is deprecated: the simulator now hosts the RTSP endpoint
+// itself, so GetStreamUri returns a URI computed from NetworkConfig.RTSPPort
+// and Token rather than reading this field. Kept for backward compatibility
+// while callers migrate; will be removed in a follow-up cleanup commit.
 type ProfileConfig struct {
-	Name             string `json:"name"`
-	Token            string `json:"token"`
-	RTSP             string `json:"rtsp"`
-	Encoding         string `json:"encoding"`
-	Width            int    `json:"width"`
-	Height           int    `json:"height"`
-	FPS              int    `json:"fps"`
-	Bitrate          int    `json:"bitrate,omitempty"`
-	GOPLength        int    `json:"gop_length,omitempty"`
+	Name          string `json:"name"`
+	Token         string `json:"token"`
+	MediaFilePath string `json:"media_file_path,omitempty"`
+	RTSP          string `json:"rtsp,omitempty"` // Deprecated: see ProfileConfig doc.
+
+	Encoding  string `json:"encoding,omitempty"`
+	Width     int    `json:"width,omitempty"`
+	Height    int    `json:"height,omitempty"`
+	FPS       int    `json:"fps,omitempty"`
+	Bitrate   int    `json:"bitrate,omitempty"`
+	GOPLength int    `json:"gop_length,omitempty"`
+
 	SnapshotURI      string `json:"snapshot_uri,omitempty"`
 	VideoSourceToken string `json:"video_source_token,omitempty"`
 }
@@ -298,6 +322,14 @@ var (
 
 	// ErrNetworkPortInvalid means network.http_port is out of the valid range.
 	ErrNetworkPortInvalid = errors.New("config: network.http_port must be between 1 and 65535")
+
+	// ErrNetworkRTSPPortInvalid means network.rtsp_port is set but out of range.
+	// 0 is allowed and falls back to DefaultRTSPPort.
+	ErrNetworkRTSPPortInvalid = errors.New("config: network.rtsp_port must be 0 or between 1 and 65535")
+
+	// ErrNetworkPortConflict means network.http_port and network.rtsp_port
+	// resolve to the same TCP port; the simulator cannot bind both there.
+	ErrNetworkPortConflict = errors.New("config: network.rtsp_port must differ from network.http_port")
 
 	// ErrMediaNoProfiles means media.profiles is empty.
 	ErrMediaNoProfiles = errors.New("config: media.profiles must have at least one entry")
@@ -370,6 +402,7 @@ var (
 
 	errProfileFieldRequired       = errors.New("config: must not be empty")
 	errProfileRTSPInvalid         = errors.New("config: profile.rtsp must be a valid rtsp:// URL")
+	errProfileMediaFilePathBlank  = errors.New("config: profile.media_file_path must not be only whitespace")
 	errProfileDimension           = errors.New("config: must be greater than 0")
 	errProfileBitrateNegative     = errors.New("config: profile.bitrate must be >= 0")
 	errProfileGOPNegative         = errors.New("config: profile.gop_length must be >= 0")
@@ -453,6 +486,12 @@ func validateNetwork(n *NetworkConfig) error {
 	if n.HTTPPort < 1 || n.HTTPPort > 65535 {
 		return ErrNetworkPortInvalid
 	}
+	if n.RTSPPort < 0 || n.RTSPPort > 65535 {
+		return ErrNetworkRTSPPortInvalid
+	}
+	if n.RTSPPort != 0 && n.RTSPPort == n.HTTPPort {
+		return ErrNetworkPortConflict
+	}
 	for i, x := range n.XAddrs {
 		if err := validateXAddr(i, strings.TrimSpace(x)); err != nil {
 			return err
@@ -506,23 +545,19 @@ func validateProfile(i int, p *ProfileConfig, seenProfileTokens map[string]bool)
 		return fmt.Errorf("config: %s.token %q: %w", prefix, p.Token, errProfileTokenDuplicate)
 	}
 	seenProfileTokens[p.Token] = true
-	if err := validateRTSPURI(prefix+".rtsp", p.RTSP); err != nil {
+	if p.RTSP != "" {
+		if err := validateRTSPURI(prefix+".rtsp", p.RTSP); err != nil {
+			return err
+		}
+	}
+	if err := validateMediaFilePath(prefix+".media_file_path", p.MediaFilePath); err != nil {
 		return err
 	}
-	if !validEncodings[p.Encoding] {
+	if p.Encoding != "" && !validEncodings[p.Encoding] {
 		return fmt.Errorf("config: %s.encoding: %w (got %q)", prefix, ErrProfileEncodingInvalid, p.Encoding)
 	}
-	for _, f := range []struct {
-		name string
-		val  int
-	}{
-		{prefix + ".width", p.Width},
-		{prefix + ".height", p.Height},
-		{prefix + ".fps", p.FPS},
-	} {
-		if f.val <= 0 {
-			return fmt.Errorf("config: %s: %w", f.name, errProfileDimension)
-		}
+	if err := validateProfileDimensions(prefix, p); err != nil {
+		return err
 	}
 	if p.Bitrate < 0 {
 		return fmt.Errorf("config: %s.bitrate: %w", prefix, errProfileBitrateNegative)
@@ -534,6 +569,38 @@ func validateProfile(i int, p *ProfileConfig, seenProfileTokens map[string]bool)
 		return err
 	}
 	return validateVideoSourceToken(prefix+".video_source_token", p.VideoSourceToken)
+}
+
+// validateMediaFilePath rejects whitespace-only paths. An empty string is
+// allowed at the schema level — callers that need a file (the embedded RTSP
+// server) enforce presence at runtime so config can be edited incrementally.
+func validateMediaFilePath(field, raw string) error {
+	if raw == "" {
+		return nil
+	}
+	if strings.TrimSpace(raw) == "" {
+		return fmt.Errorf("config: %s: %w", field, errProfileMediaFilePathBlank)
+	}
+	return nil
+}
+
+// validateProfileDimensions enforces width/height/fps to be non-negative.
+// Zero is treated as "auto-detect at runtime" — the simulator probes the
+// mp4 file at startup and fills the in-memory copy of these fields.
+func validateProfileDimensions(prefix string, p *ProfileConfig) error {
+	for _, f := range []struct {
+		name string
+		val  int
+	}{
+		{prefix + ".width", p.Width},
+		{prefix + ".height", p.Height},
+		{prefix + ".fps", p.FPS},
+	} {
+		if f.val < 0 {
+			return fmt.Errorf("config: %s: %w", f.name, errProfileDimension)
+		}
+	}
+	return nil
 }
 
 func validateSnapshotURI(field, raw string) error {

@@ -225,6 +225,24 @@ func TestSetProfileRTSP(t *testing.T) {
 	}
 }
 
+func TestSetProfileMediaFilePath(t *testing.T) {
+	seed(t)
+
+	if err := config.SetProfileMediaFilePath("profile_main", "/var/onvif/main.mp4"); err != nil {
+		t.Fatalf("SetProfileMediaFilePath: %v", err)
+	}
+	got := loadOrFail(t)
+	if got.Media.Profiles[0].MediaFilePath != "/var/onvif/main.mp4" {
+		t.Fatalf("media_file_path not persisted: %q", got.Media.Profiles[0].MediaFilePath)
+	}
+	if err := config.SetProfileMediaFilePath("ghost", "/x.mp4"); !errors.Is(err, config.ErrProfileNotFound) {
+		t.Fatalf("expected ErrProfileNotFound, got %v", err)
+	}
+	if err := config.SetProfileMediaFilePath("profile_main", "   "); err == nil {
+		t.Fatal("expected validation rejection for whitespace path")
+	}
+}
+
 func TestSetProfileSnapshotURI(t *testing.T) {
 	seed(t)
 

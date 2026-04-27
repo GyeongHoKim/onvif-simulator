@@ -171,8 +171,18 @@ func RemoveProfile(token string) error {
 }
 
 // SetProfileRTSP replaces the RTSP pass-through URI of one profile.
+//
+// Deprecated: the simulator now hosts the RTSP endpoint itself. New callers
+// should set MediaFilePath via SetProfileMediaFilePath instead; this mutator
+// remains for back-compat while existing callers migrate.
 func SetProfileRTSP(token, rtsp string) error {
 	return mutateProfile(token, func(p *ProfileConfig) { p.RTSP = rtsp })
+}
+
+// SetProfileMediaFilePath points the named profile at a local mp4 file. The
+// embedded RTSP server reads and loops this file when the simulator starts.
+func SetProfileMediaFilePath(token, path string) error {
+	return mutateProfile(token, func(p *ProfileConfig) { p.MediaFilePath = path })
 }
 
 // SetProfileSnapshotURI replaces the snapshot pass-through URI of one profile.
