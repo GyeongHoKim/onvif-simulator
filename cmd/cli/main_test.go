@@ -127,6 +127,7 @@ func TestRunConfigValidate(t *testing.T) {
 func TestRunEventNoControlPort(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp) // os.UserHomeDir uses USERPROFILE on Windows
 	err := runEvent([]string{"motion", "VS0", "on"})
 	if !errors.Is(err, errControlNotRunning) {
 		t.Fatalf("expected errControlNotRunning, got %v", err)
@@ -136,6 +137,7 @@ func TestRunEventNoControlPort(t *testing.T) {
 func TestRunEventUnknownSubcommand(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp) // os.UserHomeDir uses USERPROFILE on Windows
 	// Write a port file so the lookup succeeds and we hit the unknown branch.
 	cfgDir := filepath.Join(tmp, ".onvif-simulator")
 	if err := os.MkdirAll(cfgDir, 0o700); err != nil {

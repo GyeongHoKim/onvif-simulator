@@ -13,8 +13,10 @@ func TestRunServeSignalShutdown(t *testing.T) {
 	cleanup := chdirToTempConfig(t)
 	defer cleanup()
 
-	// Use a temp HOME so writeControlPortFile lands somewhere ephemeral.
-	t.Setenv("HOME", t.TempDir())
+	// Use a temp HOME/USERPROFILE so writeControlPortFile lands somewhere ephemeral.
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome) // os.UserHomeDir uses USERPROFILE on Windows
 
 	done := make(chan error, 1)
 	go func() {
@@ -40,7 +42,9 @@ func TestRunServeSignalShutdown(t *testing.T) {
 func TestRunTUIReturnsTUIError(t *testing.T) {
 	cleanup := chdirToTempConfig(t)
 	defer cleanup()
-	t.Setenv("HOME", t.TempDir())
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome) // os.UserHomeDir uses USERPROFILE on Windows
 
 	err := runTUI(nil)
 	if err == nil {

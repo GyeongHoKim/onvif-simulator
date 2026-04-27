@@ -187,6 +187,7 @@ func TestControlServerRejectsBadJSON(t *testing.T) {
 func TestControlPortFileRoundtrip(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp) // os.UserHomeDir uses USERPROFILE on Windows
 
 	path, err := writeControlPortFile(54321)
 	if err != nil {

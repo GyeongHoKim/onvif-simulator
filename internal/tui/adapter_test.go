@@ -82,7 +82,7 @@ func newTestAdapter(t *testing.T) (sa *simulatorAdapter, cleanup func()) {
 		t.Fatalf("simulator.New: %v", err)
 	}
 	sa = newSimulatorAdapter(sim)
-	return
+	return sa, cleanup
 }
 
 func TestSimulatorAdapterStatus(t *testing.T) {
