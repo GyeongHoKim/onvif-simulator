@@ -14,7 +14,7 @@ func TestMutatorRecordsAllKinds(t *testing.T) {
 	var seen []string
 	sim.opts.OnMutation = func(m MutationRecord) { seen = append(seen, m.Kind) }
 
-	if err := sim.SetDiscoveryMode("NonDiscoverable"); err != nil {
+	if err := sim.SetDiscoveryMode(discoveryModeNonDiscoverable); err != nil {
 		t.Fatalf("SetDiscoveryMode: %v", err)
 	}
 	if err := sim.SetHostname("simhost"); err != nil {

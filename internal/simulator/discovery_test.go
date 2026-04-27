@@ -46,7 +46,7 @@ func TestDiscoveryEnabledMatchesConfig(t *testing.T) {
 	if !sim.discoveryEnabled() {
 		t.Fatal("expected discoveryEnabled=true by default")
 	}
-	if err := sim.SetDiscoveryMode("NonDiscoverable"); err != nil {
+	if err := sim.SetDiscoveryMode(discoveryModeNonDiscoverable); err != nil {
 		t.Fatalf("SetDiscoveryMode: %v", err)
 	}
 	if sim.discoveryEnabled() {
@@ -76,7 +76,7 @@ func TestSendHelloMulticastNonDiscoverable(t *testing.T) {
 	sim, cleanup := newTestSimulator(t)
 	defer cleanup()
 
-	if err := sim.SetDiscoveryMode("NonDiscoverable"); err != nil {
+	if err := sim.SetDiscoveryMode(discoveryModeNonDiscoverable); err != nil {
 		t.Fatalf("SetDiscoveryMode: %v", err)
 	}
 	sim.sendHelloMulticast() // no-op; must not panic
@@ -86,7 +86,7 @@ func TestSendByeMulticastNonDiscoverable(t *testing.T) {
 	sim, cleanup := newTestSimulator(t)
 	defer cleanup()
 
-	if err := sim.SetDiscoveryMode("NonDiscoverable"); err != nil {
+	if err := sim.SetDiscoveryMode(discoveryModeNonDiscoverable); err != nil {
 		t.Fatalf("SetDiscoveryMode: %v", err)
 	}
 	sim.sendByeMulticast() // no-op; must not panic
@@ -112,7 +112,7 @@ func TestHandleDiscoveryDatagramWhenDisabled(t *testing.T) {
 	sim, cleanup := newTestSimulator(t)
 	defer cleanup()
 
-	if err := sim.SetDiscoveryMode("NonDiscoverable"); err != nil {
+	if err := sim.SetDiscoveryMode(discoveryModeNonDiscoverable); err != nil {
 		t.Fatalf("SetDiscoveryMode: %v", err)
 	}
 	// Must return early without crashing when discovery is disabled.

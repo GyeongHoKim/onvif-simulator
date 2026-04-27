@@ -131,7 +131,7 @@ func TestAuthorizeClassPreAuth(t *testing.T) {
 	sim.authEnabled = true
 	sim.authMu.Unlock()
 
-	r, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+	r, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	if err != nil {
 		t.Fatalf("NewRequestWithContext: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestAuthorizeUnauthenticatedRequest(t *testing.T) {
 	sim.authEnabled = true
 	sim.authMu.Unlock()
 
-	r, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+	r, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	if err != nil {
 		t.Fatalf("NewRequestWithContext: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestAuthorizeDisabledSkipsChain(t *testing.T) {
 	defer cleanup()
 
 	// Auth is disabled by default; every class passes.
-	r, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+	r, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	if err != nil {
 		t.Fatalf("NewRequestWithContext: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestAuthHooksWhenDisabled(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	r, err := http.NewRequestWithContext(ctx, http.MethodGet, "/", nil)
+	r, err := http.NewRequestWithContext(ctx, http.MethodGet, "/", http.NoBody)
 	if err != nil {
 		t.Fatalf("NewRequestWithContext: %v", err)
 	}

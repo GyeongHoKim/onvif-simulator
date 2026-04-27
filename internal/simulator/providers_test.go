@@ -490,14 +490,14 @@ func TestSetDiscoveryModeRoundTrip(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	if err := sim.deviceProv.SetDiscoveryMode(ctx, "NonDiscoverable"); err != nil {
+	if err := sim.deviceProv.SetDiscoveryMode(ctx, discoveryModeNonDiscoverable); err != nil {
 		t.Fatalf("SetDiscoveryMode: %v", err)
 	}
 	info, err := sim.deviceProv.GetDiscoveryMode(ctx)
 	if err != nil {
 		t.Fatalf("GetDiscoveryMode: %v", err)
 	}
-	if info.DiscoveryMode != "NonDiscoverable" {
+	if info.DiscoveryMode != discoveryModeNonDiscoverable {
 		t.Fatalf("expected NonDiscoverable, got %q", info.DiscoveryMode)
 	}
 }

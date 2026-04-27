@@ -11,6 +11,8 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/wsdiscovery"
 )
 
+const discoveryModeNonDiscoverable = "NonDiscoverable"
+
 // runDiscovery sends Hello on start and listens for Probe/Resolve until ctx
 // is canceled. Respects DiscoveryMode: when NonDiscoverable, emission is
 // suppressed but the listener keeps running for administrative visibility.
@@ -66,7 +68,7 @@ func (s *Simulator) sendByeMulticast() {
 
 func (s *Simulator) discoveryEnabled() bool {
 	cfg := s.snapshotConfig()
-	return cfg.Runtime.DiscoveryMode != "NonDiscoverable"
+	return cfg.Runtime.DiscoveryMode != discoveryModeNonDiscoverable
 }
 
 // buildHelloParams assembles HelloParams from the current config.

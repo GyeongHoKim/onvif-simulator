@@ -172,10 +172,10 @@ func TestMutatorAppliesToSnapshot(t *testing.T) {
 	sim, cleanup := newTestSimulator(t)
 	defer cleanup()
 
-	if err := sim.SetDiscoveryMode("NonDiscoverable"); err != nil {
+	if err := sim.SetDiscoveryMode(discoveryModeNonDiscoverable); err != nil {
 		t.Fatalf("SetDiscoveryMode: %v", err)
 	}
-	if got := sim.ConfigSnapshot().Runtime.DiscoveryMode; got != "NonDiscoverable" {
+	if got := sim.ConfigSnapshot().Runtime.DiscoveryMode; got != discoveryModeNonDiscoverable {
 		t.Fatalf("expected NonDiscoverable in snapshot, got %q", got)
 	}
 }
