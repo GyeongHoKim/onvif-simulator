@@ -146,10 +146,12 @@ jobs:
         run: |
           mkdir -p AppDir/usr/bin
           cp build/bin/onvif-simulator-gui AppDir/usr/bin/
+          cp build/appicon.png AppDir/onvif-simulator-gui.png
           cat > AppDir/onvif-simulator-gui.desktop <<EOF
           [Desktop Entry]
           Name=onvif-simulator
           Exec=onvif-simulator-gui
+          Icon=onvif-simulator-gui
           Type=Application
           Categories=Utility;
           EOF
