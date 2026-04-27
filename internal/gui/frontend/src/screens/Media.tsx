@@ -50,13 +50,10 @@ type FormState = {
   name: string
   token: string
   mediaFilePath: string
-  rtsp: string
   encoding: string
   width: string
   height: string
   fps: string
-  bitrate: string
-  gopLength: string
   snapshotURI: string
   videoSourceToken: string
 }
@@ -65,13 +62,10 @@ const EMPTY_FORM: FormState = {
   name: "",
   token: "",
   mediaFilePath: "",
-  rtsp: "",
   encoding: "",
   width: "",
   height: "",
   fps: "",
-  bitrate: "",
-  gopLength: "",
   snapshotURI: "",
   videoSourceToken: "",
 }
@@ -81,13 +75,10 @@ function toFormState(p: Profile): FormState {
     name: p.name ?? "",
     token: p.token ?? "",
     mediaFilePath: p.media_file_path ?? "",
-    rtsp: p.rtsp ?? "",
     encoding: p.encoding ?? "",
     width: p.width ? String(p.width) : "",
     height: p.height ? String(p.height) : "",
     fps: p.fps ? String(p.fps) : "",
-    bitrate: p.bitrate ? String(p.bitrate) : "",
-    gopLength: p.gop_length ? String(p.gop_length) : "",
     snapshotURI: p.snapshot_uri ?? "",
     videoSourceToken: p.video_source_token ?? "",
   }
@@ -98,13 +89,6 @@ function formToProfile(f: FormState): Profile {
     name: f.name,
     token: f.token,
     media_file_path: f.mediaFilePath,
-    rtsp: f.rtsp,
-    encoding: f.encoding,
-    width: Number(f.width || 0),
-    height: Number(f.height || 0),
-    fps: Number(f.fps || 0),
-    bitrate: f.bitrate ? Number(f.bitrate) : 0,
-    gop_length: f.gopLength ? Number(f.gopLength) : 0,
     snapshot_uri: f.snapshotURI,
     video_source_token: f.videoSourceToken,
   })

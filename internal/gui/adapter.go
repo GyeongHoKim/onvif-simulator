@@ -107,19 +107,11 @@ func (a *simulatorAdapter) SetHostname(name string) error { return a.inner.SetHo
 
 func (a *simulatorAdapter) AddProfile(p *config.ProfileConfig) error { return a.inner.AddProfile(*p) }
 func (a *simulatorAdapter) RemoveProfile(token string) error         { return a.inner.RemoveProfile(token) }
-func (a *simulatorAdapter) SetProfileRTSP(token, rtsp string) error {
-	return a.inner.SetProfileRTSP(token, rtsp)
-}
 func (a *simulatorAdapter) SetProfileMediaFilePath(token, path string) error {
 	return a.inner.SetProfileMediaFilePath(token, path)
 }
 func (a *simulatorAdapter) SetProfileSnapshotURI(token, uri string) error {
 	return a.inner.SetProfileSnapshotURI(token, uri)
-}
-func (a *simulatorAdapter) SetProfileEncoder(
-	token, encoding string, width, height, fps, bitrate, gop int,
-) error {
-	return a.inner.SetProfileEncoder(token, encoding, width, height, fps, bitrate, gop)
 }
 
 func (a *simulatorAdapter) SetTopicEnabled(name string, enabled bool) error {

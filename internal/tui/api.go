@@ -33,10 +33,8 @@ type SimulatorAPI interface {
 
 	AddProfile(p config.ProfileConfig) error
 	RemoveProfile(token string) error
-	SetProfileRTSP(token, rtsp string) error
 	SetProfileMediaFilePath(token, path string) error
 	SetProfileSnapshotURI(token, uri string) error
-	SetProfileEncoder(token, encoding string, width, height, fps, bitrate, gop int) error
 
 	SetTopicEnabled(name string, enabled bool) error
 

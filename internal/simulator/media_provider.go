@@ -52,10 +52,9 @@ func (p *mediaProvider) Profile(_ context.Context, token string) (mediasvc.Profi
 }
 
 // CreateProfile adds a new media profile and persists it. ONVIF Media Service
-// §5.2.1 specifies CreateProfile as creating an "empty" profile with no
-// configurations attached, but our config schema requires RTSP/Encoding/
-// dimensions to validate, so we fill conservative placeholders that the
-// caller can later override via SetVideoEncoderConfiguration et al.
+// §5.2.1 specifies CreateProfile as creating an "empty" profile; our schema
+// allows MediaFilePath to be empty until the operator points the profile at
+// an mp4 file via the GUI/TUI or by editing the config.
 func (p *mediaProvider) CreateProfile(_ context.Context, name, token string) (mediasvc.Profile, error) {
 	if strings.TrimSpace(name) == "" {
 		return mediasvc.Profile{}, fmt.Errorf("%w: Name is required", mediasvc.ErrInvalidArgs)
@@ -63,15 +62,7 @@ func (p *mediaProvider) CreateProfile(_ context.Context, name, token string) (me
 	if token == "" {
 		token = generateProfileToken(p.sim, name)
 	}
-	profile := config.ProfileConfig{
-		Name:     name,
-		Token:    token,
-		RTSP:     "rtsp://127.0.0.1:8554/" + token,
-		Encoding: "H264",
-		Width:    640,
-		Height:   480,
-		FPS:      15,
-	}
+	profile := config.ProfileConfig{Name: name, Token: token}
 	if err := p.sim.AddProfile(profile); err != nil {
 		if errors.Is(err, config.ErrProfileAlreadyExists) {
 			return mediasvc.Profile{}, fmt.Errorf("%w: %w", mediasvc.ErrInvalidArgs, err)
@@ -273,17 +264,13 @@ func (p *mediaProvider) StreamURI(
 	return mediasvc.MediaURI{}, fmt.Errorf("%w: %s", mediasvc.ErrProfileNotFound, profileToken)
 }
 
-// streamURIFor computes the URI returned by GetStreamUri.
-//
-// When the profile has MediaFilePath set, the simulator hosts the stream
-// itself: the URI points at the embedded RTSP server (rtsp://<advertised
-// host>:<RTSPPort>/<token>). Otherwise we fall back to the deprecated
-// pass-through ProfileConfig.RTSP field for backwards compatibility while
-// the rest of the codebase migrates to MediaFilePath.
+// streamURIFor computes the URI returned by GetStreamUri. The simulator
+// hosts the RTSP endpoint itself, so the URI always points at this device:
+// rtsp://<advertised host>:<RTSPPort>/<token>. The MediaFilePath of the
+// profile decides whether a stream is actually served — Start refuses to
+// register an RTSP source when MediaFilePath is empty, so a client that
+// connects to a URI for a fileless profile will get a 404 from gortsplib.
 func streamURIFor(cfg *config.Config, p *config.ProfileConfig) string {
-	if p.MediaFilePath == "" {
-		return p.RTSP
-	}
 	host := localAddrForXAddr()
 	port := cfg.Network.RTSPPortOrDefault()
 	return "rtsp://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/" + p.Token

@@ -76,17 +76,11 @@ func (a *simulatorAdapter) AddProfile(p config.ProfileConfig) error { //nolint:g
 	return a.sim.AddProfile(p)
 }
 func (a *simulatorAdapter) RemoveProfile(token string) error { return a.sim.RemoveProfile(token) }
-func (a *simulatorAdapter) SetProfileRTSP(token, rtsp string) error {
-	return a.sim.SetProfileRTSP(token, rtsp)
-}
 func (a *simulatorAdapter) SetProfileMediaFilePath(token, path string) error {
 	return a.sim.SetProfileMediaFilePath(token, path)
 }
 func (a *simulatorAdapter) SetProfileSnapshotURI(token, uri string) error {
 	return a.sim.SetProfileSnapshotURI(token, uri)
-}
-func (a *simulatorAdapter) SetProfileEncoder(token, enc string, w, h, fps, br, gop int) error {
-	return a.sim.SetProfileEncoder(token, enc, w, h, fps, br, gop)
 }
 
 func (a *simulatorAdapter) SetTopicEnabled(name string, enabled bool) error {

@@ -26,15 +26,7 @@ var validConfig = config.Config{
 	},
 	Media: config.MediaConfig{
 		Profiles: []config.ProfileConfig{
-			{
-				Name:     "main",
-				Token:    "profile_main",
-				RTSP:     "rtsp://127.0.0.1:8554/main",
-				Encoding: "H264",
-				Width:    1920,
-				Height:   1080,
-				FPS:      30,
-			},
+			{Name: "main", Token: "profile_main"},
 		},
 	},
 }
@@ -75,21 +67,6 @@ func TestValidateRejects(t *testing.T) {
 			name:    "invalid http port",
 			mutate:  func(c *config.Config) { c.Network.HTTPPort = 0 },
 			wantErr: config.ErrNetworkPortInvalid,
-		},
-		{
-			name:    "no profiles",
-			mutate:  func(c *config.Config) { c.Media.Profiles = nil },
-			wantErr: config.ErrMediaNoProfiles,
-		},
-		{
-			name: "invalid profile encoding",
-			mutate: func(c *config.Config) {
-				c.Media.Profiles = []config.ProfileConfig{{
-					Name: "main", Token: "tok", RTSP: "rtsp://127.0.0.1:8554/main",
-					Encoding: "HEVC", Width: 1920, Height: 1080, FPS: 30,
-				}}
-			},
-			wantErr: config.ErrProfileEncodingInvalid,
 		},
 		{
 			name:    "auth enabled without users",
@@ -187,10 +164,7 @@ func TestValidateRejectsProfileExtras(t *testing.T) {
 	t.Parallel()
 
 	base := func() config.ProfileConfig {
-		return config.ProfileConfig{
-			Name: "main", Token: "t", RTSP: "rtsp://127.0.0.1:8554/main",
-			Encoding: "H264", Width: 1920, Height: 1080, FPS: 30,
-		}
+		return config.ProfileConfig{Name: "main", Token: "t"}
 	}
 
 	cases := []struct {
@@ -231,9 +205,10 @@ func TestValidateAcceptsProfileExtras(t *testing.T) {
 	t.Parallel()
 	c := validConfig
 	c.Media.Profiles = []config.ProfileConfig{{
-		Name: "main", Token: "t", RTSP: "rtsp://127.0.0.1:8554/main",
-		Encoding: "H264", Width: 1920, Height: 1080, FPS: 30,
-		Bitrate: 4096, GOPLength: 60,
+		Name: "main", Token: "t",
+		MediaFilePath:    "/var/onvif/main.mp4",
+		Bitrate:          4096,
+		GOPLength:        60,
 		SnapshotURI:      "https://host/snap.jpg",
 		VideoSourceToken: "VS_MAIN",
 	}}
@@ -342,15 +317,7 @@ func TestLoadSaveRoundTrip(t *testing.T) {
 		},
 		Media: config.MediaConfig{
 			Profiles: []config.ProfileConfig{
-				{
-					Name:     "main",
-					Token:    "profile_main",
-					RTSP:     "rtsp://127.0.0.1:8554/main",
-					Encoding: "H264",
-					Width:    1920,
-					Height:   1080,
-					FPS:      30,
-				},
+				{Name: "main", Token: "profile_main", MediaFilePath: "/var/onvif/main.mp4"},
 			},
 		},
 		Auth: config.AuthConfig{

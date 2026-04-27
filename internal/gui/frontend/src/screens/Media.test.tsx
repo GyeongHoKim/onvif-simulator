@@ -129,8 +129,6 @@ describe("Media screen", () => {
     )
     // Snapshot URI was non-empty so SetProfileSnapshotURI should also fire.
     expect(appMocks.SetProfileSnapshotURI).toHaveBeenCalled()
-    // Encoder mutator must NOT be called — encoder values are auto-detected.
-    expect(appMocks.SetProfileEncoder).not.toHaveBeenCalled()
   })
 
   it("Cancel button on add dialog closes without saving", async () => {

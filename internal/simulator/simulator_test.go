@@ -54,8 +54,8 @@ func newTestSimulator(t *testing.T) (sim *Simulator, cleanup func()) {
 		Network: config.NetworkConfig{HTTPPort: freePort(t)},
 		Media: config.MediaConfig{Profiles: []config.ProfileConfig{{
 			Name: "main", Token: "profile_main",
-			RTSP:     "rtsp://127.0.0.1:8554/main",
-			Encoding: "H264", Width: 1920, Height: 1080, FPS: 30,
+			MediaFilePath: "",
+			Encoding:      "H264", Width: 1920, Height: 1080, FPS: 30,
 		}}},
 		Events: config.EventsConfig{
 			Topics: []config.TopicConfig{

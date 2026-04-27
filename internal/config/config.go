@@ -239,15 +239,15 @@ type MetadataConfig struct {
 // server loops to produce this profile's stream. SnapshotURI is still
 // pass-through (the simulator does not synthesize snapshots yet).
 //
-// The RTSP field is deprecated: the simulator now hosts the RTSP endpoint
-// itself, so GetStreamUri returns a URI computed from NetworkConfig.RTSPPort
-// and Token rather than reading this field. Kept for backward compatibility
-// while callers migrate; will be removed in a follow-up cleanup commit.
+// Encoding, Width, Height, FPS, Bitrate, and GOPLength are auto-detected
+// from the mp4 file at simulator startup and overwritten in memory; they
+// are still marshaled into the on-disk config so a stopped simulator
+// still has the last-known values and so the GUI's read-only badges
+// (which receive them via the Wails ConfigSnapshot bridge) work.
 type ProfileConfig struct {
 	Name          string `json:"name"`
 	Token         string `json:"token"`
 	MediaFilePath string `json:"media_file_path,omitempty"`
-	RTSP          string `json:"rtsp,omitempty"` // Deprecated: see ProfileConfig doc.
 
 	Encoding  string `json:"encoding,omitempty"`
 	Width     int    `json:"width,omitempty"`
@@ -401,9 +401,7 @@ var (
 	errDeviceFieldRequired = errors.New("config: must not be empty")
 
 	errProfileFieldRequired       = errors.New("config: must not be empty")
-	errProfileRTSPInvalid         = errors.New("config: profile.rtsp must be a valid rtsp:// URL")
 	errProfileMediaFilePathBlank  = errors.New("config: profile.media_file_path must not be only whitespace")
-	errProfileDimension           = errors.New("config: must be greater than 0")
 	errProfileBitrateNegative     = errors.New("config: profile.bitrate must be >= 0")
 	errProfileGOPNegative         = errors.New("config: profile.gop_length must be >= 0")
 	errProfileSnapshotURIInvalid  = errors.New("config: profile.snapshot_uri must be an http(s) URL")
@@ -428,7 +426,6 @@ const (
 
 var (
 	uuidURNPattern  = regexp.MustCompile(`(?i)^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-	validEncodings  = map[string]bool{"H264": true, "H265": true, "MJPEG": true}
 	validDigestAlgs = map[string]bool{"MD5": true, "SHA-256": true}
 	validJWTAlgs    = map[string]bool{
 		"RS256": true, "RS384": true, "RS512": true,
@@ -501,9 +498,10 @@ func validateNetwork(n *NetworkConfig) error {
 }
 
 func validateMedia(m *MediaConfig) error {
-	if len(m.Profiles) == 0 {
-		return ErrMediaNoProfiles
-	}
+	// Empty Profiles is valid at the schema level — Default() emits an
+	// empty slice on first run and the operator fills it in via the GUI/TUI
+	// or by editing the JSON directly. The simulator's Start path warns
+	// when no profile has a media_file_path configured.
 	seenProfileTokens := make(map[string]bool, len(m.Profiles))
 	for i := range m.Profiles {
 		if err := validateProfile(i, &m.Profiles[i], seenProfileTokens); err != nil {
@@ -545,18 +543,7 @@ func validateProfile(i int, p *ProfileConfig, seenProfileTokens map[string]bool)
 		return fmt.Errorf("config: %s.token %q: %w", prefix, p.Token, errProfileTokenDuplicate)
 	}
 	seenProfileTokens[p.Token] = true
-	if p.RTSP != "" {
-		if err := validateRTSPURI(prefix+".rtsp", p.RTSP); err != nil {
-			return err
-		}
-	}
 	if err := validateMediaFilePath(prefix+".media_file_path", p.MediaFilePath); err != nil {
-		return err
-	}
-	if p.Encoding != "" && !validEncodings[p.Encoding] {
-		return fmt.Errorf("config: %s.encoding: %w (got %q)", prefix, ErrProfileEncodingInvalid, p.Encoding)
-	}
-	if err := validateProfileDimensions(prefix, p); err != nil {
 		return err
 	}
 	if p.Bitrate < 0 {
@@ -580,25 +567,6 @@ func validateMediaFilePath(field, raw string) error {
 	}
 	if strings.TrimSpace(raw) == "" {
 		return fmt.Errorf("config: %s: %w", field, errProfileMediaFilePathBlank)
-	}
-	return nil
-}
-
-// validateProfileDimensions enforces width/height/fps to be non-negative.
-// Zero is treated as "auto-detect at runtime" — the simulator probes the
-// mp4 file at startup and fills the in-memory copy of these fields.
-func validateProfileDimensions(prefix string, p *ProfileConfig) error {
-	for _, f := range []struct {
-		name string
-		val  int
-	}{
-		{prefix + ".width", p.Width},
-		{prefix + ".height", p.Height},
-		{prefix + ".fps", p.FPS},
-	} {
-		if f.val < 0 {
-			return fmt.Errorf("config: %s: %w", f.name, errProfileDimension)
-		}
 	}
 	return nil
 }
@@ -739,17 +707,6 @@ func validateXAddr(i int, raw string) error {
 	}
 	if u.Host == "" {
 		return fmt.Errorf("config: network.xaddrs[%d]: %w", i, errXAddrHost)
-	}
-	return nil
-}
-
-func validateRTSPURI(field, raw string) error {
-	if strings.TrimSpace(raw) == "" {
-		return fmt.Errorf("config: %s: %w", field, errProfileRTSPInvalid)
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "rtsp" || u.Host == "" {
-		return fmt.Errorf("config: %s: %w", field, errProfileRTSPInvalid)
 	}
 	return nil
 }
@@ -956,18 +913,8 @@ func Default() Config {
 				"onvif://www.onvif.org/hardware/virtual",
 			},
 		},
-		Network: NetworkConfig{HTTPPort: 8080},
-		Media: MediaConfig{
-			Profiles: []ProfileConfig{{
-				Name:     "main",
-				Token:    "profile_main",
-				RTSP:     "rtsp://127.0.0.1:8554/main",
-				Encoding: "H264",
-				Width:    1920,
-				Height:   1080,
-				FPS:      30,
-			}},
-		},
+		Network: NetworkConfig{HTTPPort: 8080, RTSPPort: DefaultRTSPPort},
+		Media:   MediaConfig{Profiles: nil},
 		Events: EventsConfig{
 			MaxPullPoints:       defaultMaxPullPoints,
 			SubscriptionTimeout: "1h",

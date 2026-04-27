@@ -75,10 +75,8 @@ type simulatorAPI interface {
 
 	AddProfile(p *config.ProfileConfig) error
 	RemoveProfile(token string) error
-	SetProfileRTSP(token, rtsp string) error
 	SetProfileMediaFilePath(token, path string) error
 	SetProfileSnapshotURI(token, uri string) error
-	SetProfileEncoder(token, encoding string, width, height, fps, bitrate, gop int) error
 
 	SetTopicEnabled(name string, enabled bool) error
 	SetEventsTopics(topics []config.TopicConfig) error
@@ -205,13 +203,6 @@ func (a *App) AddProfile(p config.ProfileConfig) error { return a.sim.AddProfile
 // RemoveProfile removes a media profile by token.
 func (a *App) RemoveProfile(token string) error { return a.sim.RemoveProfile(token) }
 
-// SetProfileRTSP updates the pass-through RTSP URI for a profile.
-//
-// Deprecated: the simulator now hosts the RTSP endpoint itself. New
-// frontend callers should send the local mp4 path via SetProfileMediaFile;
-// this binding remains for back-compat while the existing UI migrates.
-func (a *App) SetProfileRTSP(token, rtsp string) error { return a.sim.SetProfileRTSP(token, rtsp) }
-
 // SetProfileMediaFile points the named profile at a local mp4 file. The
 // embedded RTSP server reads and loops the file so GetStreamUri returns a
 // URI pointing at the simulator itself.
@@ -235,11 +226,6 @@ func (a *App) PickMediaFile() (string, error) {
 // SetProfileSnapshotURI updates the pass-through snapshot URI for a profile.
 func (a *App) SetProfileSnapshotURI(token, uri string) error {
 	return a.sim.SetProfileSnapshotURI(token, uri)
-}
-
-// SetProfileEncoder updates encoder parameters for a profile.
-func (a *App) SetProfileEncoder(token, encoding string, width, height, fps, bitrate, gop int) error {
-	return a.sim.SetProfileEncoder(token, encoding, width, height, fps, bitrate, gop)
 }
 
 // SetTopicEnabled toggles advertisement + publish-routing for a topic.

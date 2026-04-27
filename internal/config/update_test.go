@@ -160,8 +160,8 @@ func TestAddProfile(t *testing.T) {
 
 	p := config.ProfileConfig{
 		Name: "sub", Token: "profile_sub",
-		RTSP: "rtsp://127.0.0.1:8554/sub", Encoding: "H264",
-		Width: 640, Height: 480, FPS: 15,
+		MediaFilePath: "",
+		// encoder fields auto-detected at runtime
 	}
 	if err := config.AddProfile(p); err != nil {
 		t.Fatalf("AddProfile: %v", err)
@@ -180,8 +180,8 @@ func TestRemoveProfile(t *testing.T) {
 
 	sub := config.ProfileConfig{
 		Name: "sub", Token: "profile_sub",
-		RTSP: "rtsp://127.0.0.1:8554/sub", Encoding: "H264",
-		Width: 640, Height: 480, FPS: 15,
+		MediaFilePath: "",
+		// encoder fields auto-detected at runtime
 	}
 	if err := config.AddProfile(sub); err != nil {
 		t.Fatalf("AddProfile: %v", err)
@@ -198,30 +198,17 @@ func TestRemoveProfile(t *testing.T) {
 	}
 }
 
-func TestRemoveProfileKeepsAtLeastOne(t *testing.T) {
+func TestRemoveProfileLastIsAllowed(t *testing.T) {
+	// After the embedded-rtsp switch the schema allows zero profiles —
+	// Default() ships an empty slice on first run and the operator builds
+	// the list incrementally via the GUI/TUI.
 	seed(t)
-
-	err := config.RemoveProfile("profile_main")
-	if err == nil {
-		t.Fatal("removing last profile must be rejected by validation")
-	}
-	if !errors.Is(err, config.ErrMediaNoProfiles) {
-		t.Fatalf("expected ErrMediaNoProfiles, got %v", err)
-	}
-}
-
-func TestSetProfileRTSP(t *testing.T) {
-	seed(t)
-
-	if err := config.SetProfileRTSP("profile_main", "rtsp://10.0.0.1:8554/live"); err != nil {
-		t.Fatalf("SetProfileRTSP: %v", err)
+	if err := config.RemoveProfile("profile_main"); err != nil {
+		t.Fatalf("RemoveProfile (last) unexpectedly errored: %v", err)
 	}
 	got := loadOrFail(t)
-	if got.Media.Profiles[0].RTSP != "rtsp://10.0.0.1:8554/live" {
-		t.Fatalf("rtsp not persisted: %q", got.Media.Profiles[0].RTSP)
-	}
-	if err := config.SetProfileRTSP("ghost", "rtsp://x/y"); !errors.Is(err, config.ErrProfileNotFound) {
-		t.Fatalf("expected ErrProfileNotFound, got %v", err)
+	if len(got.Media.Profiles) != 0 {
+		t.Fatalf("expected 0 profiles, got %d", len(got.Media.Profiles))
 	}
 }
 
@@ -256,19 +243,6 @@ func TestSetProfileSnapshotURI(t *testing.T) {
 	// Clearing is allowed.
 	if err := config.SetProfileSnapshotURI("profile_main", ""); err != nil {
 		t.Fatalf("clear SnapshotURI: %v", err)
-	}
-}
-
-func TestSetProfileEncoder(t *testing.T) {
-	seed(t)
-
-	if err := config.SetProfileEncoder("profile_main", "H265", 1280, 720, 25, 2048, 50); err != nil {
-		t.Fatalf("SetProfileEncoder: %v", err)
-	}
-	got := loadOrFail(t).Media.Profiles[0]
-	if got.Encoding != "H265" || got.Width != 1280 || got.Height != 720 || got.FPS != 25 ||
-		got.Bitrate != 2048 || got.GOPLength != 50 {
-		t.Fatalf("encoder not persisted: %+v", got)
 	}
 }
 

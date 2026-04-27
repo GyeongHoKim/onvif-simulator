@@ -120,20 +120,6 @@ func TestStreamURIUsesEmbeddedServerForMediaFilePath(t *testing.T) {
 	}
 }
 
-func TestStreamURIFallsBackToPassthroughWithoutMediaFilePath(t *testing.T) {
-	sim, cleanup := newTestSimulator(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	uri, err := sim.mediaProv.StreamURI(ctx, "profile_main", mediasvc.StreamSetup{})
-	if err != nil {
-		t.Fatalf("StreamURI: %v", err)
-	}
-	if uri.URI != "rtsp://127.0.0.1:8554/main" {
-		t.Errorf("expected passthrough URI, got %q", uri.URI)
-	}
-}
-
 func TestStartFailsForMissingMediaFile(t *testing.T) {
 	sim, cleanup := newSimulatorWithMediaFile(t, "/nonexistent/sample.mp4")
 	defer cleanup()
