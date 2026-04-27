@@ -1,11 +1,4 @@
-// Adapter that bridges *simulator.Simulator to the GUI's simulatorAPI shape.
-//
-// The real Simulator returns its own Status / EventRecord / MutationRecord /
-// UserView types and accepts AddProfile / AddUser by value. The GUI uses
-// locally-defined mirrors (with JSON tags so Wails emits camelCase keys) and
-// pointer-arg method shapes (so gocritic stays happy on the stub). This
-// adapter is the one place those two shapes are reconciled.
-package main
+package gui
 
 import (
 	"context"

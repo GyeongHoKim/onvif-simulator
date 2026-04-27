@@ -26,4 +26,4 @@ coverage/
 # Web
 
 node_modules
-frontend/package.json.md5
+internal/gui/frontend/package.json.md5

@@ -1,5 +1,5 @@
-// Package main is the entry point for the onvif-simulator GUI binary.
-package main
+// Package gui wires the Wails application and exposes Run for the entry point.
+package gui
 
 import (
 	"embed"
@@ -13,7 +13,8 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-func main() {
+// Run starts the Wails GUI. Call from cmd/gui/main.go.
+func Run() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{

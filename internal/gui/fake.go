@@ -1,15 +1,4 @@
-// In-memory simulator stub.
-//
-// This stub lets the GUI be developed in parallel with the real
-// internal/simulator backend. It mimics the simulator contract closely enough
-// to drive every screen: it stores a mutable config.Config copy, maintains a
-// user list, records events and mutations into callback streams, and honors
-// the disabled-topic no-op rule so the Events screen behaves correctly.
-//
-// Replace simulatorStub usage in NewApp with a real *simulator.Simulator once
-// the backend lands feat/simulator-core. Because both satisfy the simulatorAPI
-// interface the swap is one line in app.go.
-package main
+package gui
 
 import (
 	"context"

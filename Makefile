@@ -16,7 +16,7 @@ else
   GUI_OUT  := build/bin/$(BINARY)-gui
 endif
 
-FRONTEND_DIST := frontend/dist
+FRONTEND_DIST := internal/gui/frontend/dist
 
 .PHONY: cli gui format lint test test-go test-frontend coverage e2e clean setup manual
 
@@ -25,13 +25,13 @@ cli:
 
 gui:
 	mkdir -p build/bin
-	wails build -o $(GUI_OUT)
+	cd cmd/gui && wails build -o ../../$(GUI_OUT)
 
 format:
 	$(GO) fmt ./...
 
 $(FRONTEND_DIST):
-	cd frontend && npm install && npm run build
+	cd internal/gui/frontend && npm install && npm run build
 
 lint: $(FRONTEND_DIST)
 	golangci-lint run ./...
@@ -42,7 +42,7 @@ test-go:
 	$(GO) test -race ./internal/... ./cmd/...
 
 test-frontend:
-	cd frontend && npm run test:coverage
+	cd internal/gui/frontend && npm run test:coverage
 
 coverage:
 	$(GO) test ./internal/... ./cmd/... -coverprofile=coverage.out -covermode=atomic

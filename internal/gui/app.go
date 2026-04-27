@@ -1,15 +1,4 @@
-// Wails application bindings for the GUI.
-//
-// The App struct exposes PascalCase wrappers over the simulator facade
-// described in doc/design/simulator-api.md. Wails auto-binds every exported
-// method so the TypeScript layer can call them directly.
-//
-// The simulator backend (internal/simulator) is not yet wired in; this file
-// programs against a simulatorAPI interface so we can swap a fake in until
-// backend-dev lands feat/simulator-core. See fake.go for the in-memory stub.
-// Once the real *simulator.Simulator exists, NewApp swaps the stub in one line
-// and the Wails bindings stay byte-identical.
-package main
+package gui
 
 import (
 	"context"
