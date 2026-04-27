@@ -2,6 +2,9 @@ package gui
 
 import (
 	"context"
+	"errors"
+	"io/fs"
+	"log"
 	"time"
 
 	runtime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -112,9 +115,13 @@ func NewApp() *App {
 		}
 	}
 
-	if adapter, err := newSimulatorAdapter("", emitEvent, emitMutation); err == nil {
+	adapter, err := newSimulatorAdapter("", emitEvent, emitMutation)
+	if err == nil {
 		app.sim = adapter
 		return app
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		log.Printf("onvif-simulator: config error: %v", err)
 	}
 
 	stub := newSimulatorStub(emitEvent, emitMutation)
