@@ -96,6 +96,17 @@ func (s *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	payload, operation, err := parseOperation(raw)
 	if err != nil {
+		// Probe-friendly fallback: HTTP Digest is a 2-pass scheme where the
+		// client may send an empty body to harvest the WWW-Authenticate
+		// challenge. Returning 400 here would prevent that handshake, so when
+		// the request carries no credentials at all we surface an auth
+		// challenge instead of the parse error.
+		if r.Header.Get("Authorization") == "" {
+			if challengeErr := s.auth.Authorize(r.Context(), "", r); challengeErr != nil {
+				s.writeAuthFault(w, challengeErr)
+				return
+			}
+		}
 		writeFault(w, http.StatusBadRequest, "Sender", err.Error())
 		return
 	}

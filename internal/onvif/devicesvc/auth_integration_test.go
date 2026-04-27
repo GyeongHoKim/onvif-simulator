@@ -169,6 +169,53 @@ func TestDeviceAuthDigestSuccess(t *testing.T) {
 	}
 }
 
+// TestDeviceAuthEmptyBodyDigestProbe covers the 2-pass HTTP Digest probe:
+// a request with an empty body and no Authorization header must surface a
+// 401 + WWW-Authenticate challenge instead of the parse-error 400, so the
+// client can harvest the nonce and re-issue the request.
+func TestDeviceAuthEmptyBodyDigestProbe(t *testing.T) {
+	h := newAuthenticatedHandler(t)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		devicesvc.DeviceServicePath, bytes.NewBufferString(""))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d want 401; body=%s", rec.Code, rec.Body.String())
+	}
+	if chal := rec.Header().Get("WWW-Authenticate"); !strings.HasPrefix(chal, "Digest ") {
+		t.Fatalf("expected Digest challenge, got %q", chal)
+	}
+}
+
+// TestDeviceAuthEmptyBodyWithAuthHeaderReturns400 confirms the probe
+// fallback is gated by an absent Authorization header. A malformed body
+// that already carries credentials still reports the parse error.
+func TestDeviceAuthEmptyBodyWithAuthHeaderReturns400(t *testing.T) {
+	h := newAuthenticatedHandler(t)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		devicesvc.DeviceServicePath, bytes.NewBufferString(""))
+	req.Header.Set("Authorization", `Digest username="x"`)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestDeviceUnauthenticatedHandlerEmptyBodyReturns400 confirms the probe
+// fallback is also gated by an installed auth hook: with the default no-op
+// auth, an unparseable body still maps to 400.
+func TestDeviceUnauthenticatedHandlerEmptyBodyReturns400(t *testing.T) {
+	h := devicesvc.NewHandler(stubProvider{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		devicesvc.DeviceServicePath, bytes.NewBufferString(""))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestDeviceAuthForbiddenReturns403(t *testing.T) {
 	// Non-admin user cannot hit an unrecoverable op.
 	store := auth.NewMutableUserStore([]auth.UserRecord{{

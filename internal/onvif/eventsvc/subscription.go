@@ -70,6 +70,15 @@ func (h *SubscriptionManagerHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 
 	payload, operation, err := parseSubscriptionManagerOperation(raw)
 	if err != nil {
+		// See devicesvc.ServeHTTP: emit an auth challenge when the body is
+		// unparseable and the client supplied no credentials, so 2-pass
+		// Digest probes can negotiate.
+		if r.Header.Get("Authorization") == "" {
+			if challengeErr := h.auth.Authorize(r.Context(), "", r); challengeErr != nil {
+				writeAuthFault(w, challengeErr)
+				return
+			}
+		}
 		writeFault(w, http.StatusBadRequest, faultCodeSender, err.Error())
 		return
 	}

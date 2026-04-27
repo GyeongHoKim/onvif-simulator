@@ -121,6 +121,41 @@ func TestEventAuthOperatorCanActuate(t *testing.T) {
 	}
 }
 
+// TestEventAuthEmptyBodyDigestProbe covers the 2-pass HTTP Digest probe:
+// an unparseable body with no Authorization header must produce a
+// 401 + WWW-Authenticate challenge so the client can negotiate.
+func TestEventAuthEmptyBodyDigestProbe(t *testing.T) {
+	h := newEventAuthenticatedHandler(t, auth.UserRecord{
+		Username: "admin", Password: "secret", Roles: []string{auth.OnvifRoleAdministrator},
+	})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		eventsvc.EventServicePath, bytes.NewBufferString(""))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d want 401; body=%s", rec.Code, rec.Body.String())
+	}
+	if chal := rec.Header().Get("WWW-Authenticate"); !strings.HasPrefix(chal, "Digest ") {
+		t.Fatalf("expected Digest challenge, got %q", chal)
+	}
+}
+
+// TestEventAuthEmptyBodyWithAuthHeaderReturns400 confirms the probe
+// fallback only fires when the Authorization header is absent.
+func TestEventAuthEmptyBodyWithAuthHeaderReturns400(t *testing.T) {
+	h := newEventAuthenticatedHandler(t, auth.UserRecord{
+		Username: "admin", Password: "secret", Roles: []string{auth.OnvifRoleAdministrator},
+	})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		eventsvc.EventServicePath, bytes.NewBufferString(""))
+	req.Header.Set("Authorization", `Digest username="x"`)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 // ---------- SubscriptionManagerHandler auth tests --------------------------------
 
 func TestSubscriptionAuthPullMessagesRequiresCredentials(t *testing.T) {
@@ -203,6 +238,41 @@ func TestSubscriptionAuthRenewRequiresCredentials(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d want 401; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestSubscriptionAuthEmptyBodyDigestProbe covers the 2-pass HTTP Digest
+// probe on the SubscriptionManager endpoint: an unparseable body with no
+// Authorization header must surface a 401 + WWW-Authenticate challenge.
+func TestSubscriptionAuthEmptyBodyDigestProbe(t *testing.T) {
+	h := newSubscriptionAuthenticatedHandler(t, auth.UserRecord{
+		Username: "admin", Password: "secret", Roles: []string{auth.OnvifRoleAdministrator},
+	})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		eventsvc.SubscriptionManagerPath+"?id=sub-001", bytes.NewBufferString(""))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d want 401; body=%s", rec.Code, rec.Body.String())
+	}
+	if chal := rec.Header().Get("WWW-Authenticate"); !strings.HasPrefix(chal, "Digest ") {
+		t.Fatalf("expected Digest challenge, got %q", chal)
+	}
+}
+
+// TestSubscriptionAuthEmptyBodyWithAuthHeaderReturns400 confirms the probe
+// fallback only fires when the Authorization header is absent.
+func TestSubscriptionAuthEmptyBodyWithAuthHeaderReturns400(t *testing.T) {
+	h := newSubscriptionAuthenticatedHandler(t, auth.UserRecord{
+		Username: "admin", Password: "secret", Roles: []string{auth.OnvifRoleAdministrator},
+	})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		eventsvc.SubscriptionManagerPath+"?id=sub-001", bytes.NewBufferString(""))
+	req.Header.Set("Authorization", `Digest username="x"`)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d want 400; body=%s", rec.Code, rec.Body.String())
 	}
 }
 
