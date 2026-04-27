@@ -17,6 +17,9 @@ const (
 	dashTopicColWidth  = 32
 	dashSourceColWidth = 16
 	dashStateColWidth  = 40
+
+	transitionStarting = "starting"
+	transitionStopping = "stopping"
 )
 
 type dashboardModel struct {
@@ -44,10 +47,10 @@ func (m *dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case statusMsg:
 		m.status = msg.s
 		m.lastUpdated = time.Now()
-		if m.transition == "starting" && m.status.Running {
+		if m.transition == transitionStarting && m.status.Running {
 			m.transition = ""
 		}
-		if m.transition == "stopping" && !m.status.Running {
+		if m.transition == transitionStopping && !m.status.Running {
 			m.transition = ""
 		}
 	case tea.KeyMsg:
@@ -72,7 +75,7 @@ func (m *dashboardModel) toggleLifecycle() tea.Cmd {
 		return nil
 	}
 	if m.sim.Running() {
-		m.transition = "stopping"
+		m.transition = transitionStopping
 		sim := m.sim
 		return func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), stopTimeout)
@@ -80,7 +83,7 @@ func (m *dashboardModel) toggleLifecycle() tea.Cmd {
 			return lifecycleMsg{action: "stop", err: sim.Stop(ctx)}
 		}
 	}
-	m.transition = "starting"
+	m.transition = transitionStarting
 	sim := m.sim
 	return func() tea.Msg {
 		return lifecycleMsg{action: "start", err: sim.Start(context.Background())}

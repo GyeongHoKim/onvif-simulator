@@ -47,7 +47,7 @@ func TestFlashKindConstants(t *testing.T) {
 	}
 }
 
-func TestMessageTypesInstantiate(t *testing.T) {
+func TestMessageTypesInstantiate(_ *testing.T) {
 	now := time.Now()
 	_ = tickStatusMsg(now)
 	_ = statusMsg{s: Status{}}

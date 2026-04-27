@@ -14,7 +14,7 @@ func TestNewCallbackBridge(t *testing.T) {
 	}
 }
 
-func TestCallbackBridgeDropsEventsBeforeAttach(t *testing.T) {
+func TestCallbackBridgeDropsEventsBeforeAttach(_ *testing.T) {
 	b := NewCallbackBridge()
 	// Program not yet attached; these must not panic.
 	b.OnEvent(simulator.EventRecord{
@@ -31,7 +31,7 @@ func TestCallbackBridgeDropsEventsBeforeAttach(t *testing.T) {
 	})
 }
 
-func TestCallbackBridgeTranslatesEventFields(t *testing.T) {
+func TestCallbackBridgeTranslatesEventFields(_ *testing.T) {
 	b := NewCallbackBridge()
 	now := time.Now()
 	rec := simulator.EventRecord{
@@ -44,7 +44,7 @@ func TestCallbackBridgeTranslatesEventFields(t *testing.T) {
 	b.OnEvent(rec)
 }
 
-func TestCallbackBridgeTranslatesMutationFields(t *testing.T) {
+func TestCallbackBridgeTranslatesMutationFields(_ *testing.T) {
 	b := NewCallbackBridge()
 	now := time.Now()
 	rec := simulator.MutationRecord{

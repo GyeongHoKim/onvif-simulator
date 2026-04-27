@@ -12,7 +12,7 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/simulator"
 )
 
-func newTestAdapter(t *testing.T) (*simulatorAdapter, func()) {
+func newTestAdapter(t *testing.T) (sa *simulatorAdapter, cleanup func()) {
 	t.Helper()
 	dir := t.TempDir()
 
@@ -21,8 +21,14 @@ func newTestAdapter(t *testing.T) (*simulatorAdapter, func()) {
 	if err != nil {
 		t.Fatalf("probe listen: %v", err)
 	}
-	port := l.Addr().(*net.TCPAddr).Port
-	_ = l.Close()
+	tcpAddr, ok := l.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("expected *net.TCPAddr, got %T", l.Addr())
+	}
+	port := tcpAddr.Port
+	if err = l.Close(); err != nil {
+		t.Fatalf("close probe listener: %v", err)
+	}
 
 	cfg := config.Config{
 		Version: 1,
@@ -48,24 +54,35 @@ func newTestAdapter(t *testing.T) (*simulatorAdapter, func()) {
 			},
 		},
 	}
-	data, _ := json.MarshalIndent(&cfg, "", "  ")
+	data, err := json.MarshalIndent(&cfg, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
 	cfgPath := filepath.Join(dir, config.FileName)
-	if err := os.WriteFile(cfgPath, data, 0o600); err != nil {
+	if err = os.WriteFile(cfgPath, data, 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
-	prev, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err = os.Chdir(dir); err != nil {
 		t.Fatalf("chdir: %v", err)
 	}
-	cleanup := func() { _ = os.Chdir(prev) }
+	cleanup = func() {
+		if chErr := os.Chdir(prev); chErr != nil {
+			t.Errorf("restore working directory: %v", chErr)
+		}
+	}
 
 	sim, err := simulator.New(simulator.Options{})
 	if err != nil {
 		cleanup()
 		t.Fatalf("simulator.New: %v", err)
 	}
-	return newSimulatorAdapter(sim), cleanup
+	sa = newSimulatorAdapter(sim)
+	return
 }
 
 func TestSimulatorAdapterStatus(t *testing.T) {

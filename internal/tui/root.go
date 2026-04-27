@@ -15,6 +15,7 @@ const (
 	bodyReservedRows = 4
 	minBodyHeight    = 1
 	uiScreenCount    = int(screenCount)
+	viewInitializing = "Starting…"
 )
 
 // ErrSaveRequiredField surfaces when a form field is empty on save.
@@ -234,7 +235,7 @@ func (m *rootModel) setFlashFromLifecycle(msg lifecycleMsg) tea.Cmd {
 
 func (m *rootModel) View() string {
 	if m.width == 0 {
-		return "Starting…"
+		return viewInitializing
 	}
 	var b strings.Builder
 	b.WriteString(m.renderBreadcrumb())

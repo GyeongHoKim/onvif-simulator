@@ -12,6 +12,8 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
 )
 
+var errBindFailed = errors.New("bind failed")
+
 // sendKey is a tiny helper that feeds a single key through the root model
 // and returns the cmds the root produced for inspection / batch draining.
 func sendKey(t *testing.T, m *rootModel, key string) tea.Cmd {
@@ -209,7 +211,7 @@ func TestRootModel_LifecycleMsgError(t *testing.T) {
 	sim := newMockSim()
 	root := newRootModel(sim)
 
-	root.Update(lifecycleMsg{action: "start", err: errors.New("bind failed")})
+	root.Update(lifecycleMsg{action: "start", err: errBindFailed})
 	if root.flash.kind != flashErr {
 		t.Fatalf("expected flashErr for failed lifecycle, got %v", root.flash.kind)
 	}
@@ -251,8 +253,8 @@ func TestRootModel_ViewBeforeWindowSize(t *testing.T) {
 	sim := newMockSim()
 	root := newRootModel(sim)
 
-	if v := root.View(); v != "Starting…" {
-		t.Fatalf("expected 'Starting…' before WindowSizeMsg, got %q", v)
+	if v := root.View(); v != viewInitializing {
+		t.Fatalf("expected %q before WindowSizeMsg, got %q", viewInitializing, v)
 	}
 }
 
@@ -262,12 +264,12 @@ func TestRootModel_ViewAfterWindowSize(t *testing.T) {
 
 	root.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	v := root.View()
-	if v == "" || v == "Starting…" {
+	if v == "" || v == viewInitializing {
 		t.Fatalf("unexpected view after WindowSizeMsg: %q", v)
 	}
 }
 
-func TestRootModel_EventAndMutationMsgRouted(t *testing.T) {
+func TestRootModel_EventAndMutationMsgRouted(_ *testing.T) {
 	sim := newMockSim()
 	root := newRootModel(sim)
 
@@ -275,7 +277,7 @@ func TestRootModel_EventAndMutationMsgRouted(t *testing.T) {
 	root.Update(mutationMsg{Kind: "SetHostname", Target: "", Detail: "myhost"})
 }
 
-func TestRootModel_OpenCloseModal(t *testing.T) {
+func TestRootModel_OpenCloseModal(_ *testing.T) {
 	sim := newMockSim()
 	root := newRootModel(sim)
 
@@ -289,13 +291,13 @@ func TestDashboardModel_StatusTransitionCleared(t *testing.T) {
 	sim := newMockSim()
 	dash := newDashboardModel(sim)
 
-	dash.transition = "starting"
+	dash.transition = transitionStarting
 	dash.Update(statusMsg{s: Status{Running: true}})
 	if dash.transition != "" {
 		t.Fatal("transition should clear when simulator reports Running=true")
 	}
 
-	dash.transition = "stopping"
+	dash.transition = transitionStopping
 	dash.Update(statusMsg{s: Status{Running: false}})
 	if dash.transition != "" {
 		t.Fatal("transition should clear when simulator reports Running=false")
