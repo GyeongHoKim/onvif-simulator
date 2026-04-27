@@ -133,8 +133,11 @@ jobs:
 
       - name: Install AppImage tool
         run: |
-          curl -fsSL -o appimagetool https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x appimagetool
+          curl -fsSL -o appimagetool.AppImage https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool.AppImage
+          ./appimagetool.AppImage --appimage-extract
+          mv squashfs-root appimagetool-extracted
+          ln -s appimagetool-extracted/AppRun appimagetool
 
       - name: Build GUI
         run: make gui-linux
