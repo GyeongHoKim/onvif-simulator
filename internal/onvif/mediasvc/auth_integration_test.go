@@ -182,6 +182,41 @@ func TestMediaAuthChallengeOnMissingCredentials(t *testing.T) {
 	}
 }
 
+// TestMediaAuthEmptyBodyDigestProbe covers the 2-pass HTTP Digest probe:
+// an unparseable body with no Authorization header must produce a
+// 401 + WWW-Authenticate challenge.
+func TestMediaAuthEmptyBodyDigestProbe(t *testing.T) {
+	h := newAuthenticatedHandler(t, auth.UserRecord{
+		Username: "admin", Password: "secret", Roles: []string{auth.OnvifRoleAdministrator},
+	})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		mediasvc.MediaServicePath, bytes.NewBufferString(""))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d want 401; body=%s", rec.Code, rec.Body.String())
+	}
+	if chal := rec.Header().Get("WWW-Authenticate"); !strings.HasPrefix(chal, "Digest ") {
+		t.Fatalf("expected Digest challenge, got %q", chal)
+	}
+}
+
+// TestMediaAuthEmptyBodyWithAuthHeaderReturns400 confirms the probe
+// fallback only fires when the Authorization header is absent.
+func TestMediaAuthEmptyBodyWithAuthHeaderReturns400(t *testing.T) {
+	h := newAuthenticatedHandler(t, auth.UserRecord{
+		Username: "admin", Password: "secret", Roles: []string{auth.OnvifRoleAdministrator},
+	})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		mediasvc.MediaServicePath, bytes.NewBufferString(""))
+	req.Header.Set("Authorization", `Digest username="x"`)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestMediaAuthDigestSuccessOnGetProfiles(t *testing.T) {
 	h := newAuthenticatedHandler(t, auth.UserRecord{
 		Username: "viewer", Password: "p", Roles: []string{auth.OnvifRoleUser},
