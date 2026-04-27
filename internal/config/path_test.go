@@ -1,10 +1,12 @@
 package config_test
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 
@@ -144,6 +146,28 @@ func TestDefaultPassesValidate(t *testing.T) {
 	cfg := config.Default()
 	if err := config.Validate(&cfg); err != nil {
 		t.Fatalf("Default config failed Validate: %v", err)
+	}
+}
+
+// TestDefaultProfilesIsEmptyArrayNotNull pins the JSON shape of
+// Default(): media.profiles must marshal to "[]" rather than "null"
+// so ONVIF clients (and json-schema-style consumers) always see an
+// array. A nil slice would emit "null" and break that contract.
+func TestDefaultProfilesIsEmptyArrayNotNull(t *testing.T) {
+	t.Parallel()
+	cfg := config.Default()
+	if cfg.Media.Profiles == nil {
+		t.Fatal("Default().Media.Profiles is nil; expected an empty slice")
+	}
+	if len(cfg.Media.Profiles) != 0 {
+		t.Fatalf("Default().Media.Profiles is not empty: %+v", cfg.Media.Profiles)
+	}
+	data, err := json.Marshal(cfg.Media)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(data), `"profiles":[]`) {
+		t.Errorf("expected profiles to marshal as [], got: %s", string(data))
 	}
 }
 

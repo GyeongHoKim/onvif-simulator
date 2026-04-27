@@ -31,7 +31,7 @@ func newTestAdapter(t *testing.T) (sa *simulatorAdapter, cleanup func()) {
 	}
 
 	cfg := config.Config{
-		Version: 1,
+		Version: config.CurrentVersion,
 		Device: config.DeviceConfig{
 			UUID:         "urn:uuid:00000000-0000-4000-8000-aaaaaaaaaaaa",
 			Manufacturer: "Test",

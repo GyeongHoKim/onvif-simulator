@@ -23,7 +23,7 @@ type mockSim struct {
 func newMockSim() *mockSim {
 	return &mockSim{
 		snapshot: config.Config{
-			Version: 1,
+			Version: config.CurrentVersion,
 			Device: config.DeviceConfig{
 				UUID:         "urn:uuid:11111111-1111-1111-1111-111111111111",
 				Manufacturer: "Acme",

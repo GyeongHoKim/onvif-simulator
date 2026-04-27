@@ -923,7 +923,10 @@ func Default() Config {
 			},
 		},
 		Network: NetworkConfig{HTTPPort: 8080, RTSPPort: DefaultRTSPPort},
-		Media:   MediaConfig{Profiles: nil},
+		// Use an empty slice (not nil) so json.Marshal emits
+		// "profiles": [] rather than "profiles": null. ONVIF clients
+		// and JSON consumers expect the field to always be an array.
+		Media: MediaConfig{Profiles: []ProfileConfig{}},
 		Events: EventsConfig{
 			MaxPullPoints:       defaultMaxPullPoints,
 			SubscriptionTimeout: "1h",

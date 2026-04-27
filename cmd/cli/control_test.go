@@ -24,7 +24,7 @@ func writeTempConfig(t *testing.T) (cfgPath string, cleanup func()) {
 	t.Helper()
 	dir := t.TempDir()
 	cfg := config.Config{
-		Version: 1,
+		Version: config.CurrentVersion,
 		Device: config.DeviceConfig{
 			UUID:         "urn:uuid:00000000-0000-4000-8000-000000000001",
 			Manufacturer: "Test", Model: "SimCam", Serial: "SN-1",
