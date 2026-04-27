@@ -157,11 +157,44 @@ func TestMediaProvider(t *testing.T) {
 		t.Fatalf("expected ErrProfileNotFound, got %v", err)
 	}
 
-	if _, err := mp.CreateProfile(ctx, "x", "x"); !errors.Is(err, mediasvc.ErrInvalidArgs) {
-		t.Fatalf("expected ErrInvalidArgs for CreateProfile, got %v", err)
+	// CreateProfile rejects empty name.
+	if _, err := mp.CreateProfile(ctx, "", ""); !errors.Is(err, mediasvc.ErrInvalidArgs) {
+		t.Fatalf("expected ErrInvalidArgs for empty name, got %v", err)
 	}
-	if err := mp.DeleteProfile(ctx, "x"); !errors.Is(err, mediasvc.ErrInvalidArgs) {
-		t.Fatalf("expected ErrInvalidArgs for DeleteProfile, got %v", err)
+	// CreateProfile creates a profile and returns it with the assigned token.
+	created, err := mp.CreateProfile(ctx, "e2e_test", "e2e_test_tok")
+	if err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+	if created.Token != "e2e_test_tok" {
+		t.Fatalf("CreateProfile token: want %q, got %q", "e2e_test_tok", created.Token)
+	}
+	// Created profile is visible via Profile/Profiles.
+	if _, err := mp.Profile(ctx, "e2e_test_tok"); err != nil {
+		t.Fatalf("Profile(created): %v", err)
+	}
+	// Duplicate token is rejected as invalid argument.
+	if _, err := mp.CreateProfile(ctx, "e2e_test", "e2e_test_tok"); !errors.Is(err, mediasvc.ErrInvalidArgs) {
+		t.Fatalf("expected ErrInvalidArgs for duplicate token, got %v", err)
+	}
+	// CreateProfile auto-generates a token when caller omits it.
+	autoCreated, err := mp.CreateProfile(ctx, "auto", "")
+	if err != nil {
+		t.Fatalf("CreateProfile(auto): %v", err)
+	}
+	if autoCreated.Token == "" {
+		t.Fatal("CreateProfile(auto): token must not be empty")
+	}
+	// DeleteProfile removes both.
+	if err := mp.DeleteProfile(ctx, "e2e_test_tok"); err != nil {
+		t.Fatalf("DeleteProfile: %v", err)
+	}
+	if err := mp.DeleteProfile(ctx, autoCreated.Token); err != nil {
+		t.Fatalf("DeleteProfile(auto): %v", err)
+	}
+	// Removing an unknown token surfaces ErrProfileNotFound.
+	if err := mp.DeleteProfile(ctx, "missing"); !errors.Is(err, mediasvc.ErrProfileNotFound) {
+		t.Fatalf("expected ErrProfileNotFound for DeleteProfile(missing), got %v", err)
 	}
 
 	if _, err := mp.VideoSources(ctx); err != nil {

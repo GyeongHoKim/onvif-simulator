@@ -2,7 +2,9 @@ package simulator
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/mediasvc"
@@ -47,12 +49,86 @@ func (p *mediaProvider) Profile(_ context.Context, token string) (mediasvc.Profi
 	return mediasvc.Profile{}, fmt.Errorf("%w: %s", mediasvc.ErrProfileNotFound, token)
 }
 
-func (*mediaProvider) CreateProfile(_ context.Context, _, _ string) (mediasvc.Profile, error) {
-	return mediasvc.Profile{}, fmt.Errorf("%w: CreateProfile not supported", mediasvc.ErrInvalidArgs)
+// CreateProfile adds a new media profile and persists it. ONVIF Media Service
+// §5.2.1 specifies CreateProfile as creating an "empty" profile with no
+// configurations attached, but our config schema requires RTSP/Encoding/
+// dimensions to validate, so we fill conservative placeholders that the
+// caller can later override via SetVideoEncoderConfiguration et al.
+func (p *mediaProvider) CreateProfile(_ context.Context, name, token string) (mediasvc.Profile, error) {
+	if strings.TrimSpace(name) == "" {
+		return mediasvc.Profile{}, fmt.Errorf("%w: Name is required", mediasvc.ErrInvalidArgs)
+	}
+	if token == "" {
+		token = generateProfileToken(p.sim, name)
+	}
+	profile := config.ProfileConfig{
+		Name:     name,
+		Token:    token,
+		RTSP:     "rtsp://127.0.0.1:8554/" + token,
+		Encoding: "H264",
+		Width:    640,
+		Height:   480,
+		FPS:      15,
+	}
+	if err := p.sim.AddProfile(profile); err != nil {
+		if errors.Is(err, config.ErrProfileAlreadyExists) {
+			return mediasvc.Profile{}, fmt.Errorf("%w: %w", mediasvc.ErrInvalidArgs, err)
+		}
+		return mediasvc.Profile{}, err
+	}
+	return profileFromConfig(&profile), nil
 }
 
-func (*mediaProvider) DeleteProfile(context.Context, string) error {
-	return fmt.Errorf("%w: DeleteProfile not supported", mediasvc.ErrInvalidArgs)
+// DeleteProfile removes a media profile by token and persists.
+func (p *mediaProvider) DeleteProfile(_ context.Context, token string) error {
+	if err := p.sim.RemoveProfile(token); err != nil {
+		if errors.Is(err, config.ErrProfileNotFound) {
+			return fmt.Errorf("%w: %s", mediasvc.ErrProfileNotFound, token)
+		}
+		return err
+	}
+	return nil
+}
+
+// generateProfileToken derives a unique token from name when the caller did
+// not supply one. Format: "profile_<sanitized name>" with a numeric suffix on
+// collision.
+func generateProfileToken(s *Simulator, name string) string {
+	cfg := s.snapshotConfig()
+	taken := make(map[string]bool, len(cfg.Media.Profiles))
+	for i := range cfg.Media.Profiles {
+		taken[cfg.Media.Profiles[i].Token] = true
+	}
+	base := "profile_" + sanitizeTokenChars(name)
+	if !taken[base] {
+		return base
+	}
+	for n := 2; ; n++ {
+		candidate := fmt.Sprintf("%s_%d", base, n)
+		if !taken[candidate] {
+			return candidate
+		}
+	}
+}
+
+// sanitizeTokenChars folds characters outside [a-zA-Z0-9_] into underscores so
+// the result matches the ReferenceToken character set expected by ONVIF
+// clients.
+func sanitizeTokenChars(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
 }
 
 func (p *mediaProvider) VideoSources(context.Context) ([]mediasvc.VideoSource, error) {
