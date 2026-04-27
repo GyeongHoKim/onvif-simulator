@@ -68,6 +68,21 @@ func (s *Simulator) SetProfileRTSP(token, rtsp string) error {
 	return nil
 }
 
+// SetProfileMediaFilePath updates the local mp4 path that the embedded RTSP
+// server loops for this profile. The change applies to the persisted config
+// immediately; the embedded RTSP server picks up the new path on the next
+// Stop/Start cycle.
+func (s *Simulator) SetProfileMediaFilePath(token, path string) error {
+	if err := config.SetProfileMediaFilePath(token, path); err != nil {
+		return err
+	}
+	if err := s.reloadFromDisk(); err != nil {
+		return err
+	}
+	s.recordMutation("SetProfileMediaFilePath", token, path)
+	return nil
+}
+
 // SetProfileSnapshotURI replaces the snapshot pass-through URI of a profile.
 func (s *Simulator) SetProfileSnapshotURI(token, uri string) error {
 	if err := config.SetProfileSnapshotURI(token, uri); err != nil {

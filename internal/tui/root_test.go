@@ -111,18 +111,53 @@ func TestEvents_ToggleTopic(t *testing.T) {
 	}
 }
 
-func TestMedia_AddProfileRequiresWidth(t *testing.T) {
+func TestMedia_AddProfileAcceptsBlankWidth(t *testing.T) {
+	// After the embedded RTSP switch, width/height/fps default to "0 means
+	// auto-detect at runtime", so a blank value must not reject the form.
 	sim := newMockSim()
 	p := config.ProfileConfig{Encoding: "H264"}
 	form := newProfileFormModal(sim, &p, false)
-	// Clear the width default so save() rejects the form.
 	form.fields[fldWidth].SetValue("")
+	if _, err := form.save(); err != nil {
+		t.Fatalf("save unexpectedly rejected blank width: %v", err)
+	}
+}
+
+func TestMedia_AddProfileRejectsBadWidth(t *testing.T) {
+	// Non-numeric input should still be reported as an error so the user
+	// notices the typo instead of silently saving 0.
+	sim := newMockSim()
+	p := config.ProfileConfig{Encoding: "H264"}
+	form := newProfileFormModal(sim, &p, false)
+	form.fields[fldWidth].SetValue("not-a-number")
 	_, err := form.save()
 	if err == nil {
-		t.Fatal("save should fail when width is blank")
+		t.Fatal("save should fail for non-numeric width")
 	}
 	if !strings.Contains(err.Error(), "width") {
 		t.Fatalf("error should mention width: %v", err)
+	}
+}
+
+func TestMedia_EditProfileCallsMediaFilePath(t *testing.T) {
+	sim := newMockSim()
+	p := config.ProfileConfig{Name: "main", Token: "profile_main", Encoding: "H264"}
+	form := newProfileFormModal(sim, &p, true)
+	form.fields[fldMediaFile].SetValue("/tmp/loop.mp4")
+	cmd, err := form.save()
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	flash, ok := cmd().(flashMsg)
+	if !ok {
+		t.Fatalf("expected flashMsg, got %T", cmd())
+	}
+	if flash.kind == flashErr {
+		t.Fatalf("save reported error: %s", flash.text)
+	}
+	calls := sim.callsCopy()
+	if !slices.Contains(calls, "SetProfileMediaFilePath") {
+		t.Fatalf("SetProfileMediaFilePath not called; calls=%v", calls)
 	}
 }
 

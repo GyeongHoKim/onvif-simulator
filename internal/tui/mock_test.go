@@ -175,6 +175,10 @@ func (m *mockSim) RemoveProfile(token string) error {
 }
 
 func (m *mockSim) SetProfileRTSP(_, _ string) error { m.record("SetProfileRTSP"); return nil }
+func (m *mockSim) SetProfileMediaFilePath(_, _ string) error {
+	m.record("SetProfileMediaFilePath")
+	return nil
+}
 func (m *mockSim) SetProfileSnapshotURI(_, _ string) error {
 	m.record("SetProfileSnapshotURI")
 	return nil

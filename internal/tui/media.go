@@ -16,9 +16,10 @@ import (
 const (
 	mediaNameColWidth   = 16
 	mediaTokenColWidth  = 16
-	mediaRTSPColWidth   = 40
+	mediaRTSPColWidth   = 32
+	mediaFileColWidth   = 32
 	profileFormWidth    = 40
-	profileCharLimit    = 128
+	profileCharLimit    = 256
 	profileLabelPadding = 18
 )
 
@@ -87,7 +88,7 @@ func (m *mediaModel) handleKey(msg tea.KeyMsg) tea.Cmd {
 	case "a":
 		sim := m.sim
 		return func() tea.Msg {
-			blank := config.ProfileConfig{Encoding: "H264"}
+			blank := config.ProfileConfig{}
 			return openModalMsg{modal: newProfileFormModal(sim, &blank, false)}
 		}
 	case "e":
@@ -136,19 +137,22 @@ func (m *mediaModel) View() string {
 		b.WriteString("\n")
 	} else {
 		b.WriteString(styleTableHeader.Render(
-			fmt.Sprintf("  %-*s  %-*s  %-6s  %-12s  %s",
+			fmt.Sprintf("  %-*s  %-*s  %-6s  %-12s  %-*s  %s",
 				mediaNameColWidth, "NAME",
 				mediaTokenColWidth, "TOKEN",
-				"CODEC", "RES@FPS", "RTSP"),
+				"CODEC", "RES@FPS",
+				mediaFileColWidth, "FILE",
+				"RTSP"),
 		))
 		b.WriteString("\n")
 		for i := range m.profiles {
 			p := m.profiles[i]
-			line := fmt.Sprintf("  %-*s  %-*s  %-6s  %-12s  %s",
+			line := fmt.Sprintf("  %-*s  %-*s  %-6s  %-12s  %-*s  %s",
 				mediaNameColWidth, truncate(p.Name, mediaNameColWidth),
 				mediaTokenColWidth, truncate(p.Token, mediaTokenColWidth),
 				p.Encoding,
 				fmt.Sprintf("%dx%d@%d", p.Width, p.Height, p.FPS),
+				mediaFileColWidth, truncate(p.MediaFilePath, mediaFileColWidth),
 				truncate(p.RTSP, mediaRTSPColWidth),
 			)
 			if i == m.selected {
@@ -177,6 +181,7 @@ func (m *mediaModel) View() string {
 const (
 	fldName int = iota
 	fldToken
+	fldMediaFile
 	fldRTSP
 	fldEncoding
 	fldWidth
@@ -201,11 +206,12 @@ func newProfileFormModal(sim SimulatorAPI, p *config.ProfileConfig, edit bool) *
 	presets := []struct{ placeholder, val string }{
 		{"human-readable name", p.Name},
 		{"stable token (key)", p.Token},
-		{"rtsp://host:554/stream", p.RTSP},
-		{"H264 | H265 | MJPEG", p.Encoding},
-		{"width (pixels)", intOr(p.Width, "1920")},
-		{"height (pixels)", intOr(p.Height, "1080")},
-		{"fps", intOr(p.FPS, "30")},
+		{"/absolute/path/to/video.mp4", p.MediaFilePath},
+		{"rtsp://host:554/stream (legacy passthrough)", p.RTSP},
+		{"H264 | H265 (auto-detected when blank)", p.Encoding},
+		{"width (auto-detected when blank)", intOrEmpty(p.Width)},
+		{"height (auto-detected when blank)", intOrEmpty(p.Height)},
+		{"fps (auto-detected when blank)", intOrEmpty(p.FPS)},
 		{"bitrate (kbps, optional)", intOrEmpty(p.Bitrate)},
 		{"gop length (optional)", intOrEmpty(p.GOPLength)},
 		{"http(s) snapshot URL (optional)", p.SnapshotURI},
@@ -224,19 +230,12 @@ func newProfileFormModal(sim SimulatorAPI, p *config.ProfileConfig, edit bool) *
 	if edit {
 		m.fields[fldName].SetValue(p.Name)
 		m.fields[fldToken].SetValue(p.Token)
-		m.focus = fldRTSP
-		m.fields[fldRTSP].Focus()
+		m.focus = fldMediaFile
+		m.fields[fldMediaFile].Focus()
 	} else {
 		m.fields[fldName].Focus()
 	}
 	return m
-}
-
-func intOr(v int, def string) string {
-	if v != 0 {
-		return strconv.Itoa(v)
-	}
-	return def
 }
 
 func intOrEmpty(v int) string {
@@ -285,7 +284,7 @@ func (p *profileFormModal) advanceFocus(delta int) {
 	step := (delta%fldCount + fldCount) % fldCount
 	p.focus = (p.focus + step) % fldCount
 	if p.edit && (p.focus == fldName || p.focus == fldToken || p.focus == fldVideoSource) {
-		p.focus = fldRTSP
+		p.focus = fldMediaFile
 		if delta < 0 {
 			p.focus = fldSnapshot
 		}
@@ -294,69 +293,92 @@ func (p *profileFormModal) advanceFocus(delta int) {
 }
 
 func (p *profileFormModal) save() (tea.Cmd, error) {
-	name := strings.TrimSpace(p.fields[fldName].Value())
-	token := strings.TrimSpace(p.fields[fldToken].Value())
-	rtsp := strings.TrimSpace(p.fields[fldRTSP].Value())
-	enc := strings.TrimSpace(p.fields[fldEncoding].Value())
-	width, err := parseInt(p.fields[fldWidth].Value(), "width")
+	form, err := p.readForm()
 	if err != nil {
 		return nil, err
 	}
-	height, err := parseInt(p.fields[fldHeight].Value(), "height")
-	if err != nil {
-		return nil, err
-	}
-	fps, err := parseInt(p.fields[fldFPS].Value(), "fps")
-	if err != nil {
-		return nil, err
-	}
-	bitrate, err := parseIntOrZero(p.fields[fldBitrate].Value(), "bitrate")
-	if err != nil {
-		return nil, err
-	}
-	gop, err := parseIntOrZero(p.fields[fldGOP].Value(), "gop")
-	if err != nil {
-		return nil, err
-	}
-	snap := strings.TrimSpace(p.fields[fldSnapshot].Value())
-	src := strings.TrimSpace(p.fields[fldVideoSource].Value())
 
 	sim := p.sim
 	if p.edit {
-		return editProfileCmd(sim, token, rtsp, snap, enc, width, height, fps, bitrate, gop), nil
+		return editProfileCmd(sim, &form), nil
 	}
 	profile := config.ProfileConfig{
-		Name:             name,
-		Token:            token,
-		RTSP:             rtsp,
-		Encoding:         enc,
-		Width:            width,
-		Height:           height,
-		FPS:              fps,
-		Bitrate:          bitrate,
-		GOPLength:        gop,
-		SnapshotURI:      snap,
-		VideoSourceToken: src,
+		Name:             form.name,
+		Token:            form.token,
+		MediaFilePath:    form.mediaFile,
+		RTSP:             form.rtsp,
+		Encoding:         form.enc,
+		Width:            form.width,
+		Height:           form.height,
+		FPS:              form.fps,
+		Bitrate:          form.bitrate,
+		GOPLength:        form.gop,
+		SnapshotURI:      form.snap,
+		VideoSourceToken: form.src,
 	}
 	return addProfileCmd(sim, &profile), nil
 }
 
-func editProfileCmd(
-	sim SimulatorAPI,
-	token, rtsp, snap, enc string,
-	width, height, fps, bitrate, gop int,
-) tea.Cmd {
+// profileFormValues collects the parsed form into one struct so save()
+// stays under the linter's argument-count budget.
+type profileFormValues struct {
+	name, token, mediaFile, rtsp, snap, src, enc string
+	width, height, fps, bitrate, gop             int
+}
+
+func (p *profileFormModal) readForm() (profileFormValues, error) {
+	v := profileFormValues{
+		name:      strings.TrimSpace(p.fields[fldName].Value()),
+		token:     strings.TrimSpace(p.fields[fldToken].Value()),
+		mediaFile: strings.TrimSpace(p.fields[fldMediaFile].Value()),
+		rtsp:      strings.TrimSpace(p.fields[fldRTSP].Value()),
+		enc:       strings.TrimSpace(p.fields[fldEncoding].Value()),
+		snap:      strings.TrimSpace(p.fields[fldSnapshot].Value()),
+		src:       strings.TrimSpace(p.fields[fldVideoSource].Value()),
+	}
+	width, err := parseIntOrZero(p.fields[fldWidth].Value(), "width")
+	if err != nil {
+		return profileFormValues{}, err
+	}
+	v.width = width
+	height, err := parseIntOrZero(p.fields[fldHeight].Value(), "height")
+	if err != nil {
+		return profileFormValues{}, err
+	}
+	v.height = height
+	fps, err := parseIntOrZero(p.fields[fldFPS].Value(), "fps")
+	if err != nil {
+		return profileFormValues{}, err
+	}
+	v.fps = fps
+	bitrate, err := parseIntOrZero(p.fields[fldBitrate].Value(), "bitrate")
+	if err != nil {
+		return profileFormValues{}, err
+	}
+	v.bitrate = bitrate
+	gop, err := parseIntOrZero(p.fields[fldGOP].Value(), "gop")
+	if err != nil {
+		return profileFormValues{}, err
+	}
+	v.gop = gop
+	return v, nil
+}
+
+func editProfileCmd(sim SimulatorAPI, v *profileFormValues) tea.Cmd {
 	return func() tea.Msg {
-		if err := sim.SetProfileRTSP(token, rtsp); err != nil {
+		if err := sim.SetProfileMediaFilePath(v.token, v.mediaFile); err != nil {
+			return flashMsg{text: "media file: " + err.Error(), kind: flashErr}
+		}
+		if err := sim.SetProfileRTSP(v.token, v.rtsp); err != nil {
 			return flashMsg{text: "rtsp: " + err.Error(), kind: flashErr}
 		}
-		if err := sim.SetProfileSnapshotURI(token, snap); err != nil {
+		if err := sim.SetProfileSnapshotURI(v.token, v.snap); err != nil {
 			return flashMsg{text: "snapshot: " + err.Error(), kind: flashErr}
 		}
-		if err := sim.SetProfileEncoder(token, enc, width, height, fps, bitrate, gop); err != nil {
+		if err := sim.SetProfileEncoder(v.token, v.enc, v.width, v.height, v.fps, v.bitrate, v.gop); err != nil {
 			return flashMsg{text: "encoder: " + err.Error(), kind: flashErr}
 		}
-		return flashMsg{text: "profile " + token + " saved", kind: flashOK}
+		return flashMsg{text: "profile " + v.token + " saved", kind: flashOK}
 	}
 }
 
@@ -368,18 +390,6 @@ func addProfileCmd(sim SimulatorAPI, profile *config.ProfileConfig) tea.Cmd {
 		}
 		return flashMsg{text: "profile " + p.Token + " added", kind: flashOK}
 	}
-}
-
-func parseInt(raw, field string) (int, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return 0, fmt.Errorf("%w: %s is required", ErrProfileFormValidate, field)
-	}
-	v, err := strconv.Atoi(raw)
-	if err != nil {
-		return 0, fmt.Errorf("%w: %s: %w", ErrProfileFormValidate, field, err)
-	}
-	return v, nil
 }
 
 func parseIntOrZero(raw, field string) (int, error) {
@@ -402,7 +412,7 @@ func (p *profileFormModal) Modal(_, _ int) string {
 		title = "Edit profile"
 	}
 	labels := []string{
-		"Name", "Token", "RTSP", "Encoding", "Width", "Height",
+		"Name", "Token", "Media file", "RTSP", "Encoding", "Width", "Height",
 		"FPS", "Bitrate", "GOP", "Snapshot URI", "Video source",
 	}
 	var body strings.Builder
