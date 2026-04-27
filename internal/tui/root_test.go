@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -142,6 +144,355 @@ func TestShortTopic(t *testing.T) {
 	}
 	if got := shortTopic("custom"); got != "custom" {
 		t.Fatalf("shortTopic should not mangle non-tns1 topics: %q", got)
+	}
+}
+
+// ----- root model extra coverage -----------------------------------------------
+
+func TestRootModel_FlashMessage(t *testing.T) {
+	sim := newMockSim()
+	root := newRootModel(sim)
+
+	_, cmd := root.Update(flashMsg{text: "hello", kind: flashOK})
+	if cmd == nil {
+		t.Fatal("expected clearFlash cmd from flashMsg")
+	}
+	if root.flash.text != "hello" {
+		t.Fatalf("expected flash text 'hello', got %q", root.flash.text)
+	}
+	if root.flash.kind != flashOK {
+		t.Fatalf("expected flashOK, got %v", root.flash.kind)
+	}
+}
+
+func TestRootModel_ClearFlashMatchingSeq(t *testing.T) {
+	sim := newMockSim()
+	root := newRootModel(sim)
+
+	root.Update(flashMsg{text: "msg", kind: flashInfo})
+	seq := root.flashSeq
+
+	root.Update(clearFlashMsg{id: seq})
+	if root.flash.text != "" {
+		t.Fatal("matching clearFlashMsg should clear the flash")
+	}
+}
+
+func TestRootModel_ClearFlashStaleSeq(t *testing.T) {
+	sim := newMockSim()
+	root := newRootModel(sim)
+
+	root.Update(flashMsg{text: "first", kind: flashInfo})
+	oldSeq := root.flashSeq - 1
+	root.Update(flashMsg{text: "second", kind: flashOK})
+
+	root.Update(clearFlashMsg{id: oldSeq})
+	if root.flash.text == "" {
+		t.Fatal("stale clearFlashMsg must not clear the current flash")
+	}
+}
+
+func TestRootModel_LifecycleMsgOK(t *testing.T) {
+	sim := newMockSim()
+	root := newRootModel(sim)
+
+	_, cmd := root.Update(lifecycleMsg{action: "start", err: nil})
+	if cmd == nil {
+		t.Fatal("expected cmd from lifecycleMsg")
+	}
+	if root.flash.kind != flashOK {
+		t.Fatalf("expected flashOK for successful lifecycle, got %v", root.flash.kind)
+	}
+}
+
+func TestRootModel_LifecycleMsgError(t *testing.T) {
+	sim := newMockSim()
+	root := newRootModel(sim)
+
+	root.Update(lifecycleMsg{action: "start", err: errors.New("bind failed")})
+	if root.flash.kind != flashErr {
+		t.Fatalf("expected flashErr for failed lifecycle, got %v", root.flash.kind)
+	}
+}
+
+func TestRootModel_ShiftTab(t *testing.T) {
+	sim := newMockSim()
+	root := newRootModel(sim)
+
+	root.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if root.active != screenCount-1 {
+		t.Fatalf("shift+tab from dashboard should wrap to last screen, got %v", root.active)
+	}
+}
+
+func TestRootModel_NumberKeys(t *testing.T) {
+	sim := newMockSim()
+	root := newRootModel(sim)
+
+	for i := 1; i <= int(screenCount); i++ {
+		sendKey(t, root, string(rune('0'+i)))
+		if root.active != screenID(i-1) {
+			t.Errorf("key '%d' should navigate to screen %d, got %v", i, i-1, root.active)
+		}
+	}
+}
+
+func TestRootModel_WindowSizeUpdatesScreens(t *testing.T) {
+	sim := newMockSim()
+	root := newRootModel(sim)
+
+	root.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	if root.width != 120 || root.height != 40 {
+		t.Fatalf("expected 120x40, got %dx%d", root.width, root.height)
+	}
+}
+
+func TestRootModel_ViewBeforeWindowSize(t *testing.T) {
+	sim := newMockSim()
+	root := newRootModel(sim)
+
+	if v := root.View(); v != "Starting…" {
+		t.Fatalf("expected 'Starting…' before WindowSizeMsg, got %q", v)
+	}
+}
+
+func TestRootModel_ViewAfterWindowSize(t *testing.T) {
+	sim := newMockSim()
+	root := newRootModel(sim)
+
+	root.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	v := root.View()
+	if v == "" || v == "Starting…" {
+		t.Fatalf("unexpected view after WindowSizeMsg: %q", v)
+	}
+}
+
+func TestRootModel_EventAndMutationMsgRouted(t *testing.T) {
+	sim := newMockSim()
+	root := newRootModel(sim)
+
+	root.Update(eventMsg{Time: time.Now(), Topic: "tns1:VideoSource/MotionAlarm", Source: "VS0"})
+	root.Update(mutationMsg{Kind: "SetHostname", Target: "", Detail: "myhost"})
+}
+
+func TestRootModel_OpenCloseModal(t *testing.T) {
+	sim := newMockSim()
+	root := newRootModel(sim)
+
+	root.Update(openModalMsg{modal: nil})
+	root.Update(closeModalMsg{})
+}
+
+// ----- dashboard extra coverage -------------------------------------------------
+
+func TestDashboardModel_StatusTransitionCleared(t *testing.T) {
+	sim := newMockSim()
+	dash := newDashboardModel(sim)
+
+	dash.transition = "starting"
+	dash.Update(statusMsg{s: Status{Running: true}})
+	if dash.transition != "" {
+		t.Fatal("transition should clear when simulator reports Running=true")
+	}
+
+	dash.transition = "stopping"
+	dash.Update(statusMsg{s: Status{Running: false}})
+	if dash.transition != "" {
+		t.Fatal("transition should clear when simulator reports Running=false")
+	}
+}
+
+func TestDashboardModel_ForceRefresh(t *testing.T) {
+	sim := newMockSim()
+	dash := newDashboardModel(sim)
+
+	_, cmd := dash.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	if cmd == nil {
+		t.Fatal("r key should produce a refresh cmd")
+	}
+	if _, ok := cmd().(statusMsg); !ok {
+		t.Fatalf("expected statusMsg from r key refresh")
+	}
+}
+
+func TestDashboardModel_View(t *testing.T) {
+	sim := newMockSim()
+	dash := newDashboardModel(sim)
+	dash.Update(statusMsg{s: sim.Status()})
+
+	v := dash.View()
+	if v == "" {
+		t.Fatal("expected non-empty dashboard view")
+	}
+}
+
+func TestDashboardModel_ViewWithEvents(t *testing.T) {
+	sim := newMockSim()
+	dash := newDashboardModel(sim)
+	dash.Update(statusMsg{s: Status{
+		Running: true,
+		RecentEvents: []EventRecord{
+			{Time: time.Now(), Topic: "tns1:VideoSource/MotionAlarm", Source: "VS0", Payload: "state=true"},
+		},
+	}})
+	v := dash.View()
+	if !strings.Contains(v, "VideoSource") {
+		t.Fatalf("view should contain topic substring, got: %q", v)
+	}
+}
+
+func TestUptimeHelper(t *testing.T) {
+	cases := []struct {
+		d    time.Duration
+		want string
+	}{
+		{0, "-"},
+		{-time.Second, "-"},
+		{time.Hour + 2*time.Minute + 3*time.Second, "01:02:03"},
+		{25*time.Hour + 5*time.Minute, "25:05:00"},
+	}
+	for _, tc := range cases {
+		if got := uptime(tc.d); got != tc.want {
+			t.Errorf("uptime(%v) = %q, want %q", tc.d, got, tc.want)
+		}
+	}
+}
+
+func TestTruncateHelper(t *testing.T) {
+	if got := truncate("hello", 10); got != "hello" {
+		t.Errorf("truncate short string: got %q", got)
+	}
+	if got := truncate("hello world", 5); len([]rune(got)) != 5 {
+		t.Errorf("truncate long string: got %q (len %d)", got, len(got))
+	}
+	if got := truncate("x", 1); got != "x" {
+		t.Errorf("truncate n=1: %q", got)
+	}
+}
+
+func TestTitleCaseHelper(t *testing.T) {
+	if got := titleCase(""); got != "" {
+		t.Errorf("titleCase('') = %q", got)
+	}
+	if got := titleCase("starting"); got != "Starting" {
+		t.Errorf("titleCase('starting') = %q", got)
+	}
+}
+
+func TestOrDashHelper(t *testing.T) {
+	if got := orDash(""); got != "-" {
+		t.Errorf("orDash('') = %q, want '-'", got)
+	}
+	if got := orDash("foo"); got != "foo" {
+		t.Errorf("orDash('foo') = %q, want 'foo'", got)
+	}
+}
+
+// ----- log screen extra coverage ------------------------------------------------
+
+func TestLogModel_EventMsg(t *testing.T) {
+	m := newLogModel()
+
+	m.Update(eventMsg{Time: time.Now(), Topic: "tns1:X", Source: "VS0", Payload: "state=true"})
+	if len(m.entries) != 1 {
+		t.Fatalf("expected 1 log entry, got %d", len(m.entries))
+	}
+	if m.entries[0].kind != "event" {
+		t.Fatalf("expected kind 'event', got %q", m.entries[0].kind)
+	}
+}
+
+func TestLogModel_MutationMsg(t *testing.T) {
+	m := newLogModel()
+
+	m.Update(mutationMsg{Time: time.Now(), Kind: "SetHostname", Target: "host", Detail: "myhost"})
+	if len(m.entries) != 1 {
+		t.Fatalf("expected 1 log entry, got %d", len(m.entries))
+	}
+	if m.entries[0].kind != "mutation" {
+		t.Fatalf("expected kind 'mutation', got %q", m.entries[0].kind)
+	}
+}
+
+func TestLogModel_FilterToggleKeys(t *testing.T) {
+	m := newLogModel()
+	for i := range 3 {
+		_ = i
+		m.append(&logEntry{kind: "event"})
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	if m.showEvents {
+		t.Fatal("e key should toggle showEvents to false")
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	if m.showMuts {
+		t.Fatal("m key should toggle showMuts to false")
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	if len(m.entries) != 0 {
+		t.Fatalf("c key should clear entries, got %d", len(m.entries))
+	}
+}
+
+func TestLogModel_SearchMode(t *testing.T) {
+	m := newLogModel()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	if !m.searching {
+		t.Fatal("/ key should enter search mode")
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.searching {
+		t.Fatal("esc key should exit search mode")
+	}
+}
+
+// ----- auth screen extra coverage -----------------------------------------------
+
+func TestAuthModel_NavigationKeys(t *testing.T) {
+	sim := newMockSim()
+	sim.snapshot.Auth.Users = []config.UserConfig{
+		{Username: "a", Role: config.RoleUser},
+		{Username: "b", Role: config.RoleOperator},
+	}
+	a := newAuthModel(sim)
+	a.Update(statusMsg{s: sim.Status()})
+
+	a.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if a.selected != 1 {
+		t.Fatalf("down key should advance selection to 1, got %d", a.selected)
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if a.selected != 0 {
+		t.Fatalf("up key should retreat selection to 0, got %d", a.selected)
+	}
+}
+
+func TestAuthModel_DeleteUserCmd(t *testing.T) {
+	sim := newMockSim()
+	sim.snapshot.Auth.Users = []config.UserConfig{
+		{Username: "user1", Role: config.RoleUser},
+	}
+	a := newAuthModel(sim)
+	a.Update(statusMsg{s: sim.Status()})
+
+	_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	if cmd == nil {
+		t.Fatal("d key on non-empty user list should produce a cmd")
+	}
+}
+
+func TestAuthModel_DeleteUserEmptyList(t *testing.T) {
+	sim := newMockSim()
+	a := newAuthModel(sim)
+
+	_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	if cmd != nil {
+		t.Fatal("d key on empty list should produce no cmd")
 	}
 }
 
