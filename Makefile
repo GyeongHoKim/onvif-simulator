@@ -33,7 +33,7 @@ gui-darwin: $(FRONTEND_DIST)
 	cd cmd/gui && wails build -platform darwin/amd64
 
 gui-linux: $(FRONTEND_DIST)
-	cd cmd/gui && wails build -platform linux/amd64
+	cd cmd/gui && wails build -platform linux/amd64 -tags webkit2_41
 
 format:
 	$(GO) fmt ./...
