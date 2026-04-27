@@ -200,6 +200,12 @@ func runConfig(args []string) error {
 		return errConfigSubcommandReq
 	}
 	sub := args[0]
+	// Reject unknown subcommands BEFORE config.EnsureExists, otherwise a
+	// typo'd subcommand would still create the user config directory and
+	// write a default file.
+	if sub != "show" && sub != "validate" {
+		return fmt.Errorf("%w: %q", errConfigUnknownSubcommand, sub)
+	}
 	fs := flag.NewFlagSet("config "+sub, flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "path to onvif-simulator.json (defaults to user config dir)")
 	if err := fs.Parse(args[1:]); err != nil {
@@ -229,9 +235,9 @@ func runConfig(args []string) error {
 		}
 		fmt.Println("ok")
 		return nil
-	default:
-		return fmt.Errorf("%w: %q", errConfigUnknownSubcommand, sub)
 	}
+	// Unreachable: sub is guaranteed to be show or validate by the guard above.
+	return nil
 }
 
 // ---------- event ---------------------------------------------------------------
