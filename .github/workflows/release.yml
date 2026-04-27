@@ -50,8 +50,13 @@ jobs:
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
+      - name: Install Make
+        shell: powershell
+        run: choco install make --yes --no-progress
+
       - name: Build GUI (NSIS installer)
-        run: cd cmd/gui && wails build -nsis -platform windows/amd64
+        shell: bash
+        run: make gui-windows
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v3.0.0
@@ -82,7 +87,7 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
       - name: Build GUI (.app)
-        run: cd cmd/gui && wails build -platform darwin/amd64
+        run: make gui-darwin
 
       - name: Package as .dmg
         run: |
@@ -128,7 +133,7 @@ jobs:
           chmod +x appimagetool
 
       - name: Build GUI
-        run: cd cmd/gui && wails build -platform linux/amd64
+        run: make gui-linux
 
       - name: Package as AppImage
         run: |
