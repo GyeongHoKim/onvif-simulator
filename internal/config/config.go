@@ -52,6 +52,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // FileName is the on-disk config file name.
@@ -901,11 +903,15 @@ func DefaultPath() (string, error) {
 // EnsureExists on first-run when the resolved path does not exist yet.
 // The values mirror onvif-simulator.example.json's minimum viable shape
 // (auth disabled so the simulator boots without credentials).
+//
+// Device.UUID is freshly generated on every call (urn:uuid:<v4>) so each
+// fresh install advertises a unique ONVIF identity instead of every
+// simulator on the network claiming the same URN.
 func Default() Config {
 	return Config{
 		Version: CurrentVersion,
 		Device: DeviceConfig{
-			UUID:         "urn:uuid:00000000-0000-4000-8000-000000000001",
+			UUID:         "urn:uuid:" + uuid.NewString(),
 			Manufacturer: "ONVIF Simulator",
 			Model:        "SimCam-100",
 			Serial:       "SN-0001",
@@ -938,18 +944,34 @@ const defaultMaxPullPoints = 10
 // EnsureExists writes Default() to p when p does not yet exist, creating
 // the parent directory as needed. Returns true if it created the file.
 // Existing files are left untouched.
+//
+// The promotion step uses os.Link rather than os.Rename so a concurrent
+// EnsureExists call from another process — racing between our os.Stat and
+// the create — cannot silently overwrite the file the other process just
+// wrote. If the link fails because the destination already exists, we
+// treat that as "lost the race, someone else created it" and return
+// (false, nil).
 func EnsureExists(p string) (bool, error) {
+	// Fast-path advisory check — saves the temp-file write when the
+	// config already exists. The os.Link below is the actual race-free
+	// guarantee.
 	if _, err := os.Stat(p); err == nil {
 		return false, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return false, fmt.Errorf("config: stat %s: %w", p, err)
 	}
-	if err := os.MkdirAll(filepath.Dir(p), configDirMode); err != nil {
-		return false, fmt.Errorf("config: mkdir %s: %w", filepath.Dir(p), err)
-	}
 	cfg := Default()
-	if err := writeAtomic(p, &cfg); err != nil {
+	tmpPath, err := writeTempFile(p, &cfg)
+	if err != nil {
 		return false, err
+	}
+	defer func() { _ = os.Remove(tmpPath) }() //nolint:errcheck // best-effort cleanup of the temp link
+
+	if linkErr := os.Link(tmpPath, p); linkErr != nil {
+		if errors.Is(linkErr, os.ErrExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("config: link to %s: %w", filepath.Base(p), linkErr)
 	}
 	return true, nil
 }
@@ -996,38 +1018,13 @@ func Save(cfg *Config) error {
 
 // writeAtomic marshals cfg and writes it to path via temp file + rename,
 // creating the parent directory if needed. Caller has already validated.
+// Used by Save (the regular update path), where overwriting an existing
+// file is intentional. EnsureExists uses writeTempFile + os.Link instead
+// to keep first-run create-only semantics race-free.
 func writeAtomic(path string, cfg *Config) error {
-	data, err := json.MarshalIndent(cfg, "", "  ")
+	tmpPath, err := writeTempFile(path, cfg)
 	if err != nil {
-		return fmt.Errorf("config: marshal: %w", err)
-	}
-	data = append(data, '\n')
-
-	dir := filepath.Dir(path)
-	if mkErr := os.MkdirAll(dir, configDirMode); mkErr != nil {
-		return fmt.Errorf("config: mkdir %s: %w", dir, mkErr)
-	}
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return fmt.Errorf("config: create temp in %q: %w", dir, err)
-	}
-	tmpPath := tmp.Name()
-	if chmodErr := os.Chmod(tmpPath, configFileMode); chmodErr != nil {
-		return joinSaveErrors(
-			fmt.Errorf("config: chmod temp: %w", chmodErr),
-			tmp.Close(),
-			os.Remove(tmpPath),
-		)
-	}
-	if _, werr := tmp.Write(data); werr != nil {
-		return joinSaveErrors(
-			fmt.Errorf("config: write temp: %w", werr),
-			tmp.Close(),
-			os.Remove(tmpPath),
-		)
-	}
-	if cerr := tmp.Close(); cerr != nil {
-		return joinSaveErrors(fmt.Errorf("config: close temp: %w", cerr), os.Remove(tmpPath))
+		return err
 	}
 	if rerr := os.Rename(tmpPath, path); rerr != nil {
 		return joinSaveErrors(
@@ -1036,6 +1033,49 @@ func writeAtomic(path string, cfg *Config) error {
 		)
 	}
 	return nil
+}
+
+// writeTempFile marshals cfg and writes it to a fresh temp file in path's
+// parent directory. Returns the temp file path on success; the caller is
+// responsible for promoting (Rename or Link) and removing it. On any error
+// the temp file (if created) is removed before returning.
+func writeTempFile(path string, cfg *Config) (string, error) {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("config: marshal: %w", err)
+	}
+	data = append(data, '\n')
+
+	dir := filepath.Dir(path)
+	if mkErr := os.MkdirAll(dir, configDirMode); mkErr != nil {
+		return "", fmt.Errorf("config: mkdir %s: %w", dir, mkErr)
+	}
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return "", fmt.Errorf("config: create temp in %q: %w", dir, err)
+	}
+	tmpPath := tmp.Name()
+	if chmodErr := os.Chmod(tmpPath, configFileMode); chmodErr != nil {
+		return "", joinSaveErrors(
+			fmt.Errorf("config: chmod temp: %w", chmodErr),
+			tmp.Close(),
+			os.Remove(tmpPath),
+		)
+	}
+	if _, werr := tmp.Write(data); werr != nil {
+		return "", joinSaveErrors(
+			fmt.Errorf("config: write temp: %w", werr),
+			tmp.Close(),
+			os.Remove(tmpPath),
+		)
+	}
+	if cerr := tmp.Close(); cerr != nil {
+		return "", joinSaveErrors(
+			fmt.Errorf("config: close temp: %w", cerr),
+			os.Remove(tmpPath),
+		)
+	}
+	return tmpPath, nil
 }
 
 func joinSaveErrors(primary error, rest ...error) error {
