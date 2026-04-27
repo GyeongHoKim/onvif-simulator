@@ -8,6 +8,7 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/devicesvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/mediasvc"
+	"github.com/GyeongHoKim/onvif-simulator/internal/rtsp"
 )
 
 //nolint:gocyclo,cyclop,govet // sweep test exercises many provider methods sequentially.
@@ -492,7 +493,7 @@ func TestVideoEncoderConfigurationH264Fields(t *testing.T) {
 	// poke it directly into the in-memory config to exercise the H264-only
 	// branch of veConfigFromProfile.
 	sim.mu.Lock()
-	sim.cfg.Media.Profiles[0].Encoding = "H264"
+	sim.cfg.Media.Profiles[0].Encoding = rtsp.CodecH264
 	sim.mu.Unlock()
 
 	enc, err := sim.mediaProv.VideoEncoderConfiguration(context.Background(), "profile_main")

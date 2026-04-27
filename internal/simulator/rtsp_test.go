@@ -11,6 +11,7 @@ import (
 
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/mediasvc"
+	"github.com/GyeongHoKim/onvif-simulator/internal/rtsp"
 )
 
 const fixtureH264Rel = "../rtsp/testdata/short_h264.mp4"
@@ -88,7 +89,7 @@ func TestStartAutoFillsEncoderFromMediaFile(t *testing.T) {
 		t.Fatalf("expected 1 profile, got %d", len(cfg.Media.Profiles))
 	}
 	p := cfg.Media.Profiles[0]
-	if p.Encoding != "H264" {
+	if p.Encoding != rtsp.CodecH264 {
 		t.Errorf("Encoding = %q, want H264 (auto-filled)", p.Encoding)
 	}
 	if p.Width != 320 || p.Height != 240 {

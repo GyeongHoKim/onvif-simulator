@@ -10,6 +10,7 @@ import (
 
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/mediasvc"
+	"github.com/GyeongHoKim/onvif-simulator/internal/rtsp"
 )
 
 // mediaProvider implements mediasvc.Provider for the simulator.
@@ -409,7 +410,7 @@ func veConfigFromProfile(p *config.ProfileConfig) mediasvc.VideoEncoderConfigura
 		},
 		SessionTimeout: "PT0S",
 	}
-	if p.Encoding == "H264" {
+	if p.Encoding == rtsp.CodecH264 {
 		cfg.H264 = mediasvc.H264Configuration{
 			GOVLength:   p.GOPLength,
 			H264Profile: "Main",
