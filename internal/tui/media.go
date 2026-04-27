@@ -284,10 +284,10 @@ func (p *profileFormModal) advanceFocus(delta int) {
 	p.fields[p.focus].Blur()
 	step := (delta%fldCount + fldCount) % fldCount
 	p.focus = (p.focus + step) % fldCount
-	if p.edit && (p.focus == fldName || p.focus == fldToken) {
+	if p.edit && (p.focus == fldName || p.focus == fldToken || p.focus == fldVideoSource) {
 		p.focus = fldRTSP
 		if delta < 0 {
-			p.focus = fldVideoSource
+			p.focus = fldSnapshot
 		}
 	}
 	p.fields[p.focus].Focus()
@@ -414,7 +414,7 @@ func (p *profileFormModal) Modal(_, _ int) string {
 			prefix = prefixSel
 		}
 		label := labels[i]
-		if p.edit && (i == fldName || i == fldToken) {
+		if p.edit && (i == fldName || i == fldToken || i == fldVideoSource) {
 			label += " (readonly)"
 		}
 		fmt.Fprintf(&body, "%s%-*s %s\n", prefix, profileLabelPadding, label+":", p.fields[i].View())
