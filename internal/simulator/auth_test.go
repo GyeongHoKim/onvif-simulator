@@ -108,7 +108,9 @@ func TestBuildJWTAuthenticatorJWKSURL(t *testing.T) {
 		JWKSURL:    "https://example.com/.well-known/jwks.json",
 	}
 	// Exercises the JWKS URL branch; network fetch is deferred to token validation.
-	_, _ = buildJWTAuthenticator(j)
+	if _, err := buildJWTAuthenticator(j); err != nil {
+		t.Fatalf("buildJWTAuthenticator with JWKS URL: %v", err)
+	}
 }
 
 func TestCurrentAuthChain(t *testing.T) {
@@ -129,7 +131,10 @@ func TestAuthorizeClassPreAuth(t *testing.T) {
 	sim.authEnabled = true
 	sim.authMu.Unlock()
 
-	r, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+	r, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
 	if err := sim.authorize(context.Background(), "GetDeviceInformation", r, auth.ClassPreAuth); err != nil {
 		t.Fatalf("ClassPreAuth must bypass auth: %v", err)
 	}
@@ -143,7 +148,10 @@ func TestAuthorizeUnauthenticatedRequest(t *testing.T) {
 	sim.authEnabled = true
 	sim.authMu.Unlock()
 
-	r, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+	r, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
 	if err := sim.authorize(context.Background(), "GetProfiles", r, auth.ClassReadSystem); err == nil {
 		t.Fatal("expected auth error for unauthenticated request with auth enabled")
 	}
@@ -154,7 +162,10 @@ func TestAuthorizeDisabledSkipsChain(t *testing.T) {
 	defer cleanup()
 
 	// Auth is disabled by default; every class passes.
-	r, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+	r, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
 	if err := sim.authorize(context.Background(), "op", r, auth.ClassWriteSystem); err != nil {
 		t.Fatalf("disabled auth should pass: %v", err)
 	}
@@ -165,7 +176,10 @@ func TestAuthHooksWhenDisabled(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	r, _ := http.NewRequestWithContext(ctx, http.MethodGet, "/", nil)
+	r, err := http.NewRequestWithContext(ctx, http.MethodGet, "/", nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
 
 	if err := sim.deviceAuthHook(ctx, "GetDeviceInformation", r); err != nil {
 		t.Fatalf("deviceAuthHook: %v", err)
