@@ -37,13 +37,13 @@ lint: $(FRONTEND_DIST)
 
 test: test-go test-frontend
 
-test-go:
+test-go: $(FRONTEND_DIST)
 	$(GO) test -race ./internal/... ./cmd/...
 
 test-frontend:
 	cd internal/gui/frontend && npm run test:coverage
 
-coverage:
+coverage: $(FRONTEND_DIST)
 	$(GO) test ./internal/... ./cmd/... -coverprofile=coverage.out -covermode=atomic
 	$(GO) tool cover -func=coverage.out
 
