@@ -224,8 +224,11 @@ func newProfileFormModal(sim SimulatorAPI, p *config.ProfileConfig, edit bool) *
 	if edit {
 		m.fields[fldName].SetValue(p.Name)
 		m.fields[fldToken].SetValue(p.Token)
+		m.focus = fldRTSP
+		m.fields[fldRTSP].Focus()
+	} else {
+		m.fields[fldName].Focus()
 	}
-	m.fields[fldName].Focus()
 	return m
 }
 
