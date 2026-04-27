@@ -15,6 +15,20 @@ jobs:
           go-version-file: .go-version
           cache: true
 
+      - uses: actions/setup-node@v6.3.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: internal/gui/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: internal/gui/frontend
+        run: npm ci
+
+      - name: Build frontend (required for go:embed in internal/gui)
+        working-directory: internal/gui/frontend
+        run: npm run build
+
       - name: Run tests with coverage
         run: make coverage
 
