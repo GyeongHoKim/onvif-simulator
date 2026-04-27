@@ -16,6 +16,8 @@ else
   GUI_OUT  := build/bin/$(BINARY)-gui
 endif
 
+FRONTEND_DIST := frontend/dist
+
 .PHONY: cli gui format lint test test-go test-frontend coverage e2e clean setup manual
 
 cli:
@@ -28,7 +30,10 @@ gui:
 format:
 	$(GO) fmt ./...
 
-lint:
+$(FRONTEND_DIST):
+	cd frontend && npm install && npm run build
+
+lint: $(FRONTEND_DIST)
 	golangci-lint run ./...
 
 test: test-go test-frontend
