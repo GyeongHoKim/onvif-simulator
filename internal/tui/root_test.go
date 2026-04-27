@@ -117,9 +117,17 @@ func TestMedia_EditProfileCallsMediaFilePath(t *testing.T) {
 	form := newProfileFormModal(sim, &p, true)
 	form.fields[fldMediaFile].SetValue("/tmp/loop.mp4")
 	cmd := form.save()
-	flash, ok := cmd().(flashMsg)
+	if cmd == nil {
+		t.Fatal("form.save() returned nil cmd")
+	}
+	// Invoke once — the closure has side effects (records the
+	// SetProfileMediaFilePath call on the mock); calling it a second
+	// time inside the failure t.Fatalf would double-record and obscure
+	// the real assertion below.
+	result := cmd()
+	flash, ok := result.(flashMsg)
 	if !ok {
-		t.Fatalf("expected flashMsg, got %T", cmd())
+		t.Fatalf("expected flashMsg, got %T", result)
 	}
 	if flash.kind == flashErr {
 		t.Fatalf("save reported error: %s", flash.text)
