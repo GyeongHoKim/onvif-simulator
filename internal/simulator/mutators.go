@@ -56,15 +56,18 @@ func (s *Simulator) RemoveProfile(token string) error {
 	return nil
 }
 
-// SetProfileRTSP replaces the RTSP pass-through URI of a profile.
-func (s *Simulator) SetProfileRTSP(token, rtsp string) error {
-	if err := config.SetProfileRTSP(token, rtsp); err != nil {
+// SetProfileMediaFilePath updates the local mp4 path that the embedded RTSP
+// server loops for this profile. The change applies to the persisted config
+// immediately; the embedded RTSP server picks up the new path on the next
+// Stop/Start cycle.
+func (s *Simulator) SetProfileMediaFilePath(token, path string) error {
+	if err := config.SetProfileMediaFilePath(token, path); err != nil {
 		return err
 	}
 	if err := s.reloadFromDisk(); err != nil {
 		return err
 	}
-	s.recordMutation("SetProfileRTSP", token, rtsp)
+	s.recordMutation("SetProfileMediaFilePath", token, path)
 	return nil
 }
 
@@ -77,20 +80,6 @@ func (s *Simulator) SetProfileSnapshotURI(token, uri string) error {
 		return err
 	}
 	s.recordMutation("SetProfileSnapshotURI", token, uri)
-	return nil
-}
-
-// SetProfileEncoder replaces the encoder fields of a profile in one atomic
-// update.
-func (s *Simulator) SetProfileEncoder(token, encoding string, width, height, fps, bitrate, gop int) error {
-	if err := config.SetProfileEncoder(token, encoding, width, height, fps, bitrate, gop); err != nil {
-		return err
-	}
-	if err := s.reloadFromDisk(); err != nil {
-		return err
-	}
-	s.recordMutation("SetProfileEncoder", token,
-		fmt.Sprintf("%s %dx%d@%dfps bitrate=%d gop=%d", encoding, width, height, fps, bitrate, gop))
 	return nil
 }
 

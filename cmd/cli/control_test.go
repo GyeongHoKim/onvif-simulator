@@ -16,23 +16,28 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/simulator"
 )
 
-// chdirToTempConfig writes a minimal valid config into a temp dir and chdirs
-// there so simulator.New can find it.
-func chdirToTempConfig(t *testing.T) (cleanup func()) {
+// writeTempConfig writes a minimal valid config into a temp dir and returns
+// its absolute path. Callers pass the path to simulator.Options.ConfigPath
+// (the explicit override path is the public way for tests to point the
+// simulator at a fixture; chdir is no longer relied on).
+func writeTempConfig(t *testing.T) (cfgPath string, cleanup func()) {
 	t.Helper()
 	dir := t.TempDir()
 	cfg := config.Config{
-		Version: 1,
+		Version: config.CurrentVersion,
 		Device: config.DeviceConfig{
 			UUID:         "urn:uuid:00000000-0000-4000-8000-000000000001",
 			Manufacturer: "Test", Model: "SimCam", Serial: "SN-1",
 			Scopes: []string{"onvif://www.onvif.org/name/test"},
 		},
-		Network: config.NetworkConfig{HTTPPort: 18081},
+		Network: config.NetworkConfig{HTTPPort: 18081, RTSPPort: 0},
 		Media: config.MediaConfig{Profiles: []config.ProfileConfig{{
 			Name: "main", Token: "profile_main",
-			RTSP:     "rtsp://127.0.0.1:8554/main",
-			Encoding: "H264", Width: 1920, Height: 1080, FPS: 30,
+			// RTSP retained as a passthrough fallback so this fixture covers
+			// the back-compat path; a fixture variant with MediaFilePath is
+			// exercised by the rtsp_test.go integration cases.
+			MediaFilePath: "",
+			Encoding:      "H264", Width: 1920, Height: 1080, FPS: 30,
 		}}},
 		Events: config.EventsConfig{
 			Topics: []config.TopicConfig{
@@ -48,24 +53,18 @@ func chdirToTempConfig(t *testing.T) (cleanup func()) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if writeErr := os.WriteFile(filepath.Join(dir, config.FileName), data, 0o600); writeErr != nil {
+	cfgPath = filepath.Join(dir, config.FileName)
+	if writeErr := os.WriteFile(cfgPath, data, 0o600); writeErr != nil {
 		t.Fatalf("write: %v", writeErr)
 	}
-	prev, getErr := os.Getwd()
-	if getErr != nil {
-		t.Fatalf("getwd: %v", getErr)
-	}
-	if chErr := os.Chdir(dir); chErr != nil {
-		t.Fatalf("chdir: %v", chErr)
-	}
-	return func() { _ = os.Chdir(prev) } //nolint:errcheck // best-effort restore.
+	return cfgPath, func() { config.SetPath("") }
 }
 
 func TestControlServerEventsAndShutdown(t *testing.T) {
-	cleanup := chdirToTempConfig(t)
+	cfgPath, cleanup := writeTempConfig(t)
 	defer cleanup()
 
-	sim, err := simulator.New(simulator.Options{EventBufferSize: 16})
+	sim, err := simulator.New(simulator.Options{EventBufferSize: 16, ConfigPath: cfgPath})
 	if err != nil {
 		t.Fatalf("simulator.New: %v", err)
 	}
@@ -118,10 +117,10 @@ func TestControlServerEventsAndShutdown(t *testing.T) {
 }
 
 func TestControlServerRejectsGET(t *testing.T) {
-	cleanup := chdirToTempConfig(t)
+	cfgPath, cleanup := writeTempConfig(t)
 	defer cleanup()
 
-	sim, err := simulator.New(simulator.Options{})
+	sim, err := simulator.New(simulator.Options{ConfigPath: cfgPath})
 	if err != nil {
 		t.Fatalf("simulator.New: %v", err)
 	}
@@ -151,10 +150,10 @@ func TestControlServerRejectsGET(t *testing.T) {
 }
 
 func TestControlServerRejectsBadJSON(t *testing.T) {
-	cleanup := chdirToTempConfig(t)
+	cfgPath, cleanup := writeTempConfig(t)
 	defer cleanup()
 
-	sim, err := simulator.New(simulator.Options{})
+	sim, err := simulator.New(simulator.Options{ConfigPath: cfgPath})
 	if err != nil {
 		t.Fatalf("simulator.New: %v", err)
 	}

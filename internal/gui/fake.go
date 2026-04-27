@@ -52,21 +52,18 @@ func defaultFakeConfig() config.Config {
 				"onvif://www.onvif.org/hardware/virtual",
 			},
 		},
-		Network: config.NetworkConfig{HTTPPort: 8080},
+		Network: config.NetworkConfig{HTTPPort: 8080, RTSPPort: config.DefaultRTSPPort},
 		Media: config.MediaConfig{
 			Profiles: []config.ProfileConfig{
 				{
 					Name: "main", Token: "profile_main",
-					RTSP:     "rtsp://127.0.0.1:8554/main",
-					Encoding: "H264", Width: 1920, Height: 1080, FPS: 30,
-					Bitrate: 4096, GOPLength: 60,
+					MediaFilePath:    "/var/onvif/main.mp4",
 					SnapshotURI:      "http://127.0.0.1:8080/snapshot/main.jpg",
 					VideoSourceToken: "VS_MAIN",
 				},
 				{
 					Name: "sub", Token: "profile_sub",
-					RTSP:     "rtsp://127.0.0.1:8554/sub",
-					Encoding: "H264", Width: 640, Height: 480, FPS: 15,
+					MediaFilePath: "/var/onvif/sub.mp4",
 				},
 			},
 		},
@@ -308,27 +305,15 @@ func (s *simulatorStub) RemoveProfile(token string) error {
 	return nil
 }
 
-func (s *simulatorStub) SetProfileRTSP(token, rtsp string) error {
-	return s.mutateProfile(token, "SetProfileRTSP", rtsp, func(p *config.ProfileConfig) { p.RTSP = rtsp })
+func (s *simulatorStub) SetProfileMediaFilePath(token, path string) error {
+	return s.mutateProfile(token, "SetProfileMediaFilePath", path, func(p *config.ProfileConfig) {
+		p.MediaFilePath = path
+	})
 }
 
 func (s *simulatorStub) SetProfileSnapshotURI(token, uri string) error {
 	return s.mutateProfile(token, "SetProfileSnapshotURI", uri, func(p *config.ProfileConfig) {
 		p.SnapshotURI = uri
-	})
-}
-
-func (s *simulatorStub) SetProfileEncoder(
-	token, encoding string, width, height, fps, bitrate, gop int,
-) error {
-	detail := fmt.Sprintf("%s %dx%d@%d br=%d gop=%d", encoding, width, height, fps, bitrate, gop)
-	return s.mutateProfile(token, "SetProfileEncoder", detail, func(p *config.ProfileConfig) {
-		p.Encoding = encoding
-		p.Width = width
-		p.Height = height
-		p.FPS = fps
-		p.Bitrate = bitrate
-		p.GOPLength = gop
 	})
 }
 

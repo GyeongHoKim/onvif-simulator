@@ -19,6 +19,8 @@ export function ImageTooDark(arg1:string,arg2:boolean):Promise<void>;
 
 export function Motion(arg1:string,arg2:boolean):Promise<void>;
 
+export function PickMediaFile():Promise<string>;
+
 export function PublishRaw(arg1:string,arg2:string):Promise<void>;
 
 export function RemoveProfile(arg1:string):Promise<void>;
@@ -35,9 +37,7 @@ export function SetEventsTopics(arg1:Array<config.TopicConfig>):Promise<void>;
 
 export function SetHostname(arg1:string):Promise<void>;
 
-export function SetProfileEncoder(arg1:string,arg2:string,arg3:number,arg4:number,arg5:number,arg6:number,arg7:number):Promise<void>;
-
-export function SetProfileRTSP(arg1:string,arg2:string):Promise<void>;
+export function SetProfileMediaFile(arg1:string,arg2:string):Promise<void>;
 
 export function SetProfileSnapshotURI(arg1:string,arg2:string):Promise<void>;
 

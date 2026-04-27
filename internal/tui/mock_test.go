@@ -23,7 +23,7 @@ type mockSim struct {
 func newMockSim() *mockSim {
 	return &mockSim{
 		snapshot: config.Config{
-			Version: 1,
+			Version: config.CurrentVersion,
 			Device: config.DeviceConfig{
 				UUID:         "urn:uuid:11111111-1111-1111-1111-111111111111",
 				Manufacturer: "Acme",
@@ -35,8 +35,8 @@ func newMockSim() *mockSim {
 				Profiles: []config.ProfileConfig{
 					{
 						Name: "p0", Token: "tok0",
-						RTSP:     "rtsp://localhost:554/s",
-						Encoding: "H264", Width: 1920, Height: 1080, FPS: 30,
+						MediaFilePath: "",
+						Encoding:      "H264", Width: 1920, Height: 1080, FPS: 30,
 						VideoSourceToken: "VS0",
 					},
 				},
@@ -174,13 +174,12 @@ func (m *mockSim) RemoveProfile(token string) error {
 	return nil
 }
 
-func (m *mockSim) SetProfileRTSP(_, _ string) error { m.record("SetProfileRTSP"); return nil }
-func (m *mockSim) SetProfileSnapshotURI(_, _ string) error {
-	m.record("SetProfileSnapshotURI")
+func (m *mockSim) SetProfileMediaFilePath(_, _ string) error {
+	m.record("SetProfileMediaFilePath")
 	return nil
 }
-func (m *mockSim) SetProfileEncoder(_, _ string, _, _, _, _, _ int) error {
-	m.record("SetProfileEncoder")
+func (m *mockSim) SetProfileSnapshotURI(_, _ string) error {
+	m.record("SetProfileSnapshotURI")
 	return nil
 }
 

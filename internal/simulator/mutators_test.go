@@ -22,19 +22,14 @@ func TestMutatorRecordsAllKinds(t *testing.T) {
 	}
 	if err := sim.AddProfile(config.ProfileConfig{
 		Name: "extra", Token: "extra_tok",
-		RTSP:     "rtsp://127.0.0.1:8554/extra",
-		Encoding: "H264", Width: 320, Height: 240, FPS: 10,
 	}); err != nil {
 		t.Fatalf("AddProfile: %v", err)
 	}
-	if err := sim.SetProfileRTSP("extra_tok", "rtsp://127.0.0.1:8554/extra2"); err != nil {
-		t.Fatalf("SetProfileRTSP: %v", err)
+	if err := sim.SetProfileMediaFilePath("extra_tok", "/var/onvif/extra.mp4"); err != nil {
+		t.Fatalf("SetProfileMediaFilePath: %v", err)
 	}
 	if err := sim.SetProfileSnapshotURI("extra_tok", "http://127.0.0.1/snap.jpg"); err != nil {
 		t.Fatalf("SetProfileSnapshotURI: %v", err)
-	}
-	if err := sim.SetProfileEncoder("extra_tok", "H264", 640, 480, 30, 1024, 30); err != nil {
-		t.Fatalf("SetProfileEncoder: %v", err)
 	}
 	if err := sim.SetTopicEnabled("tns1:VideoSource/ImageTooDark", true); err != nil {
 		t.Fatalf("SetTopicEnabled: %v", err)
@@ -69,7 +64,7 @@ func TestMutatorRecordsAllKinds(t *testing.T) {
 
 	wantKinds := []string{
 		"SetDiscoveryMode", "SetHostname", "AddProfile",
-		"SetProfileRTSP", "SetProfileSnapshotURI", "SetProfileEncoder",
+		"SetProfileMediaFilePath", "SetProfileSnapshotURI",
 		"SetTopicEnabled", "SetEventsTopics",
 		"AddUser", "UpsertUser", "SetAuthEnabled", "SetAuthEnabled", "RemoveUser",
 		"RemoveProfile",

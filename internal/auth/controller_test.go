@@ -21,8 +21,8 @@ var baseConfig = config.Config{
 	Media: config.MediaConfig{
 		Profiles: []config.ProfileConfig{{
 			Name: "main", Token: "profile_main",
-			RTSP: "rtsp://127.0.0.1:8554/main", Encoding: "H264",
-			Width: 1920, Height: 1080, FPS: 30,
+			MediaFilePath: "",
+			// encoder fields auto-detected at runtime
 		}},
 	},
 }

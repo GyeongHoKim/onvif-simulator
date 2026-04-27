@@ -75,9 +75,8 @@ type simulatorAPI interface {
 
 	AddProfile(p *config.ProfileConfig) error
 	RemoveProfile(token string) error
-	SetProfileRTSP(token, rtsp string) error
+	SetProfileMediaFilePath(token, path string) error
 	SetProfileSnapshotURI(token, uri string) error
-	SetProfileEncoder(token, encoding string, width, height, fps, bitrate, gop int) error
 
 	SetTopicEnabled(name string, enabled bool) error
 	SetEventsTopics(topics []config.TopicConfig) error
@@ -204,17 +203,29 @@ func (a *App) AddProfile(p config.ProfileConfig) error { return a.sim.AddProfile
 // RemoveProfile removes a media profile by token.
 func (a *App) RemoveProfile(token string) error { return a.sim.RemoveProfile(token) }
 
-// SetProfileRTSP updates the pass-through RTSP URI for a profile.
-func (a *App) SetProfileRTSP(token, rtsp string) error { return a.sim.SetProfileRTSP(token, rtsp) }
+// SetProfileMediaFile points the named profile at a local mp4 file. The
+// embedded RTSP server reads and loops the file so GetStreamUri returns a
+// URI pointing at the simulator itself.
+func (a *App) SetProfileMediaFile(token, path string) error {
+	return a.sim.SetProfileMediaFilePath(token, path)
+}
+
+// PickMediaFile opens the OS-native open-file dialog, filters for mp4/mov
+// containers, and returns the absolute path the user selected. Returns an
+// empty string (and nil error) when the user cancels — same convention as
+// runtime.OpenFileDialog.
+func (a *App) PickMediaFile() (string, error) {
+	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select an MP4 file",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Video files (*.mp4, *.mov)", Pattern: "*.mp4;*.mov"},
+		},
+	})
+}
 
 // SetProfileSnapshotURI updates the pass-through snapshot URI for a profile.
 func (a *App) SetProfileSnapshotURI(token, uri string) error {
 	return a.sim.SetProfileSnapshotURI(token, uri)
-}
-
-// SetProfileEncoder updates encoder parameters for a profile.
-func (a *App) SetProfileEncoder(token, encoding string, width, height, fps, bitrate, gop int) error {
-	return a.sim.SetProfileEncoder(token, encoding, width, height, fps, bitrate, gop)
 }
 
 // SetTopicEnabled toggles advertisement + publish-routing for a topic.

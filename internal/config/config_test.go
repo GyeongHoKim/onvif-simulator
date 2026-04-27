@@ -26,15 +26,7 @@ var validConfig = config.Config{
 	},
 	Media: config.MediaConfig{
 		Profiles: []config.ProfileConfig{
-			{
-				Name:     "main",
-				Token:    "profile_main",
-				RTSP:     "rtsp://127.0.0.1:8554/main",
-				Encoding: "H264",
-				Width:    1920,
-				Height:   1080,
-				FPS:      30,
-			},
+			{Name: "main", Token: "profile_main"},
 		},
 	},
 }
@@ -75,21 +67,6 @@ func TestValidateRejects(t *testing.T) {
 			name:    "invalid http port",
 			mutate:  func(c *config.Config) { c.Network.HTTPPort = 0 },
 			wantErr: config.ErrNetworkPortInvalid,
-		},
-		{
-			name:    "no profiles",
-			mutate:  func(c *config.Config) { c.Media.Profiles = nil },
-			wantErr: config.ErrMediaNoProfiles,
-		},
-		{
-			name: "invalid profile encoding",
-			mutate: func(c *config.Config) {
-				c.Media.Profiles = []config.ProfileConfig{{
-					Name: "main", Token: "tok", RTSP: "rtsp://127.0.0.1:8554/main",
-					Encoding: "HEVC", Width: 1920, Height: 1080, FPS: 30,
-				}}
-			},
-			wantErr: config.ErrProfileEncodingInvalid,
 		},
 		{
 			name:    "auth enabled without users",
@@ -187,10 +164,7 @@ func TestValidateRejectsProfileExtras(t *testing.T) {
 	t.Parallel()
 
 	base := func() config.ProfileConfig {
-		return config.ProfileConfig{
-			Name: "main", Token: "t", RTSP: "rtsp://127.0.0.1:8554/main",
-			Encoding: "H264", Width: 1920, Height: 1080, FPS: 30,
-		}
+		return config.ProfileConfig{Name: "main", Token: "t"}
 	}
 
 	cases := []struct {
@@ -231,14 +205,97 @@ func TestValidateAcceptsProfileExtras(t *testing.T) {
 	t.Parallel()
 	c := validConfig
 	c.Media.Profiles = []config.ProfileConfig{{
-		Name: "main", Token: "t", RTSP: "rtsp://127.0.0.1:8554/main",
-		Encoding: "H264", Width: 1920, Height: 1080, FPS: 30,
-		Bitrate: 4096, GOPLength: 60,
+		Name: "main", Token: "t",
+		MediaFilePath:    "/var/onvif/main.mp4",
+		Bitrate:          4096,
+		GOPLength:        60,
 		SnapshotURI:      "https://host/snap.jpg",
 		VideoSourceToken: "VS_MAIN",
 	}}
 	if err := config.Validate(&c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestValidateAcceptsMediaFilePathOnlyProfile ensures a profile authored for
+// the embedded RTSP server (media_file_path set, RTSP omitted, encoder fields
+// 0 to be auto-detected) passes validation.
+func TestValidateAcceptsMediaFilePathOnlyProfile(t *testing.T) {
+	t.Parallel()
+	c := validConfig
+	c.Media.Profiles = []config.ProfileConfig{{
+		Name:          "main",
+		Token:         "profile_main",
+		MediaFilePath: "/var/onvif-simulator/main.mp4",
+	}}
+	if err := config.Validate(&c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateRejectsMediaFilePathWhitespace(t *testing.T) {
+	t.Parallel()
+	c := validConfig
+	c.Media.Profiles = []config.ProfileConfig{{
+		Name:          "main",
+		Token:         "profile_main",
+		MediaFilePath: "   ",
+	}}
+	err := config.Validate(&c)
+	if err == nil {
+		t.Fatal("expected validation error for whitespace media_file_path")
+	}
+	if !strings.Contains(err.Error(), ".media_file_path") {
+		t.Fatalf("expected error to mention media_file_path, got %v", err)
+	}
+}
+
+func TestValidateNetworkRTSPPort(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		http     int
+		rtsp     int
+		wantErr  error
+		wantPass bool
+	}{
+		{"rtsp 0 falls back to default", 8080, 0, nil, true},
+		{"rtsp 8554 explicit", 8080, 8554, nil, true},
+		{"rtsp negative", 8080, -1, config.ErrNetworkRTSPPortInvalid, false},
+		{"rtsp out of range", 8080, 70000, config.ErrNetworkRTSPPortInvalid, false},
+		{"rtsp clashes with http", 8080, 8080, config.ErrNetworkPortConflict, false},
+		// http_port=DefaultRTSPPort with rtsp_port=0 must collide because
+		// rtsp_port=0 falls back to DefaultRTSPPort.
+		{"rtsp default clashes with http on 8554", 8554, 0, config.ErrNetworkPortConflict, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := validConfig
+			c.Network.HTTPPort = tc.http
+			c.Network.RTSPPort = tc.rtsp
+			err := config.Validate(&c)
+			if tc.wantPass {
+				if err != nil {
+					t.Fatalf("expected pass, got %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("expected %v, got %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestRTSPPortOrDefault(t *testing.T) {
+	t.Parallel()
+	if got := (config.NetworkConfig{}).RTSPPortOrDefault(); got != config.DefaultRTSPPort {
+		t.Errorf("zero RTSPPort = %d, want %d", got, config.DefaultRTSPPort)
+	}
+	if got := (config.NetworkConfig{RTSPPort: 9554}).RTSPPortOrDefault(); got != 9554 {
+		t.Errorf("explicit RTSPPort = %d, want 9554", got)
 	}
 }
 
@@ -263,15 +320,7 @@ func TestLoadSaveRoundTrip(t *testing.T) {
 		},
 		Media: config.MediaConfig{
 			Profiles: []config.ProfileConfig{
-				{
-					Name:     "main",
-					Token:    "profile_main",
-					RTSP:     "rtsp://127.0.0.1:8554/main",
-					Encoding: "H264",
-					Width:    1920,
-					Height:   1080,
-					FPS:      30,
-				},
+				{Name: "main", Token: "profile_main", MediaFilePath: "/var/onvif/main.mp4"},
 			},
 		},
 		Auth: config.AuthConfig{

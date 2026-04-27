@@ -31,7 +31,7 @@ func newTestAdapter(t *testing.T) (sa *simulatorAdapter, cleanup func()) {
 	}
 
 	cfg := config.Config{
-		Version: 1,
+		Version: config.CurrentVersion,
 		Device: config.DeviceConfig{
 			UUID:         "urn:uuid:00000000-0000-4000-8000-aaaaaaaaaaaa",
 			Manufacturer: "Test",
@@ -40,13 +40,13 @@ func newTestAdapter(t *testing.T) (sa *simulatorAdapter, cleanup func()) {
 		},
 		Network: config.NetworkConfig{HTTPPort: port},
 		Media: config.MediaConfig{Profiles: []config.ProfileConfig{{
-			Name:     "main",
-			Token:    "profile_main",
-			RTSP:     "rtsp://127.0.0.1:8554/main",
-			Encoding: "H264",
-			Width:    1920,
-			Height:   1080,
-			FPS:      30,
+			Name:          "main",
+			Token:         "profile_main",
+			MediaFilePath: "",
+			Encoding:      "H264",
+			Width:         1920,
+			Height:        1080,
+			FPS:           30,
 		}}},
 		Events: config.EventsConfig{
 			Topics: []config.TopicConfig{
@@ -63,20 +63,9 @@ func newTestAdapter(t *testing.T) (sa *simulatorAdapter, cleanup func()) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	prev, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	if err = os.Chdir(dir); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	cleanup = func() {
-		if chErr := os.Chdir(prev); chErr != nil {
-			t.Errorf("restore working directory: %v", chErr)
-		}
-	}
+	cleanup = func() { config.SetPath("") }
 
-	sim, err := simulator.New(simulator.Options{})
+	sim, err := simulator.New(simulator.Options{ConfigPath: cfgPath})
 	if err != nil {
 		cleanup()
 		t.Fatalf("simulator.New: %v", err)
@@ -170,26 +159,15 @@ func TestSimulatorAdapterProfileOps(t *testing.T) {
 	a, cleanup := newTestAdapter(t)
 	defer cleanup()
 
-	p := config.ProfileConfig{
-		Name:     "extra",
-		Token:    "extra_tok",
-		RTSP:     "rtsp://localhost/extra",
-		Encoding: "H264",
-		Width:    320,
-		Height:   240,
-		FPS:      15,
-	}
+	p := config.ProfileConfig{Name: "extra", Token: "extra_tok"}
 	if err := a.AddProfile(p); err != nil {
 		t.Fatalf("AddProfile: %v", err)
 	}
-	if err := a.SetProfileRTSP("extra_tok", "rtsp://localhost/extra2"); err != nil {
-		t.Fatalf("SetProfileRTSP: %v", err)
+	if err := a.SetProfileMediaFilePath("extra_tok", "/var/onvif/extra.mp4"); err != nil {
+		t.Fatalf("SetProfileMediaFilePath: %v", err)
 	}
 	if err := a.SetProfileSnapshotURI("extra_tok", "http://localhost/snap.jpg"); err != nil {
 		t.Fatalf("SetProfileSnapshotURI: %v", err)
-	}
-	if err := a.SetProfileEncoder("extra_tok", "H264", 640, 480, 30, 1024, 30); err != nil {
-		t.Fatalf("SetProfileEncoder: %v", err)
 	}
 	if err := a.RemoveProfile("extra_tok"); err != nil {
 		t.Fatalf("RemoveProfile: %v", err)

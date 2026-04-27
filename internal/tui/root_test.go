@@ -111,18 +111,30 @@ func TestEvents_ToggleTopic(t *testing.T) {
 	}
 }
 
-func TestMedia_AddProfileRequiresWidth(t *testing.T) {
+func TestMedia_EditProfileCallsMediaFilePath(t *testing.T) {
 	sim := newMockSim()
-	p := config.ProfileConfig{Encoding: "H264"}
-	form := newProfileFormModal(sim, &p, false)
-	// Clear the width default so save() rejects the form.
-	form.fields[fldWidth].SetValue("")
-	_, err := form.save()
-	if err == nil {
-		t.Fatal("save should fail when width is blank")
+	p := config.ProfileConfig{Name: "main", Token: "profile_main"}
+	form := newProfileFormModal(sim, &p, true)
+	form.fields[fldMediaFile].SetValue("/tmp/loop.mp4")
+	cmd := form.save()
+	if cmd == nil {
+		t.Fatal("form.save() returned nil cmd")
 	}
-	if !strings.Contains(err.Error(), "width") {
-		t.Fatalf("error should mention width: %v", err)
+	// Invoke once — the closure has side effects (records the
+	// SetProfileMediaFilePath call on the mock); calling it a second
+	// time inside the failure t.Fatalf would double-record and obscure
+	// the real assertion below.
+	result := cmd()
+	flash, ok := result.(flashMsg)
+	if !ok {
+		t.Fatalf("expected flashMsg, got %T", result)
+	}
+	if flash.kind == flashErr {
+		t.Fatalf("save reported error: %s", flash.text)
+	}
+	calls := sim.callsCopy()
+	if !slices.Contains(calls, "SetProfileMediaFilePath") {
+		t.Fatalf("SetProfileMediaFilePath not called; calls=%v", calls)
 	}
 }
 

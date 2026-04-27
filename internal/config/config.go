@@ -2,9 +2,16 @@
 //
 // # File location
 //
-// The config file is named "onvif-simulator.json" and is read from (and
-// written to) the process working directory. Copy onvif-simulator.example.json
-// to get started.
+// The config file is named "onvif-simulator.json". Front-ends resolve its
+// location at startup via DefaultPath (the OS-standard user config dir
+// returned by os.UserConfigDir, joined with "onvif-simulator/") and call
+// SetPath to make Load/Save/Update use it. When SetPath has not been
+// called, Load and Save fall back to the working directory — kept for
+// tests and ad-hoc CLI use.
+//
+// First-run helpers (Default, EnsureExists) create a baseline config at
+// the resolved path so users can launch the GUI by double-clicking the
+// .app bundle without first hand-crafting onvif-simulator.json.
 //
 // # Schema versioning
 //
@@ -37,18 +44,28 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
-// FileName is the default on-disk config file name in the working directory.
+// FileName is the on-disk config file name.
 const FileName = "onvif-simulator.json"
+
+// DirName is the per-app subdirectory under os.UserConfigDir.
+const DirName = "onvif-simulator"
+
+const (
+	configDirMode  os.FileMode = 0o700
+	configFileMode os.FileMode = 0o600
+)
 
 // CurrentVersion is the only supported config schema version.
 const CurrentVersion = 1
@@ -76,9 +93,26 @@ type DeviceConfig struct {
 
 // NetworkConfig describes how clients reach this device.
 type NetworkConfig struct {
-	HTTPPort  int      `json:"http_port"`
+	HTTPPort int `json:"http_port"`
+	// RTSPPort is the TCP port the embedded RTSP server listens on. 0 means
+	// "use DefaultRTSPPort"; the simulator reads RTSPPortOrDefault rather
+	// than the raw field so older configs keep working without migration.
+	RTSPPort  int      `json:"rtsp_port,omitempty"`
 	Interface string   `json:"interface,omitempty"`
 	XAddrs    []string `json:"xaddrs,omitempty"`
+}
+
+// DefaultRTSPPort is the standard RTSP control port. Used when
+// NetworkConfig.RTSPPort is 0.
+const DefaultRTSPPort = 8554
+
+// RTSPPortOrDefault returns the explicit RTSPPort when non-zero, otherwise
+// DefaultRTSPPort. Callers should use this instead of reading the raw field.
+func (n NetworkConfig) RTSPPortOrDefault() int {
+	if n.RTSPPort == 0 {
+		return DefaultRTSPPort
+	}
+	return n.RTSPPort
 }
 
 // RuntimeConfig holds simulator state that the Device Service exposes via
@@ -203,20 +237,27 @@ type MetadataConfig struct {
 
 // ProfileConfig describes a single ONVIF media profile.
 //
-// RTSP and SnapshotURI are pass-through: the simulator does not run an RTP
-// server or snapshot endpoint itself — it returns these URIs verbatim from
-// GetStreamUri / GetSnapshotUri so clients can connect to a user-provided
-// external process.
+// MediaFilePath is the path to a local mp4 file that the embedded RTSP
+// server loops to produce this profile's stream. SnapshotURI is still
+// pass-through (the simulator does not synthesize snapshots yet).
+//
+// Encoding, Width, Height, FPS, Bitrate, and GOPLength are auto-detected
+// from the mp4 file at simulator startup and overwritten in memory; they
+// are still marshaled into the on-disk config so a stopped simulator
+// still has the last-known values and so the GUI's read-only badges
+// (which receive them via the Wails ConfigSnapshot bridge) work.
 type ProfileConfig struct {
-	Name             string `json:"name"`
-	Token            string `json:"token"`
-	RTSP             string `json:"rtsp"`
-	Encoding         string `json:"encoding"`
-	Width            int    `json:"width"`
-	Height           int    `json:"height"`
-	FPS              int    `json:"fps"`
-	Bitrate          int    `json:"bitrate,omitempty"`
-	GOPLength        int    `json:"gop_length,omitempty"`
+	Name          string `json:"name"`
+	Token         string `json:"token"`
+	MediaFilePath string `json:"media_file_path,omitempty"`
+
+	Encoding  string `json:"encoding,omitempty"`
+	Width     int    `json:"width,omitempty"`
+	Height    int    `json:"height,omitempty"`
+	FPS       int    `json:"fps,omitempty"`
+	Bitrate   int    `json:"bitrate,omitempty"`
+	GOPLength int    `json:"gop_length,omitempty"`
+
 	SnapshotURI      string `json:"snapshot_uri,omitempty"`
 	VideoSourceToken string `json:"video_source_token,omitempty"`
 }
@@ -283,6 +324,14 @@ var (
 
 	// ErrNetworkPortInvalid means network.http_port is out of the valid range.
 	ErrNetworkPortInvalid = errors.New("config: network.http_port must be between 1 and 65535")
+
+	// ErrNetworkRTSPPortInvalid means network.rtsp_port is set but out of range.
+	// 0 is allowed and falls back to DefaultRTSPPort.
+	ErrNetworkRTSPPortInvalid = errors.New("config: network.rtsp_port must be 0 or between 1 and 65535")
+
+	// ErrNetworkPortConflict means network.http_port and network.rtsp_port
+	// resolve to the same TCP port; the simulator cannot bind both there.
+	ErrNetworkPortConflict = errors.New("config: network.rtsp_port must differ from network.http_port")
 
 	// ErrMediaNoProfiles means media.profiles is empty.
 	ErrMediaNoProfiles = errors.New("config: media.profiles must have at least one entry")
@@ -354,8 +403,7 @@ var (
 	errDeviceFieldRequired = errors.New("config: must not be empty")
 
 	errProfileFieldRequired       = errors.New("config: must not be empty")
-	errProfileRTSPInvalid         = errors.New("config: profile.rtsp must be a valid rtsp:// URL")
-	errProfileDimension           = errors.New("config: must be greater than 0")
+	errProfileMediaFilePathBlank  = errors.New("config: profile.media_file_path must not be only whitespace")
 	errProfileBitrateNegative     = errors.New("config: profile.bitrate must be >= 0")
 	errProfileGOPNegative         = errors.New("config: profile.gop_length must be >= 0")
 	errProfileSnapshotURIInvalid  = errors.New("config: profile.snapshot_uri must be an http(s) URL")
@@ -380,7 +428,6 @@ const (
 
 var (
 	uuidURNPattern  = regexp.MustCompile(`(?i)^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-	validEncodings  = map[string]bool{"H264": true, "H265": true, "MJPEG": true}
 	validDigestAlgs = map[string]bool{"MD5": true, "SHA-256": true}
 	validJWTAlgs    = map[string]bool{
 		"RS256": true, "RS384": true, "RS512": true,
@@ -438,6 +485,15 @@ func validateNetwork(n *NetworkConfig) error {
 	if n.HTTPPort < 1 || n.HTTPPort > 65535 {
 		return ErrNetworkPortInvalid
 	}
+	if n.RTSPPort < 0 || n.RTSPPort > 65535 {
+		return ErrNetworkRTSPPortInvalid
+	}
+	// Compare against the *effective* RTSP port — RTSPPort=0 falls back to
+	// DefaultRTSPPort, so http_port=8554 with rtsp_port=0 must still be
+	// rejected even though the raw RTSPPort is 0.
+	if n.RTSPPortOrDefault() == n.HTTPPort {
+		return ErrNetworkPortConflict
+	}
 	for i, x := range n.XAddrs {
 		if err := validateXAddr(i, strings.TrimSpace(x)); err != nil {
 			return err
@@ -447,9 +503,10 @@ func validateNetwork(n *NetworkConfig) error {
 }
 
 func validateMedia(m *MediaConfig) error {
-	if len(m.Profiles) == 0 {
-		return ErrMediaNoProfiles
-	}
+	// Empty Profiles is valid at the schema level — Default() emits an
+	// empty slice on first run and the operator fills it in via the GUI/TUI
+	// or by editing the JSON directly. The simulator's Start path warns
+	// when no profile has a media_file_path configured.
 	seenProfileTokens := make(map[string]bool, len(m.Profiles))
 	for i := range m.Profiles {
 		if err := validateProfile(i, &m.Profiles[i], seenProfileTokens); err != nil {
@@ -491,23 +548,8 @@ func validateProfile(i int, p *ProfileConfig, seenProfileTokens map[string]bool)
 		return fmt.Errorf("config: %s.token %q: %w", prefix, p.Token, errProfileTokenDuplicate)
 	}
 	seenProfileTokens[p.Token] = true
-	if err := validateRTSPURI(prefix+".rtsp", p.RTSP); err != nil {
+	if err := validateMediaFilePath(prefix+".media_file_path", p.MediaFilePath); err != nil {
 		return err
-	}
-	if !validEncodings[p.Encoding] {
-		return fmt.Errorf("config: %s.encoding: %w (got %q)", prefix, ErrProfileEncodingInvalid, p.Encoding)
-	}
-	for _, f := range []struct {
-		name string
-		val  int
-	}{
-		{prefix + ".width", p.Width},
-		{prefix + ".height", p.Height},
-		{prefix + ".fps", p.FPS},
-	} {
-		if f.val <= 0 {
-			return fmt.Errorf("config: %s: %w", f.name, errProfileDimension)
-		}
 	}
 	if p.Bitrate < 0 {
 		return fmt.Errorf("config: %s.bitrate: %w", prefix, errProfileBitrateNegative)
@@ -519,6 +561,19 @@ func validateProfile(i int, p *ProfileConfig, seenProfileTokens map[string]bool)
 		return err
 	}
 	return validateVideoSourceToken(prefix+".video_source_token", p.VideoSourceToken)
+}
+
+// validateMediaFilePath rejects whitespace-only paths. An empty string is
+// allowed at the schema level — callers that need a file (the embedded RTSP
+// server) enforce presence at runtime so config can be edited incrementally.
+func validateMediaFilePath(field, raw string) error {
+	if raw == "" {
+		return nil
+	}
+	if strings.TrimSpace(raw) == "" {
+		return fmt.Errorf("config: %s: %w", field, errProfileMediaFilePathBlank)
+	}
+	return nil
 }
 
 func validateSnapshotURI(field, raw string) error {
@@ -661,17 +716,6 @@ func validateXAddr(i int, raw string) error {
 	return nil
 }
 
-func validateRTSPURI(field, raw string) error {
-	if strings.TrimSpace(raw) == "" {
-		return fmt.Errorf("config: %s: %w", field, errProfileRTSPInvalid)
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "rtsp" || u.Host == "" {
-		return fmt.Errorf("config: %s: %w", field, errProfileRTSPInvalid)
-	}
-	return nil
-}
-
 var validDiscoveryModes = map[string]bool{
 	"Discoverable":    true,
 	"NonDiscoverable": true,
@@ -788,22 +832,176 @@ func validateEvents(e *EventsConfig) error {
 	return nil
 }
 
-// Load reads and validates onvif-simulator.json relative to the process
-// working directory. On success it returns the fully validated Config that
-// callers should treat as read-only; mutate individual fields only through
-// the targeted helpers in update.go.
-func Load() (Config, error) {
+// pathMu guards the active config path. Read by every Load/Save, written
+// only by SetPath; an RWMutex keeps the read path lock-free in the common
+// case.
+var (
+	pathMu     sync.RWMutex
+	activePath string
+)
+
+// SetPath overrides the file path Load/Save/Update will use.  Front-ends
+// (CLI, GUI, TUI) call this once at startup with the result of DefaultPath
+// (or an explicit -config flag).  Pass "" to revert to the working-directory
+// fallback (useful in tests).
+func SetPath(p string) {
+	pathMu.Lock()
+	defer pathMu.Unlock()
+	activePath = p
+}
+
+// Path returns the currently configured path, or "" when SetPath has not
+// been called.
+func Path() string {
+	pathMu.RLock()
+	defer pathMu.RUnlock()
+	return activePath
+}
+
+// resolvePath returns the active path. Without SetPath, falls back to
+// FileName in the working directory — kept for tests and ad-hoc CLI use.
+func resolvePath() (string, error) {
+	if p := Path(); p != "" {
+		return p, nil
+	}
 	wd, err := os.Getwd()
 	if err != nil {
-		return Config{}, fmt.Errorf("config: get working directory: %w", err)
+		return "", fmt.Errorf("config: get working directory: %w", err)
 	}
-	data, err := fs.ReadFile(os.DirFS(wd), FileName)
+	return filepath.Join(wd, FileName), nil
+}
+
+// Resolve picks the path Load/Save should target. An explicit override
+// (typically the CLI -config flag) wins when non-empty; otherwise we fall
+// back to DefaultPath. Front-ends call this once at startup, pass the
+// result to SetPath, and (optionally) EnsureExists.
+func Resolve(override string) (string, error) {
+	if override != "" {
+		return override, nil
+	}
+	return DefaultPath()
+}
+
+// DefaultPath returns the OS-standard user config location:
+//
+//	macOS:   ~/Library/Application Support/onvif-simulator/onvif-simulator.json
+//	Linux:   $XDG_CONFIG_HOME/onvif-simulator/onvif-simulator.json
+//	         (or ~/.config/onvif-simulator/onvif-simulator.json)
+//	Windows: %AppData%\onvif-simulator\onvif-simulator.json
+//
+// This is what GUI/TUI/CLI callers should use when the user has not passed
+// an explicit -config flag.
+func DefaultPath() (string, error) {
+	base, err := os.UserConfigDir()
 	if err != nil {
-		return Config{}, fmt.Errorf("config: read %s: %w", FileName, err)
+		return "", fmt.Errorf("config: resolve user config dir: %w", err)
+	}
+	return filepath.Join(base, DirName, FileName), nil
+}
+
+// Default returns a baseline Config that passes Validate. Used by
+// EnsureExists on first-run when the resolved path does not exist yet.
+// The values mirror onvif-simulator.example.json's minimum viable shape
+// (auth disabled so the simulator boots without credentials).
+//
+// Device.UUID is freshly generated on every call (urn:uuid:<v4>) so each
+// fresh install advertises a unique ONVIF identity instead of every
+// simulator on the network claiming the same URN.
+func Default() Config {
+	return Config{
+		Version: CurrentVersion,
+		Device: DeviceConfig{
+			UUID:         "urn:uuid:" + uuid.NewString(),
+			Manufacturer: "ONVIF Simulator",
+			Model:        "SimCam-100",
+			Serial:       "SN-0001",
+			Firmware:     "0.1.0",
+			Scopes: []string{
+				"onvif://www.onvif.org/Profile/Streaming",
+				"onvif://www.onvif.org/name/simulator",
+				"onvif://www.onvif.org/hardware/virtual",
+			},
+		},
+		Network: NetworkConfig{HTTPPort: 8080, RTSPPort: DefaultRTSPPort},
+		// Use an empty slice (not nil) so json.Marshal emits
+		// "profiles": [] rather than "profiles": null. ONVIF clients
+		// and JSON consumers expect the field to always be an array.
+		Media: MediaConfig{Profiles: []ProfileConfig{}},
+		Events: EventsConfig{
+			MaxPullPoints:       defaultMaxPullPoints,
+			SubscriptionTimeout: "1h",
+			Topics: []TopicConfig{
+				{Name: "tns1:VideoSource/MotionAlarm", Enabled: true},
+				{Name: "tns1:VideoSource/ImageTooBlurry", Enabled: true},
+				{Name: "tns1:VideoSource/ImageTooDark", Enabled: true},
+				{Name: "tns1:VideoSource/ImageTooBright", Enabled: true},
+				{Name: "tns1:Device/Trigger/DigitalInput", Enabled: true},
+			},
+		},
+		Runtime: RuntimeConfig{DiscoveryMode: "Discoverable"},
+	}
+}
+
+const defaultMaxPullPoints = 10
+
+// EnsureExists writes Default() to p when p does not yet exist, creating
+// the parent directory as needed. Returns true if it created the file.
+// Existing files are left untouched.
+//
+// The promotion step uses os.Link rather than os.Rename so a concurrent
+// EnsureExists call from another process — racing between our os.Stat and
+// the create — cannot silently overwrite the file the other process just
+// wrote. If the link fails because the destination already exists, we
+// treat that as "lost the race, someone else created it" and return
+// (false, nil).
+func EnsureExists(p string) (bool, error) {
+	// Fast-path advisory check — saves the temp-file write when the
+	// config already exists. The os.Link below is the actual race-free
+	// guarantee.
+	if _, err := os.Stat(p); err == nil {
+		return false, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("config: stat %s: %w", p, err)
+	}
+	cfg := Default()
+	// Belt-and-braces: Validate Default() before persisting so a future
+	// regression in the baseline can never write a file that Load would
+	// immediately reject. TestDefaultPassesValidate locks the happy path,
+	// but this guard turns any drift into an EnsureExists error instead
+	// of a corrupted on-disk state.
+	if err := Validate(&cfg); err != nil {
+		return false, fmt.Errorf("config: default config failed validation: %w", err)
+	}
+	tmpPath, err := writeTempFile(p, &cfg)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = os.Remove(tmpPath) }() //nolint:errcheck // best-effort cleanup of the temp link
+
+	if linkErr := os.Link(tmpPath, p); linkErr != nil {
+		if errors.Is(linkErr, os.ErrExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("config: link to %s: %w", filepath.Base(p), linkErr)
+	}
+	return true, nil
+}
+
+// Load reads and validates the active config file. On success it returns a
+// fully validated Config that callers should treat as read-only; mutate
+// individual fields only through the targeted helpers in update.go.
+func Load() (Config, error) {
+	p, err := resolvePath()
+	if err != nil {
+		return Config{}, err
+	}
+	data, err := os.ReadFile(p) //nolint:gosec // p comes from SetPath/working dir, both trusted.
+	if err != nil {
+		return Config{}, fmt.Errorf("config: read %s: %w", filepath.Base(p), err)
 	}
 	var c Config
 	if err := json.Unmarshal(data, &c); err != nil {
-		return Config{}, fmt.Errorf("config: parse %s: %w", FileName, err)
+		return Config{}, fmt.Errorf("config: parse %s: %w", filepath.Base(p), err)
 	}
 	if err := Validate(&c); err != nil {
 		return Config{}, err
@@ -811,10 +1009,10 @@ func Load() (Config, error) {
 	return c, nil
 }
 
-// Save validates cfg and writes it to onvif-simulator.json in the working
-// directory.  The write is atomic (write-to-temp + rename) to prevent
-// corruption on crash.  Prefer the targeted helpers in update.go over calling
-// Save directly; they load, mutate, and save under the package mutex.
+// Save validates cfg and writes it to the active path. The write is atomic
+// (write-to-temp + rename) to prevent corruption on crash. Prefer the
+// targeted helpers in update.go over calling Save directly; they load,
+// mutate, and save under the package mutex.
 func Save(cfg *Config) error {
 	if cfg == nil {
 		return errNilConfig
@@ -822,34 +1020,73 @@ func Save(cfg *Config) error {
 	if err := Validate(cfg); err != nil {
 		return err
 	}
+	p, err := resolvePath()
+	if err != nil {
+		return err
+	}
+	return writeAtomic(p, cfg)
+}
+
+// writeAtomic marshals cfg and writes it to path via temp file + rename,
+// creating the parent directory if needed. Caller has already validated.
+// Used by Save (the regular update path), where overwriting an existing
+// file is intentional. EnsureExists uses writeTempFile + os.Link instead
+// to keep first-run create-only semantics race-free.
+func writeAtomic(path string, cfg *Config) error {
+	tmpPath, err := writeTempFile(path, cfg)
+	if err != nil {
+		return err
+	}
+	if rerr := os.Rename(tmpPath, path); rerr != nil {
+		return joinSaveErrors(
+			fmt.Errorf("config: rename to %s: %w", filepath.Base(path), rerr),
+			os.Remove(tmpPath),
+		)
+	}
+	return nil
+}
+
+// writeTempFile marshals cfg and writes it to a fresh temp file in path's
+// parent directory. Returns the temp file path on success; the caller is
+// responsible for promoting (Rename or Link) and removing it. On any error
+// the temp file (if created) is removed before returning.
+func writeTempFile(path string, cfg *Config) (string, error) {
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return fmt.Errorf("config: marshal: %w", err)
+		return "", fmt.Errorf("config: marshal: %w", err)
 	}
 	data = append(data, '\n')
 
-	wd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("config: get working directory: %w", err)
+	dir := filepath.Dir(path)
+	if mkErr := os.MkdirAll(dir, configDirMode); mkErr != nil {
+		return "", fmt.Errorf("config: mkdir %s: %w", dir, mkErr)
 	}
-	path := filepath.Join(wd, FileName)
-
-	tmp, err := os.CreateTemp(wd, "."+FileName+".tmp-*")
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
-		return fmt.Errorf("config: create temp in %q: %w", wd, err)
+		return "", fmt.Errorf("config: create temp in %q: %w", dir, err)
 	}
 	tmpPath := tmp.Name()
-
+	if chmodErr := os.Chmod(tmpPath, configFileMode); chmodErr != nil {
+		return "", joinSaveErrors(
+			fmt.Errorf("config: chmod temp: %w", chmodErr),
+			tmp.Close(),
+			os.Remove(tmpPath),
+		)
+	}
 	if _, werr := tmp.Write(data); werr != nil {
-		return joinSaveErrors(fmt.Errorf("config: write temp: %w", werr), tmp.Close(), os.Remove(tmpPath))
+		return "", joinSaveErrors(
+			fmt.Errorf("config: write temp: %w", werr),
+			tmp.Close(),
+			os.Remove(tmpPath),
+		)
 	}
 	if cerr := tmp.Close(); cerr != nil {
-		return joinSaveErrors(fmt.Errorf("config: close temp: %w", cerr), os.Remove(tmpPath))
+		return "", joinSaveErrors(
+			fmt.Errorf("config: close temp: %w", cerr),
+			os.Remove(tmpPath),
+		)
 	}
-	if rerr := os.Rename(tmpPath, path); rerr != nil {
-		return joinSaveErrors(fmt.Errorf("config: rename to %s: %w", FileName, rerr), os.Remove(tmpPath))
-	}
-	return nil
+	return tmpPath, nil
 }
 
 func joinSaveErrors(primary error, rest ...error) error {

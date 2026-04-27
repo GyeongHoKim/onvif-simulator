@@ -8,6 +8,7 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/devicesvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/mediasvc"
+	"github.com/GyeongHoKim/onvif-simulator/internal/rtsp"
 )
 
 //nolint:gocyclo,cyclop,govet // sweep test exercises many provider methods sequentially.
@@ -415,11 +416,6 @@ func TestVideoSourcesDeduplicated(t *testing.T) {
 	if err := sim.AddProfile(config.ProfileConfig{
 		Name:             "sub",
 		Token:            "profile_sub",
-		RTSP:             "rtsp://127.0.0.1:8554/sub",
-		Encoding:         "H264",
-		Width:            640,
-		Height:           480,
-		FPS:              15,
 		VideoSourceToken: config.DefaultVideoSourceToken,
 	}); err != nil {
 		t.Fatalf("AddProfile: %v", err)
@@ -492,6 +488,13 @@ func TestGuaranteedEncoderInstancesCustomMax(t *testing.T) {
 func TestVideoEncoderConfigurationH264Fields(t *testing.T) {
 	sim, cleanup := newTestSimulator(t)
 	defer cleanup()
+
+	// Encoding is auto-detected from the mp4 at Start; for this unit test we
+	// poke it directly into the in-memory config to exercise the H264-only
+	// branch of veConfigFromProfile.
+	sim.mu.Lock()
+	sim.cfg.Media.Profiles[0].Encoding = rtsp.CodecH264
+	sim.mu.Unlock()
 
 	enc, err := sim.mediaProv.VideoEncoderConfiguration(context.Background(), "profile_main")
 	if err != nil {

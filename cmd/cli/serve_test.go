@@ -10,7 +10,7 @@ import (
 )
 
 func TestRunServeSignalShutdown(t *testing.T) {
-	cleanup := chdirToTempConfig(t)
+	cfgPath, cleanup := writeTempConfig(t)
 	defer cleanup()
 
 	// Use a temp HOME/USERPROFILE so writeControlPortFile lands somewhere ephemeral.
@@ -20,7 +20,7 @@ func TestRunServeSignalShutdown(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- runServe(nil)
+		done <- runServe([]string{"-config", cfgPath})
 	}()
 
 	// Give the server a moment to bind.
@@ -40,13 +40,13 @@ func TestRunServeSignalShutdown(t *testing.T) {
 }
 
 func TestRunTUIReturnsTUIError(t *testing.T) {
-	cleanup := chdirToTempConfig(t)
+	cfgPath, cleanup := writeTempConfig(t)
 	defer cleanup()
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
 	t.Setenv("USERPROFILE", tmpHome) // os.UserHomeDir uses USERPROFILE on Windows
 
-	err := runTUI(nil)
+	err := runTUI([]string{"-config", cfgPath})
 	if err == nil {
 		t.Fatal("expected error from runTUI (no TTY in tests)")
 	}

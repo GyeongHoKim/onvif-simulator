@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
+	"github.com/GyeongHoKim/onvif-simulator/internal/rtsp"
 )
 
 // freePort asks the OS for an unused TCP port (on 127.0.0.1). There is an
@@ -33,15 +34,17 @@ func freePort(t *testing.T) int {
 	return addr.Port
 }
 
-// newTestSimulator writes a minimal valid config into a temp working
-// directory and returns a freshly-constructed *Simulator.
+// newTestSimulator writes a minimal valid config into a temp directory and
+// returns a freshly-constructed *Simulator pointed at that file via the
+// explicit ConfigPath option. The cleanup hook resets the package-level
+// config path so subsequent tests do not see a stale value.
 func newTestSimulator(t *testing.T) (sim *Simulator, cleanup func()) {
 	t.Helper()
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, config.FileName)
 
 	cfg := config.Config{
-		Version: 1,
+		Version: config.CurrentVersion,
 		Device: config.DeviceConfig{
 			UUID:         "urn:uuid:00000000-0000-4000-8000-000000000001",
 			Manufacturer: "Test",
@@ -52,8 +55,8 @@ func newTestSimulator(t *testing.T) (sim *Simulator, cleanup func()) {
 		Network: config.NetworkConfig{HTTPPort: freePort(t)},
 		Media: config.MediaConfig{Profiles: []config.ProfileConfig{{
 			Name: "main", Token: "profile_main",
-			RTSP:     "rtsp://127.0.0.1:8554/main",
-			Encoding: "H264", Width: 1920, Height: 1080, FPS: 30,
+			MediaFilePath: "",
+			Encoding:      rtsp.CodecH264, Width: 1920, Height: 1080, FPS: 30,
 		}}},
 		Events: config.EventsConfig{
 			Topics: []config.TopicConfig{
@@ -70,18 +73,12 @@ func newTestSimulator(t *testing.T) (sim *Simulator, cleanup func()) {
 		t.Fatalf("write config: %v", writeErr)
 	}
 
-	prev, getErr := os.Getwd()
-	if getErr != nil {
-		t.Fatalf("getwd: %v", getErr)
-	}
-	if chErr := os.Chdir(dir); chErr != nil {
-		t.Fatalf("chdir: %v", chErr)
-	}
-	cleanup = func() {
-		_ = os.Chdir(prev) //nolint:errcheck // restore cwd is best-effort.
-	}
+	// Capture the active path before construction so cleanup restores
+	// whatever was set globally (instead of clobbering it with "").
+	priorPath := config.Path()
+	cleanup = func() { config.SetPath(priorPath) }
 
-	s, newErr := New(Options{EventBufferSize: 16})
+	s, newErr := New(Options{EventBufferSize: 16, ConfigPath: cfgPath})
 	if newErr != nil {
 		cleanup()
 		t.Fatalf("New: %v", newErr)
@@ -96,6 +93,67 @@ func TestNewReadsConfig(t *testing.T) {
 	cfg := sim.ConfigSnapshot()
 	if cfg.Device.Serial != "SN-1" {
 		t.Fatalf("expected serial SN-1, got %q", cfg.Device.Serial)
+	}
+}
+
+// TestNewDoesNotLeakActivePathOnEnsureFailure guards the ordering of
+// SetPath relative to EnsureExists in the constructor. When EnsureExists
+// rejects the path (e.g. because the parent is a regular file rather than
+// a directory), the package-level config.Path() must remain at whatever
+// it was before — otherwise a failed New would silently rebind the global
+// active path for any subsequent caller (a GUI fall-back to the in-memory
+// stub, for example).
+func TestNewDoesNotLeakActivePathOnEnsureFailure(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatalf("seed blocker: %v", err)
+	}
+	// path under a regular file → MkdirAll inside writeTempFile fails.
+	bogus := filepath.Join(blocker, config.FileName)
+
+	// Snapshot whatever was set before the test, install a non-empty
+	// sentinel as the "prior" we expect to be preserved, and restore
+	// the original value on cleanup so test ordering does not matter.
+	original := config.Path()
+	t.Cleanup(func() { config.SetPath(original) })
+	const sentinel = "/some/sentinel/onvif-simulator.json"
+	config.SetPath(sentinel)
+
+	_, err := New(Options{ConfigPath: bogus})
+	if err == nil {
+		t.Fatal("expected New to fail with bogus path")
+	}
+	if got := config.Path(); got != sentinel {
+		t.Errorf("config.Path leaked after failed New: got %q, want %q", got, sentinel)
+	}
+}
+
+// TestNewDoesNotLeakActivePathOnLoadFailure complements the
+// EnsureExists case: even after EnsureExists succeeds and SetPath has
+// fired, a Load failure (e.g. a corrupted config file written by a
+// concurrent editor) must roll the global path back to its prior
+// value via the deferred restore in New.
+func TestNewDoesNotLeakActivePathOnLoadFailure(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, config.FileName)
+	// Seed a file that EnsureExists treats as already-present (no-op)
+	// but Load rejects because it is not valid JSON.
+	if err := os.WriteFile(cfgPath, []byte("not json"), 0o600); err != nil {
+		t.Fatalf("seed corrupted config: %v", err)
+	}
+
+	original := config.Path()
+	t.Cleanup(func() { config.SetPath(original) })
+	const sentinel = "/some/sentinel/onvif-simulator.json"
+	config.SetPath(sentinel)
+
+	_, err := New(Options{ConfigPath: cfgPath})
+	if err == nil {
+		t.Fatal("expected New to fail when config file is corrupt")
+	}
+	if got := config.Path(); got != sentinel {
+		t.Errorf("config.Path leaked after Load failure: got %q, want %q", got, sentinel)
 	}
 }
 

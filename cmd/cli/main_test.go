@@ -88,6 +88,35 @@ func TestRunConfigUnknownSubcommand(t *testing.T) {
 	}
 }
 
+// TestRunConfigUnknownSubcommandNoSideEffects guards against the regression
+// where runConfig used to call config.EnsureExists (which mkdir's the user
+// config directory and writes a default JSON file) before validating the
+// subcommand — meaning a typo'd `onvif-simulator config bogus` would leave
+// debris in the operator's real ~/.config or ~/Library/Application Support.
+func TestRunConfigUnknownSubcommandNoSideEffects(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)            // macOS UserConfigDir base
+	t.Setenv("XDG_CONFIG_HOME", dir) // Linux UserConfigDir base
+	t.Setenv("AppData", dir)         // Windows UserConfigDir base
+	t.Cleanup(func() { config.SetPath("") })
+
+	if err := runConfig([]string{"bogus"}); !errors.Is(err, errConfigUnknownSubcommand) {
+		t.Fatalf("expected errConfigUnknownSubcommand, got %v", err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) > 0 {
+		names := make([]string, len(entries))
+		for i, e := range entries {
+			names[i] = e.Name()
+		}
+		t.Errorf("expected no filesystem side effects, found: %v", names)
+	}
+}
+
 func TestRunEventSubcommandRequired(t *testing.T) {
 	if err := runEvent(nil); !errors.Is(err, errEventSubcommandReq) {
 		t.Fatalf("expected errEventSubcommandReq, got %v", err)
@@ -107,19 +136,19 @@ func TestPostSyncEventBadArgs(t *testing.T) {
 }
 
 func TestRunConfigShow(t *testing.T) {
-	cleanup := chdirToTempConfig(t)
+	cfgPath, cleanup := writeTempConfig(t)
 	defer cleanup()
 
-	if err := runConfig([]string{"show"}); err != nil {
+	if err := runConfig([]string{"show", "-config", cfgPath}); err != nil {
 		t.Fatalf("runConfig show: %v", err)
 	}
 }
 
 func TestRunConfigValidate(t *testing.T) {
-	cleanup := chdirToTempConfig(t)
+	cfgPath, cleanup := writeTempConfig(t)
 	defer cleanup()
 
-	if err := runConfig([]string{"validate"}); err != nil {
+	if err := runConfig([]string{"validate", "-config", cfgPath}); err != nil {
 		t.Fatalf("runConfig validate: %v", err)
 	}
 }

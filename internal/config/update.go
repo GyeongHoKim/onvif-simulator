@@ -170,9 +170,10 @@ func RemoveProfile(token string) error {
 	})
 }
 
-// SetProfileRTSP replaces the RTSP pass-through URI of one profile.
-func SetProfileRTSP(token, rtsp string) error {
-	return mutateProfile(token, func(p *ProfileConfig) { p.RTSP = rtsp })
+// SetProfileMediaFilePath points the named profile at a local mp4 file. The
+// embedded RTSP server reads and loops this file when the simulator starts.
+func SetProfileMediaFilePath(token, path string) error {
+	return mutateProfile(token, func(p *ProfileConfig) { p.MediaFilePath = path })
 }
 
 // SetProfileSnapshotURI replaces the snapshot pass-through URI of one profile.
@@ -185,19 +186,6 @@ func SetProfileSnapshotURI(token, uri string) error {
 // Pass "" to reset to the default.
 func SetProfileVideoSourceToken(token, sourceToken string) error {
 	return mutateProfile(token, func(p *ProfileConfig) { p.VideoSourceToken = sourceToken })
-}
-
-// SetProfileEncoder replaces the encoder fields of one profile in a single
-// atomic update. Bitrate and gopLength pass 0 to clear (omit from output).
-func SetProfileEncoder(token, encoding string, width, height, fps, bitrate, gopLength int) error {
-	return mutateProfile(token, func(p *ProfileConfig) {
-		p.Encoding = encoding
-		p.Width = width
-		p.Height = height
-		p.FPS = fps
-		p.Bitrate = bitrate
-		p.GOPLength = gopLength
-	})
 }
 
 func mutateProfile(token string, mutate func(*ProfileConfig)) error {

@@ -21,6 +21,7 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/devicesvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/eventsvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/mediasvc"
+	"github.com/GyeongHoKim/onvif-simulator/internal/rtsp"
 )
 
 // Options configures a new simulator at construction time.
@@ -102,6 +103,7 @@ type Simulator struct {
 	running         bool
 	started         time.Time
 	server          *http.Server
+	rtspServer      *rtsp.Server
 	listenAddr      string
 	discoveryCancel context.CancelFunc
 	discoveryDone   chan struct{}
@@ -134,17 +136,45 @@ type Simulator struct {
 // New builds a simulator from the on-disk config. Panics only on internal
 // misconfiguration (nil broker construction, unreachable default paths);
 // everything else surfaces as a returned error.
+//
+// Config path resolution:
+//   - opts.ConfigPath (typically the CLI -config flag) wins when non-empty.
+//   - Otherwise we use config.DefaultPath (the OS-standard user config
+//     directory) so double-clicking the macOS .app — where the working
+//     directory is "/" — finds the same file the user edited last run.
+//
+// The resolved path is registered with config.SetPath so every mutation
+// helper writes back to the same location, and config.EnsureExists creates
+// a baseline file on first run.
 func New(opts Options) (*Simulator, error) {
-	cfgPath := opts.ConfigPath
-	if cfgPath == "" {
-		cfgPath = config.FileName
+	cfgPath, err := config.Resolve(opts.ConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("simulator: resolve config path: %w", err)
 	}
+	// EnsureExists takes the path as an explicit argument and does not
+	// consult the package-level active path, so we can run it before
+	// SetPath. This keeps the global state untouched if EnsureExists
+	// fails (otherwise a failed New would leak a SetPath into other
+	// callers — e.g. a GUI fallback to the in-memory stub).
+	if _, ensureErr := config.EnsureExists(cfgPath); ensureErr != nil {
+		return nil, fmt.Errorf("simulator: ensure config: %w", ensureErr)
+	}
+	prevPath := config.Path()
+	config.SetPath(cfgPath)
+	// Roll the global active path back if any subsequent step (Load,
+	// rebuildAuthChain, …) errors out. The flag flips to true at the
+	// very end of New, after every fallible step has succeeded.
+	committed := false
+	defer func() {
+		if !committed {
+			config.SetPath(prevPath)
+		}
+	}()
 
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, fmt.Errorf("simulator: load config: %w", err)
 	}
-	_ = cfgPath // MVP: config.Load() reads onvif-simulator.json from the working directory.
 
 	store := auth.NewMutableUserStore(nil)
 	controller := auth.NewController(store)
@@ -172,6 +202,7 @@ func New(opts Options) (*Simulator, error) {
 	if err := sim.rebuildAuthChain(&cfg); err != nil {
 		return nil, fmt.Errorf("simulator: build auth chain: %w", err)
 	}
+	committed = true
 
 	sim.devHandler = devicesvc.NewHandler(sim.deviceProv, devicesvc.WithAuthHook(
 		devicesvc.AuthFunc(sim.deviceAuthHook),
