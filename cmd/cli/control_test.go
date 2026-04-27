@@ -30,9 +30,12 @@ func writeTempConfig(t *testing.T) (cfgPath string, cleanup func()) {
 			Manufacturer: "Test", Model: "SimCam", Serial: "SN-1",
 			Scopes: []string{"onvif://www.onvif.org/name/test"},
 		},
-		Network: config.NetworkConfig{HTTPPort: 18081},
+		Network: config.NetworkConfig{HTTPPort: 18081, RTSPPort: 0},
 		Media: config.MediaConfig{Profiles: []config.ProfileConfig{{
 			Name: "main", Token: "profile_main",
+			// RTSP retained as a passthrough fallback so this fixture covers
+			// the back-compat path; a fixture variant with MediaFilePath is
+			// exercised by the rtsp_test.go integration cases.
 			RTSP:     "rtsp://127.0.0.1:8554/main",
 			Encoding: "H264", Width: 1920, Height: 1080, FPS: 30,
 		}}},
