@@ -145,6 +145,11 @@ func (m *eventsModel) openTrigger() tea.Cmd {
 
 func (m *eventsModel) openSyncProperty() tea.Cmd {
 	t := m.topics[m.selected]
+	if !t.Enabled {
+		return func() tea.Msg {
+			return flashMsg{text: "topic disabled — enable it first", kind: flashErr}
+		}
+	}
 	modal := newSyncPropertyModal(m.sim, t.Name, m.defaultSource)
 	return func() tea.Msg { return openModalMsg{modal: modal} }
 }
