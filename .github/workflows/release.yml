@@ -54,6 +54,10 @@ jobs:
         shell: powershell
         run: choco install make --yes --no-progress
 
+      - name: Install NSIS
+        shell: powershell
+        run: choco install nsis --yes --no-progress
+
       - name: Build GUI (NSIS installer)
         shell: bash
         run: make gui-windows
