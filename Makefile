@@ -23,8 +23,8 @@ FRONTEND_DIST := internal/gui/frontend/dist
 cli:
 	$(GO) build -o $(CLI_OUT) ./cmd/cli
 
-gui:
-	cd cmd/gui && wails build -o ../../$(GUI_OUT)
+gui: $(FRONTEND_DIST)
+	cd cmd/gui && wails build
 
 format:
 	$(GO) fmt ./...
