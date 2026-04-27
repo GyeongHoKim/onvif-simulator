@@ -19,6 +19,9 @@ describe("Media screen", () => {
   it("lists existing profiles in a table", () => {
     render(<MediaScreen />)
     expect(screen.getByText("profile_main")).toBeInTheDocument()
+    // The table now renders the local media file path instead of the
+    // deprecated passthrough RTSP URI.
+    expect(screen.getByText("/var/onvif/main.mp4")).toBeInTheDocument()
     expect(screen.getByText("1920x1080@30")).toBeInTheDocument()
   })
 
@@ -29,17 +32,50 @@ describe("Media screen", () => {
     await user.click(screen.getByRole("button", { name: /add profile/i }))
 
     const dialog = await screen.findByRole("dialog")
+    // Form order (text inputs only — encoder fields are now disabled):
+    // 0 Name, 1 Token, 2 Media file path, 3 Snapshot URI, 4 Video source.
     const inputs = within(dialog).getAllByRole("textbox")
-    // Form order: Name, Token, RTSP URI, (Encoding select), Snapshot URI,
-    // (Width/Height/FPS number inputs), Bitrate, GOP length, Video source token.
     await user.type(inputs[0], "extra")
     await user.type(inputs[1], "profile_extra")
-    await user.type(inputs[2], "rtsp://127.0.0.1:8554/extra")
+    await user.type(inputs[2], "/var/onvif/extra.mp4")
     await user.click(within(dialog).getByRole("button", { name: /^save$/i }))
 
     await waitFor(() => expect(appMocks.AddProfile).toHaveBeenCalled())
-    const arg = appMocks.AddProfile.mock.calls[0]?.[0] as { token?: string }
+    const arg = appMocks.AddProfile.mock.calls[0]?.[0] as {
+      token?: string
+      media_file_path?: string
+    }
     expect(arg.token).toBe("profile_extra")
+    expect(arg.media_file_path).toBe("/var/onvif/extra.mp4")
+  })
+
+  it("Browse button populates the media file path from PickMediaFile", async () => {
+    const user = userEvent.setup()
+    appMocks.PickMediaFile.mockResolvedValueOnce("/picked/from/dialog.mp4")
+
+    render(<MediaScreen />)
+    await user.click(screen.getByRole("button", { name: /add profile/i }))
+    const dialog = await screen.findByRole("dialog")
+
+    await user.click(within(dialog).getByRole("button", { name: /browse/i }))
+
+    await waitFor(() => expect(appMocks.PickMediaFile).toHaveBeenCalled())
+    const inputs = within(dialog).getAllByRole("textbox")
+    expect((inputs[2] as HTMLInputElement).value).toBe("/picked/from/dialog.mp4")
+  })
+
+  it("Browse cancellation leaves the path field empty", async () => {
+    const user = userEvent.setup()
+    appMocks.PickMediaFile.mockResolvedValueOnce("")
+
+    render(<MediaScreen />)
+    await user.click(screen.getByRole("button", { name: /add profile/i }))
+    const dialog = await screen.findByRole("dialog")
+
+    await user.click(within(dialog).getByRole("button", { name: /browse/i }))
+    await waitFor(() => expect(appMocks.PickMediaFile).toHaveBeenCalled())
+    const inputs = within(dialog).getAllByRole("textbox")
+    expect((inputs[2] as HTMLInputElement).value).toBe("")
   })
 
   it("delete confirm dialog removes the profile", async () => {
@@ -71,24 +107,30 @@ describe("Media screen", () => {
     })
     useSim.setState({ config: cfg })
     render(<MediaScreen />)
-    // Both profiles share VS_MAIN — the Video sources section renders exactly
-    // one Badge for it (the table itself doesn't show that column).
     expect(screen.getAllByText("VS_MAIN")).toHaveLength(1)
   })
 
-  it("Edit dialog pre-fills the form and dispatches per-field mutators", async () => {
+  it("Edit dialog routes saves through SetProfileMediaFile", async () => {
     const user = userEvent.setup()
     render(<MediaScreen />)
     await user.click(screen.getByRole("button", { name: /^edit$/i }))
     const dialog = await screen.findByRole("dialog")
-    // Save without changes — should call all three Set* mutators.
+    // Replace the media file path with a new value, then save.
+    const inputs = within(dialog).getAllByRole("textbox")
+    await user.clear(inputs[2])
+    await user.type(inputs[2], "/new/main.mp4")
     await user.click(within(dialog).getByRole("button", { name: /^save$/i }))
-    await waitFor(() => expect(appMocks.SetProfileEncoder).toHaveBeenCalled())
-    expect(appMocks.SetProfileRTSP).toHaveBeenCalledWith(
-      "profile_main",
-      "rtsp://127.0.0.1:8554/main"
+
+    await waitFor(() =>
+      expect(appMocks.SetProfileMediaFile).toHaveBeenCalledWith(
+        "profile_main",
+        "/new/main.mp4"
+      )
     )
+    // Snapshot URI was non-empty so SetProfileSnapshotURI should also fire.
     expect(appMocks.SetProfileSnapshotURI).toHaveBeenCalled()
+    // Encoder mutator must NOT be called — encoder values are auto-detected.
+    expect(appMocks.SetProfileEncoder).not.toHaveBeenCalled()
   })
 
   it("Cancel button on add dialog closes without saving", async () => {
@@ -100,23 +142,23 @@ describe("Media screen", () => {
     expect(appMocks.AddProfile).not.toHaveBeenCalled()
   })
 
-  it("typing into form fields updates state across all inputs", async () => {
+  it("typing into form fields updates state across all editable inputs", async () => {
     const user = userEvent.setup()
     render(<MediaScreen />)
     await user.click(screen.getByRole("button", { name: /add profile/i }))
     const dialog = await screen.findByRole("dialog")
-    const numbers = within(dialog).getAllByRole("spinbutton") // type=number inputs
-    // Width / Height / FPS / Bitrate / GOP — touch each so the update branch
-    // executes for every onChange handler.
-    for (const input of numbers) {
-      await user.clear(input)
-      await user.type(input, "10")
+    // The encoder fields (Encoding/Resolution/FPS) render as disabled
+    // inputs because they are auto-detected from the file at Start; only
+    // the editable textboxes need to be exercised here.
+    const editable = within(dialog)
+      .getAllByRole("textbox")
+      .filter((el) => !(el as HTMLInputElement).disabled)
+    expect(editable).toHaveLength(5) // Name, Token, MediaFile, Snapshot, VideoSrc
+    const values = ["extra", "profile_extra", "/var/onvif/extra.mp4", "http://x/y.jpg", "VS_NEW"]
+    for (let i = 0; i < editable.length; i++) {
+      await user.clear(editable[i])
+      await user.type(editable[i], values[i])
     }
-    const textboxes = within(dialog).getAllByRole("textbox")
-    // Snapshot URI + Video source token are both textboxes with no
-    // pre-existing value.
-    await user.type(textboxes[3], "http://example.com/snap.jpg")
-    await user.type(textboxes[4], "VS_NEW")
   })
 
   it("Cancel on delete confirm leaves the profile alone", async () => {
@@ -130,7 +172,9 @@ describe("Media screen", () => {
 
   it("backend validation errors render inline and keep the dialog open", async () => {
     const user = userEvent.setup()
-    appMocks.AddProfile.mockRejectedValueOnce(new Error("config: profile.rtsp invalid"))
+    appMocks.AddProfile.mockRejectedValueOnce(
+      new Error("config: profile.media_file_path required")
+    )
 
     render(<MediaScreen />)
     await user.click(screen.getByRole("button", { name: /add profile/i }))
@@ -140,6 +184,8 @@ describe("Media screen", () => {
     await user.type(inputs[1], "bad")
     await user.click(within(dialog).getByRole("button", { name: /^save$/i }))
 
-    expect(await within(dialog).findByText(/profile.rtsp invalid/i)).toBeInTheDocument()
+    expect(
+      await within(dialog).findByText(/media_file_path required/i)
+    ).toBeInTheDocument()
   })
 })

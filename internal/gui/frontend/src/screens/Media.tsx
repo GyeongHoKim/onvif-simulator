@@ -1,17 +1,14 @@
 import { useMemo, useState } from "react"
-import { RiAddLine, RiEditLine, RiDeleteBinLine } from "@remixicon/react"
+import {
+  RiAddLine,
+  RiEditLine,
+  RiDeleteBinLine,
+  RiFolderOpenLine,
+} from "@remixicon/react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   Dialog,
   DialogContent,
@@ -52,6 +49,7 @@ type Profile = cfgNs.ProfileConfig
 type FormState = {
   name: string
   token: string
+  mediaFilePath: string
   rtsp: string
   encoding: string
   width: string
@@ -66,11 +64,12 @@ type FormState = {
 const EMPTY_FORM: FormState = {
   name: "",
   token: "",
+  mediaFilePath: "",
   rtsp: "",
-  encoding: "H264",
-  width: "1280",
-  height: "720",
-  fps: "30",
+  encoding: "",
+  width: "",
+  height: "",
+  fps: "",
   bitrate: "",
   gopLength: "",
   snapshotURI: "",
@@ -81,11 +80,12 @@ function toFormState(p: Profile): FormState {
   return {
     name: p.name ?? "",
     token: p.token ?? "",
+    mediaFilePath: p.media_file_path ?? "",
     rtsp: p.rtsp ?? "",
-    encoding: p.encoding ?? "H264",
-    width: String(p.width ?? ""),
-    height: String(p.height ?? ""),
-    fps: String(p.fps ?? ""),
+    encoding: p.encoding ?? "",
+    width: p.width ? String(p.width) : "",
+    height: p.height ? String(p.height) : "",
+    fps: p.fps ? String(p.fps) : "",
     bitrate: p.bitrate ? String(p.bitrate) : "",
     gopLength: p.gop_length ? String(p.gop_length) : "",
     snapshotURI: p.snapshot_uri ?? "",
@@ -97,6 +97,7 @@ function formToProfile(f: FormState): Profile {
   return cfgNs.ProfileConfig.createFrom({
     name: f.name,
     token: f.token,
+    media_file_path: f.mediaFilePath,
     rtsp: f.rtsp,
     encoding: f.encoding,
     width: Number(f.width || 0),
@@ -172,7 +173,7 @@ export function MediaScreen() {
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Token</TableHead>
-              <TableHead>RTSP</TableHead>
+              <TableHead>Media file</TableHead>
               <TableHead>Encoding</TableHead>
               <TableHead>Resolution</TableHead>
               <TableHead>Snapshot URI</TableHead>
@@ -185,11 +186,15 @@ export function MediaScreen() {
                 <TableCell>{p.name}</TableCell>
                 <TableCell className="font-mono text-xs">{p.token}</TableCell>
                 <TableCell className="max-w-[260px] truncate font-mono text-xs">
-                  {p.rtsp}
+                  {p.media_file_path || (
+                    <span className="text-muted-foreground">— not set</span>
+                  )}
                 </TableCell>
-                <TableCell>{p.encoding}</TableCell>
+                <TableCell>{p.encoding || "—"}</TableCell>
                 <TableCell className="font-mono text-xs">
-                  {p.width}x{p.height}@{p.fps}
+                  {p.width && p.height && p.fps
+                    ? `${p.width}x${p.height}@${p.fps}`
+                    : "auto"}
                 </TableCell>
                 <TableCell className="max-w-[200px] truncate font-mono text-xs">
                   {p.snapshot_uri || "—"}
@@ -297,24 +302,25 @@ function ProfileDialog({
     setForm((f) => ({ ...f, [k]: v }))
   }
 
+  async function pickFile() {
+    setError(null)
+    try {
+      const path = await App.PickMediaFile()
+      if (path) update("mediaFilePath", path)
+    } catch (e) {
+      setError(String(e))
+    }
+  }
+
   async function save() {
     setError(null)
     const p = formToProfile(form)
     try {
       if (isEdit) {
-        await App.SetProfileRTSP(p.token ?? "", p.rtsp ?? "")
+        await App.SetProfileMediaFile(p.token ?? "", form.mediaFilePath)
         if (form.snapshotURI || initial?.snapshot_uri) {
           await App.SetProfileSnapshotURI(p.token ?? "", form.snapshotURI)
         }
-        await App.SetProfileEncoder(
-          p.token ?? "",
-          p.encoding ?? "H264",
-          Number(p.width ?? 0),
-          Number(p.height ?? 0),
-          Number(p.fps ?? 0),
-          Number(p.bitrate ?? 0),
-          Number(p.gop_length ?? 0)
-        )
         toast.success(`Profile "${p.token}" updated`)
       } else {
         await App.AddProfile(p)
@@ -333,8 +339,10 @@ function ProfileDialog({
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit profile" : "Add profile"}</DialogTitle>
           <DialogDescription>
-            Profiles are pass-through — the simulator returns RTSP and snapshot
-            URIs verbatim; point them at an external RTP/HTTP server.
+            The simulator hosts the RTSP stream itself by looping the local
+            mp4 you select. GetStreamUri returns a URL pointing at this
+            simulator; codec, resolution, and frame rate are auto-detected
+            from the file.
           </DialogDescription>
         </DialogHeader>
 
@@ -360,35 +368,65 @@ function ProfileDialog({
           </div>
 
           <Field>
-            <FieldLabel>RTSP URI</FieldLabel>
-            <Input
-              value={form.rtsp}
-              onChange={(e) => update("rtsp", e.target.value)}
-              placeholder="rtsp://..."
-              className="font-mono"
-            />
-            <FieldDescription>Must start with rtsp://.</FieldDescription>
+            <FieldLabel>Media file</FieldLabel>
+            <div className="flex gap-2">
+              <Input
+                value={form.mediaFilePath}
+                onChange={(e) => update("mediaFilePath", e.target.value)}
+                placeholder="/absolute/path/to/video.mp4"
+                className="font-mono"
+                aria-label="Media file path"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void pickFile()}
+                aria-label="Browse for media file"
+              >
+                <RiFolderOpenLine data-icon="inline-start" />
+                Browse
+              </Button>
+            </div>
+            <FieldDescription>
+              Required. The embedded RTSP server loops this file forever.
+            </FieldDescription>
           </Field>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <Field>
               <FieldLabel>Encoding</FieldLabel>
-              <Select
-                value={form.encoding}
-                onValueChange={(v) => update("encoding", v ?? "H264")}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="H264">H264</SelectItem>
-                    <SelectItem value="H265">H265</SelectItem>
-                    <SelectItem value="MJPEG">MJPEG</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
+              <Input
+                value={form.encoding || "auto"}
+                disabled
+                className="font-mono"
+              />
+              <FieldDescription>Detected on Start.</FieldDescription>
             </Field>
+            <Field>
+              <FieldLabel>Resolution</FieldLabel>
+              <Input
+                value={
+                  form.width && form.height
+                    ? `${form.width}x${form.height}`
+                    : "auto"
+                }
+                disabled
+                className="font-mono"
+              />
+              <FieldDescription>Detected on Start.</FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel>FPS</FieldLabel>
+              <Input
+                value={form.fps || "auto"}
+                disabled
+                className="font-mono"
+              />
+              <FieldDescription>Detected on Start.</FieldDescription>
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
             <Field>
               <FieldLabel>Snapshot URI (optional)</FieldLabel>
               <Input
@@ -396,52 +434,6 @@ function ProfileDialog({
                 onChange={(e) => update("snapshotURI", e.target.value)}
                 placeholder="http(s)://..."
                 className="font-mono"
-              />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4">
-            <Field>
-              <FieldLabel>Width</FieldLabel>
-              <Input
-                type="number"
-                value={form.width}
-                onChange={(e) => update("width", e.target.value)}
-              />
-            </Field>
-            <Field>
-              <FieldLabel>Height</FieldLabel>
-              <Input
-                type="number"
-                value={form.height}
-                onChange={(e) => update("height", e.target.value)}
-              />
-            </Field>
-            <Field>
-              <FieldLabel>FPS</FieldLabel>
-              <Input
-                type="number"
-                value={form.fps}
-                onChange={(e) => update("fps", e.target.value)}
-              />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4">
-            <Field>
-              <FieldLabel>Bitrate (kbps, optional)</FieldLabel>
-              <Input
-                type="number"
-                value={form.bitrate}
-                onChange={(e) => update("bitrate", e.target.value)}
-              />
-            </Field>
-            <Field>
-              <FieldLabel>GOP length (optional)</FieldLabel>
-              <Input
-                type="number"
-                value={form.gopLength}
-                onChange={(e) => update("gopLength", e.target.value)}
               />
             </Field>
             <Field>

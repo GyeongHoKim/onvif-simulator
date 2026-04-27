@@ -69,6 +69,8 @@ export const appMocks = {
   AddProfile: lf(),
   RemoveProfile: lf(),
   SetProfileRTSP: lf(),
+  SetProfileMediaFile: lf(),
+  PickMediaFile: lf(() => ""),
   SetProfileSnapshotURI: lf(),
   SetProfileEncoder: lf(),
   SetTopicEnabled: lf(),
@@ -125,12 +127,13 @@ export function defaultConfig(): any {
       firmware: "0.1.0",
       scopes: ["onvif://www.onvif.org/Profile/Streaming"],
     },
-    network: { http_port: 8080, xaddrs: [] },
+    network: { http_port: 8080, rtsp_port: 8554, xaddrs: [] },
     media: {
       profiles: [
         {
           name: "main",
           token: "profile_main",
+          media_file_path: "/var/onvif/main.mp4",
           rtsp: "rtsp://127.0.0.1:8554/main",
           encoding: "H264",
           width: 1920,

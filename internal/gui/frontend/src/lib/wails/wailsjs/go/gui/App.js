@@ -34,6 +34,10 @@ export function Motion(arg1, arg2) {
   return window['go']['gui']['App']['Motion'](arg1, arg2);
 }
 
+export function PickMediaFile() {
+  return window['go']['gui']['App']['PickMediaFile']();
+}
+
 export function PublishRaw(arg1, arg2) {
   return window['go']['gui']['App']['PublishRaw'](arg1, arg2);
 }
@@ -68,6 +72,10 @@ export function SetHostname(arg1) {
 
 export function SetProfileEncoder(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
   return window['go']['gui']['App']['SetProfileEncoder'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+}
+
+export function SetProfileMediaFile(arg1, arg2) {
+  return window['go']['gui']['App']['SetProfileMediaFile'](arg1, arg2);
 }
 
 export function SetProfileRTSP(arg1, arg2) {

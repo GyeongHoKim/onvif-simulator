@@ -329,24 +329,26 @@ export namespace config {
 	export class ProfileConfig {
 	    name: string;
 	    token: string;
-	    rtsp: string;
-	    encoding: string;
-	    width: number;
-	    height: number;
-	    fps: number;
+	    media_file_path?: string;
+	    rtsp?: string;
+	    encoding?: string;
+	    width?: number;
+	    height?: number;
+	    fps?: number;
 	    bitrate?: number;
 	    gop_length?: number;
 	    snapshot_uri?: string;
 	    video_source_token?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ProfileConfig(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
 	        this.token = source["token"];
+	        this.media_file_path = source["media_file_path"];
 	        this.rtsp = source["rtsp"];
 	        this.encoding = source["encoding"];
 	        this.width = source["width"];
@@ -394,16 +396,18 @@ export namespace config {
 	}
 	export class NetworkConfig {
 	    http_port: number;
+	    rtsp_port?: number;
 	    interface?: string;
 	    xaddrs?: string[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new NetworkConfig(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.http_port = source["http_port"];
+	        this.rtsp_port = source["rtsp_port"];
 	        this.interface = source["interface"];
 	        this.xaddrs = source["xaddrs"];
 	    }

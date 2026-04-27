@@ -110,6 +110,9 @@ func (a *simulatorAdapter) RemoveProfile(token string) error         { return a.
 func (a *simulatorAdapter) SetProfileRTSP(token, rtsp string) error {
 	return a.inner.SetProfileRTSP(token, rtsp)
 }
+func (a *simulatorAdapter) SetProfileMediaFilePath(token, path string) error {
+	return a.inner.SetProfileMediaFilePath(token, path)
+}
 func (a *simulatorAdapter) SetProfileSnapshotURI(token, uri string) error {
 	return a.inner.SetProfileSnapshotURI(token, uri)
 }

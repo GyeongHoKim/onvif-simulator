@@ -312,6 +312,12 @@ func (s *simulatorStub) SetProfileRTSP(token, rtsp string) error {
 	return s.mutateProfile(token, "SetProfileRTSP", rtsp, func(p *config.ProfileConfig) { p.RTSP = rtsp })
 }
 
+func (s *simulatorStub) SetProfileMediaFilePath(token, path string) error {
+	return s.mutateProfile(token, "SetProfileMediaFilePath", path, func(p *config.ProfileConfig) {
+		p.MediaFilePath = path
+	})
+}
+
 func (s *simulatorStub) SetProfileSnapshotURI(token, uri string) error {
 	return s.mutateProfile(token, "SetProfileSnapshotURI", uri, func(p *config.ProfileConfig) {
 		p.SnapshotURI = uri
