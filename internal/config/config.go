@@ -486,7 +486,10 @@ func validateNetwork(n *NetworkConfig) error {
 	if n.RTSPPort < 0 || n.RTSPPort > 65535 {
 		return ErrNetworkRTSPPortInvalid
 	}
-	if n.RTSPPort != 0 && n.RTSPPort == n.HTTPPort {
+	// Compare against the *effective* RTSP port — RTSPPort=0 falls back to
+	// DefaultRTSPPort, so http_port=8554 with rtsp_port=0 must still be
+	// rejected even though the raw RTSPPort is 0.
+	if n.RTSPPortOrDefault() == n.HTTPPort {
 		return ErrNetworkPortConflict
 	}
 	for i, x := range n.XAddrs {

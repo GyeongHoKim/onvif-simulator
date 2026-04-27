@@ -265,6 +265,9 @@ func TestValidateNetworkRTSPPort(t *testing.T) {
 		{"rtsp negative", 8080, -1, config.ErrNetworkRTSPPortInvalid, false},
 		{"rtsp out of range", 8080, 70000, config.ErrNetworkRTSPPortInvalid, false},
 		{"rtsp clashes with http", 8080, 8080, config.ErrNetworkPortConflict, false},
+		// http_port=DefaultRTSPPort with rtsp_port=0 must collide because
+		// rtsp_port=0 falls back to DefaultRTSPPort.
+		{"rtsp default clashes with http on 8554", 8554, 0, config.ErrNetworkPortConflict, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
