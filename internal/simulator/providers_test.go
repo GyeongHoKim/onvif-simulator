@@ -2,6 +2,7 @@ package simulator
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
@@ -152,15 +153,15 @@ func TestMediaProvider(t *testing.T) {
 	if err != nil || prof.Token != profiles[0].Token {
 		t.Fatalf("Profile: %v %+v", err, prof)
 	}
-	if _, err := mp.Profile(ctx, "missing"); err == nil {
-		t.Fatal("expected ErrProfileNotFound")
+	if _, err := mp.Profile(ctx, "missing"); !errors.Is(err, mediasvc.ErrProfileNotFound) {
+		t.Fatalf("expected ErrProfileNotFound, got %v", err)
 	}
 
-	if _, err := mp.CreateProfile(ctx, "x", "x"); err == nil {
-		t.Fatal("expected CreateProfile not supported")
+	if _, err := mp.CreateProfile(ctx, "x", "x"); !errors.Is(err, mediasvc.ErrInvalidArgs) {
+		t.Fatalf("expected ErrInvalidArgs for CreateProfile, got %v", err)
 	}
-	if err := mp.DeleteProfile(ctx, "x"); err == nil {
-		t.Fatal("expected DeleteProfile not supported")
+	if err := mp.DeleteProfile(ctx, "x"); !errors.Is(err, mediasvc.ErrInvalidArgs) {
+		t.Fatalf("expected ErrInvalidArgs for DeleteProfile, got %v", err)
 	}
 
 	if _, err := mp.VideoSources(ctx); err != nil {
@@ -173,8 +174,8 @@ func TestMediaProvider(t *testing.T) {
 	if _, err := mp.VideoSourceConfiguration(ctx, vs[0].SourceToken); err != nil {
 		t.Fatalf("VideoSourceConfiguration: %v", err)
 	}
-	if _, err := mp.VideoSourceConfiguration(ctx, "missing"); err == nil {
-		t.Fatal("expected ErrConfigNotFound")
+	if _, err := mp.VideoSourceConfiguration(ctx, "missing"); !errors.Is(err, mediasvc.ErrConfigNotFound) {
+		t.Fatalf("expected ErrConfigNotFound, got %v", err)
 	}
 	if err := mp.SetVideoSourceConfiguration(ctx, mediasvc.VideoSourceConfiguration{}); err != nil {
 		t.Fatalf("SetVideoSourceConfiguration: %v", err)
@@ -199,8 +200,8 @@ func TestMediaProvider(t *testing.T) {
 	if _, err := mp.VideoEncoderConfiguration(ctx, profiles[0].Token); err != nil {
 		t.Fatalf("VideoEncoderConfiguration: %v", err)
 	}
-	if _, err := mp.VideoEncoderConfiguration(ctx, "missing"); err == nil {
-		t.Fatal("expected ErrConfigNotFound")
+	if _, err := mp.VideoEncoderConfiguration(ctx, "missing"); !errors.Is(err, mediasvc.ErrConfigNotFound) {
+		t.Fatalf("expected ErrConfigNotFound, got %v", err)
 	}
 	if err := mp.SetVideoEncoderConfiguration(ctx, mediasvc.VideoEncoderConfiguration{}); err != nil {
 		t.Fatalf("SetVideoEncoderConfiguration: %v", err)
@@ -222,14 +223,14 @@ func TestMediaProvider(t *testing.T) {
 	if err != nil || uri.URI == "" {
 		t.Fatalf("StreamURI: %v %+v", err, uri)
 	}
-	if _, err := mp.StreamURI(ctx, "missing", mediasvc.StreamSetup{}); err == nil {
-		t.Fatal("expected ErrProfileNotFound")
+	if _, err := mp.StreamURI(ctx, "missing", mediasvc.StreamSetup{}); !errors.Is(err, mediasvc.ErrProfileNotFound) {
+		t.Fatalf("expected ErrProfileNotFound for StreamURI, got %v", err)
 	}
-	if _, err := mp.SnapshotURI(ctx, profiles[0].Token); err == nil {
-		t.Fatal("expected ErrNoSnapshot for profile without snapshot")
+	if _, err := mp.SnapshotURI(ctx, profiles[0].Token); !errors.Is(err, mediasvc.ErrNoSnapshot) {
+		t.Fatalf("expected ErrNoSnapshot for profile without snapshot, got %v", err)
 	}
-	if _, err := mp.SnapshotURI(ctx, "missing"); err == nil {
-		t.Fatal("expected ErrProfileNotFound")
+	if _, err := mp.SnapshotURI(ctx, "missing"); !errors.Is(err, mediasvc.ErrProfileNotFound) {
+		t.Fatalf("expected ErrProfileNotFound for SnapshotURI, got %v", err)
 	}
 
 	if _, err := mp.GuaranteedNumberOfVideoEncoderInstances(ctx, ""); err != nil {
