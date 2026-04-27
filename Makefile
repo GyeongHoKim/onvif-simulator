@@ -18,13 +18,22 @@ endif
 
 FRONTEND_DIST := internal/gui/frontend/dist
 
-.PHONY: cli gui format lint test test-go test-frontend coverage e2e clean setup manual
+.PHONY: cli gui gui-windows gui-darwin gui-linux format lint test test-go test-frontend coverage e2e clean setup manual
 
 cli:
 	$(GO) build -o $(CLI_OUT) ./cmd/cli
 
 gui: $(FRONTEND_DIST)
 	cd cmd/gui && wails build
+
+gui-windows: $(FRONTEND_DIST)
+	cd cmd/gui && wails build -nsis -platform windows/amd64
+
+gui-darwin: $(FRONTEND_DIST)
+	cd cmd/gui && wails build -platform darwin/amd64
+
+gui-linux: $(FRONTEND_DIST)
+	cd cmd/gui && wails build -platform linux/amd64
 
 format:
 	$(GO) fmt ./...
