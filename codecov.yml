@@ -24,6 +24,8 @@ comment:
   require_changes: true
 
 ignore:
-  - "cmd/**"          # entrypoint, not unit-testable
-  - "test/e2e/**"     # e2e tests run separately
+  - "cmd/**"              # entrypoints, not unit-testable
+  - "internal/gui/**"     # Wails binding layer; tested via Vitest frontend tests
+  - "internal/tui/**"     # interactive terminal UI; coverage tracked separately
+  - "test/e2e/**"         # e2e tests run separately
   - "**/*_mock*.go"
