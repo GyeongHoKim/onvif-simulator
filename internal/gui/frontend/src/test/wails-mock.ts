@@ -34,6 +34,9 @@ export function resetWailsMocks(): void {
         case "Running":
           m.mockResolvedValue(false)
           break
+        case "GetLogs":
+          m.mockResolvedValue(defaultLogPage())
+          break
         default:
           m.mockResolvedValue(undefined)
       }
@@ -77,6 +80,8 @@ export const appMocks = {
   UpsertUser: lf(),
   RemoveUser: lf(),
   SetAuthEnabled: lf(),
+  GetLogs: lf(() => defaultLogPage()),
+  ClearLogs: lf(),
 }
 
 export const runtimeMocks = {
@@ -172,5 +177,9 @@ export function defaultConfig(): any {
 
 export function defaultUsers(): any {
   return [{ username: "admin", roles: ["Administrator"] }]
+}
+
+export function defaultLogPage(): any {
+  return { entries: [], total: 0 }
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

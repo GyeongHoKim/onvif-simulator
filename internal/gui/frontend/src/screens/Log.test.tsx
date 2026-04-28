@@ -1,12 +1,14 @@
 import { describe, it, expect, beforeEach } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 
 import { LogScreen } from "./Log"
 import { useSim } from "@/store/simulator"
+import { appMocks, defaultLogPage } from "@/test/wails-mock"
 
 beforeEach(() => {
   useSim.setState({ status: null, config: null, users: [], log: [] })
+  appMocks.GetLogs.mockResolvedValue(defaultLogPage())
 })
 
 describe("Log screen", () => {
@@ -85,7 +87,8 @@ describe("Log screen", () => {
     })
     render(<LogScreen />)
     await user.click(screen.getByRole("button", { name: /^clear$/i }))
-    expect(useSim.getState().log).toHaveLength(0)
+    expect(appMocks.ClearLogs).toHaveBeenCalled()
+    await waitFor(() => expect(useSim.getState().log).toHaveLength(0))
   })
 
   it("filters by search query", async () => {

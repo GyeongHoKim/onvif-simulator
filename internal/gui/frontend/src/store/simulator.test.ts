@@ -1,13 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-import { useSim, startStatusPolling } from "./simulator"
+import { useSim, startStatusPolling, startLogPolling } from "./simulator"
 import {
   appMocks,
-  runtimeMocks,
-  emitWailsEvent,
   defaultStatus,
   defaultConfig,
   defaultUsers,
+  defaultLogPage,
 } from "@/test/wails-mock"
 
 function reset() {
@@ -19,62 +18,72 @@ beforeEach(() => {
   appMocks.Status.mockResolvedValue(defaultStatus())
   appMocks.ConfigSnapshot.mockResolvedValue(defaultConfig())
   appMocks.Users.mockResolvedValue(defaultUsers())
+  appMocks.GetLogs.mockResolvedValue(defaultLogPage())
 })
 
 describe("simulator store", () => {
-  it("bootstrap pulls status, config, users and subscribes to events", async () => {
+  it("bootstrap pulls status, config, users, and seeds log via GetLogs", async () => {
+    appMocks.GetLogs.mockResolvedValueOnce({
+      entries: [
+        {
+          time: "2026-04-28T10:00:00Z",
+          kind: "event",
+          topic: "tns1:VideoSource/MotionAlarm",
+          source: "VS_MAIN",
+          payload: "state=true",
+        },
+        {
+          time: "2026-04-28T10:00:01Z",
+          kind: "mutation",
+          op: "AddProfile",
+          target: "profile_x",
+          detail: "x",
+        },
+      ],
+      total: 2,
+    })
+
     await useSim.getState().bootstrap()
 
     expect(appMocks.Status).toHaveBeenCalled()
     expect(appMocks.ConfigSnapshot).toHaveBeenCalled()
     expect(appMocks.Users).toHaveBeenCalled()
-    expect(useSim.getState().status?.discoveryMode).toBe("Discoverable")
-    expect(useSim.getState().config?.media.profiles[0].token).toBe("profile_main")
-    expect(useSim.getState().users[0].username).toBe("admin")
+    expect(appMocks.GetLogs).toHaveBeenCalledWith(0, 500)
 
-    const onSubs = runtimeMocks.EventsOn.mock.calls.map((c) => c[0])
-    expect(onSubs).toContain("event:new")
-    expect(onSubs).toContain("mutation:new")
-  })
-
-  it("appendEvent caps the log at 500 entries and prepends new ones", () => {
-    const { appendEvent } = useSim.getState()
-    for (let i = 0; i < 510; i++) {
-      appendEvent({
-        time: new Date().toISOString(),
-        topic: "tns1:T",
-        source: `vs${i}`,
-        payload: "state=true",
-      } as Parameters<typeof appendEvent>[0])
+    const log = useSim.getState().log
+    expect(log).toHaveLength(2)
+    if (log[0].kind === "event") {
+      expect(log[0].topic).toBe("tns1:VideoSource/MotionAlarm")
+    } else {
+      throw new Error("expected first entry to be an event")
     }
-    const log = useSim.getState().log
-    expect(log).toHaveLength(500)
-    expect(log[0].kind).toBe("event")
-    if (log[0].kind === "event") expect(log[0].source).toBe("vs509")
-  })
-
-  it("appendMutation records mutation entries", () => {
-    useSim.getState().appendMutation({
-      time: new Date().toISOString(),
-      kind: "AddProfile",
-      target: "profile_x",
-      detail: "x",
-    })
-    const log = useSim.getState().log
-    expect(log[0].kind).toBe("mutation")
-    if (log[0].kind === "mutation") {
-      expect(log[0].op).toBe("AddProfile")
-      expect(log[0].target).toBe("profile_x")
+    if (log[1].kind === "mutation") {
+      expect(log[1].op).toBe("AddProfile")
+      expect(log[1].target).toBe("profile_x")
+    } else {
+      throw new Error("expected second entry to be a mutation")
     }
   })
 
-  it("clearLog empties the log", () => {
+  it("refreshLog requests at most LOG_CAP entries", async () => {
+    await useSim.getState().refreshLog()
+    expect(appMocks.GetLogs).toHaveBeenCalledWith(0, 500)
+  })
+
+  it("refreshLog swallows transient errors so polling stays alive", async () => {
+    appMocks.GetLogs.mockRejectedValueOnce(new Error("boom"))
+    await expect(useSim.getState().refreshLog()).resolves.toBeUndefined()
+    expect(useSim.getState().log).toEqual([])
+  })
+
+  it("clearLog calls App.ClearLogs and empties the log", async () => {
     useSim.setState({
       log: [
         { kind: "event", time: "x", topic: "t", source: "", payload: "" },
       ],
     })
-    useSim.getState().clearLog()
+    await useSim.getState().clearLog()
+    expect(appMocks.ClearLogs).toHaveBeenCalled()
     expect(useSim.getState().log).toHaveLength(0)
   })
 
@@ -82,21 +91,6 @@ describe("simulator store", () => {
     appMocks.Status.mockRejectedValueOnce(new Error("boom"))
     await expect(useSim.getState().refreshStatus()).resolves.toBeUndefined()
     expect(useSim.getState().status).toBeNull()
-  })
-
-  it("event:new wails events feed appendEvent through the bootstrap subscription", async () => {
-    await useSim.getState().bootstrap()
-    emitWailsEvent("event:new", {
-      time: new Date().toISOString(),
-      topic: "tns1:VideoSource/MotionAlarm",
-      source: "VS_MAIN",
-      payload: "state=true",
-    })
-    const log = useSim.getState().log
-    expect(log).toHaveLength(1)
-    if (log[0].kind === "event") {
-      expect(log[0].topic).toBe("tns1:VideoSource/MotionAlarm")
-    }
   })
 
   it("startStatusPolling polls Status() on the given interval and returns a stop fn", () => {
@@ -110,6 +104,21 @@ describe("simulator store", () => {
       stop()
       vi.advanceTimersByTime(200)
       expect(appMocks.Status.mock.calls.length).toBe(before)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("startLogPolling polls GetLogs on the given interval and returns a stop fn", () => {
+    vi.useFakeTimers()
+    try {
+      const stop = startLogPolling(50)
+      vi.advanceTimersByTime(120)
+      expect(appMocks.GetLogs.mock.calls.length).toBeGreaterThanOrEqual(2)
+      const before = appMocks.GetLogs.mock.calls.length
+      stop()
+      vi.advanceTimersByTime(200)
+      expect(appMocks.GetLogs.mock.calls.length).toBe(before)
     } finally {
       vi.useRealTimers()
     }
