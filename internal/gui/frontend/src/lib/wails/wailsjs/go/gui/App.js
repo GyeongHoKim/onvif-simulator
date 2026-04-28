@@ -10,12 +10,20 @@ export function AddUser(arg1) {
   return window['go']['gui']['App']['AddUser'](arg1);
 }
 
+export function ClearLogs() {
+  return window['go']['gui']['App']['ClearLogs']();
+}
+
 export function ConfigSnapshot() {
   return window['go']['gui']['App']['ConfigSnapshot']();
 }
 
 export function DigitalInput(arg1, arg2) {
   return window['go']['gui']['App']['DigitalInput'](arg1, arg2);
+}
+
+export function GetLogs(arg1, arg2) {
+  return window['go']['gui']['App']['GetLogs'](arg1, arg2);
 }
 
 export function ImageTooBlurry(arg1, arg2) {

@@ -7,9 +7,13 @@ export function AddProfile(arg1:config.ProfileConfig):Promise<void>;
 
 export function AddUser(arg1:config.UserConfig):Promise<void>;
 
+export function ClearLogs():Promise<void>;
+
 export function ConfigSnapshot():Promise<config.Config>;
 
 export function DigitalInput(arg1:string,arg2:boolean):Promise<void>;
+
+export function GetLogs(arg1:number,arg2:number):Promise<gui.LogPage>;
 
 export function ImageTooBlurry(arg1:string,arg2:boolean):Promise<void>;
 
