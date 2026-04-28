@@ -10,6 +10,7 @@ import (
 	runtime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
+	"github.com/GyeongHoKim/onvif-simulator/internal/logger"
 )
 
 // EventRecord mirrors simulator.EventRecord. Kept local so the GUI compiles
@@ -47,6 +48,28 @@ type Status struct {
 type UserView struct {
 	Username string   `json:"username"`
 	Roles    []string `json:"roles"`
+}
+
+// LogEntry is one row of the on-disk log surfaced to the GUI. Kind
+// discriminates the populated fields ("event" → Topic/Source/Payload,
+// "mutation" → Op/Target/Detail) and matches the TS discriminated union
+// rendered by the Log screen.
+type LogEntry struct {
+	Time    time.Time `json:"time"`
+	Kind    string    `json:"kind"`
+	Topic   string    `json:"topic,omitempty"`
+	Source  string    `json:"source,omitempty"`
+	Payload string    `json:"payload,omitempty"`
+	Op      string    `json:"op,omitempty"`
+	Target  string    `json:"target,omitempty"`
+	Detail  string    `json:"detail,omitempty"`
+}
+
+// LogPage is the GetLogs response — a slice of entries newest-first plus
+// the total currently on disk so the frontend can show a counter.
+type LogPage struct {
+	Entries []LogEntry `json:"entries"`
+	Total   int        `json:"total"`
 }
 
 // simulatorAPI is the subset of *simulator.Simulator the GUI consumes. Both
@@ -92,8 +115,9 @@ type simulatorAPI interface {
 // Wails can marshal — primitives, []T, and plain structs from internal/config
 // or this package.
 type App struct {
-	ctx context.Context
-	sim simulatorAPI
+	ctx    context.Context
+	sim    simulatorAPI
+	logger *logger.Logger
 }
 
 // NewApp constructs the Wails app with its simulator backend. When a config
@@ -103,24 +127,39 @@ type App struct {
 func NewApp() *App {
 	app := &App{}
 
+	lg, err := logger.New(logger.Options{})
+	if err != nil {
+		log.Printf("onvif-simulator: logger disabled: %v", err)
+		lg = logger.NoOp()
+	}
+	app.logger = lg
+
 	emitEvent := func(r EventRecord) {
-		if app.ctx != nil {
-			runtime.EventsEmit(app.ctx, "event:new", r)
-		}
+		app.logger.Write(logger.Entry{
+			Time:    r.Time,
+			Kind:    "event",
+			Topic:   r.Topic,
+			Source:  r.Source,
+			Payload: r.Payload,
+		})
 	}
 	emitMutation := func(r MutationRecord) {
-		if app.ctx != nil {
-			runtime.EventsEmit(app.ctx, "mutation:new", r)
-		}
+		app.logger.Write(logger.Entry{
+			Time:   r.Time,
+			Kind:   "mutation",
+			Op:     r.Kind,
+			Target: r.Target,
+			Detail: r.Detail,
+		})
 	}
 
-	adapter, err := newSimulatorAdapter("", emitEvent, emitMutation)
-	if err == nil {
+	adapter, adapterErr := newSimulatorAdapter("", emitEvent, emitMutation)
+	if adapterErr == nil {
 		app.sim = adapter
 		return app
 	}
-	if !errors.Is(err, fs.ErrNotExist) {
-		log.Printf("onvif-simulator: config error: %v", err)
+	if !errors.Is(adapterErr, fs.ErrNotExist) {
+		log.Printf("onvif-simulator: config error: %v", adapterErr)
 	}
 
 	stub := newSimulatorStub(emitEvent, emitMutation)
@@ -128,9 +167,20 @@ func NewApp() *App {
 	return app
 }
 
-// OnStartup captures the Wails runtime context so we can emit events.
+// OnStartup captures the Wails runtime context. Currently unused — kept so
+// future Wails-runtime calls (dialogs, clipboard) have a context handle.
 func (a *App) OnStartup(ctx context.Context) {
 	a.ctx = ctx
+}
+
+// OnShutdown drains the on-disk logger so no entries are lost on app exit.
+func (a *App) OnShutdown(_ context.Context) {
+	if a.logger == nil {
+		return
+	}
+	if err := a.logger.Close(); err != nil {
+		log.Printf("onvif-simulator: logger close: %v", err)
+	}
 }
 
 // Lifecycle ---------------------------------------------------------------
@@ -249,3 +299,33 @@ func (a *App) RemoveUser(username string) error { return a.sim.RemoveUser(userna
 
 // SetAuthEnabled toggles the authentication scheme chain.
 func (a *App) SetAuthEnabled(enabled bool) error { return a.sim.SetAuthEnabled(enabled) }
+
+// Log surface ------------------------------------------------------------
+
+// GetLogs returns up to limit entries (newest-first) starting at offset,
+// plus the total number of entries currently on disk.
+func (a *App) GetLogs(offset, limit int) (LogPage, error) {
+	entries, total, err := a.logger.Read(offset, limit)
+	if err != nil {
+		return LogPage{Entries: []LogEntry{}}, err
+	}
+	out := make([]LogEntry, len(entries))
+	for i := range entries {
+		e := &entries[i]
+		out[i] = LogEntry{
+			Time:    e.Time,
+			Kind:    e.Kind,
+			Topic:   e.Topic,
+			Source:  e.Source,
+			Payload: e.Payload,
+			Op:      e.Op,
+			Target:  e.Target,
+			Detail:  e.Detail,
+		}
+	}
+	return LogPage{Entries: out, Total: total}, nil
+}
+
+// ClearLogs rotates the active log file. The previous content is preserved
+// as the next backup so the user retains an audit trail.
+func (a *App) ClearLogs() error { return a.logger.Clear() }
