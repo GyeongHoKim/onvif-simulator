@@ -77,6 +77,21 @@ func NewUsernameTokenAuthenticator(store UserStore, opts UsernameTokenOptions) A
 }
 
 func (u *usernameTokenAuth) Authenticate(ctx context.Context, r *http.Request) (*Principal, error) {
+	p, err := u.authenticate(ctx, r)
+	if err == nil || errors.Is(err, ErrNoCredentials) {
+		return p, err
+	}
+	// Hard validation failure: surface as a ChallengeError carrying the ONVIF
+	// NotAuthorized subcode so the SOAP fault tells WS-Security clients
+	// (gSOAP-based VMS, etc.) that authentication is the problem.
+	var alreadyWrapped *ChallengeError
+	if errors.As(err, &alreadyWrapped) {
+		return nil, err
+	}
+	return nil, NewChallengeError(err, http.StatusUnauthorized, nil, OnvifFaultNotAuthorized)
+}
+
+func (u *usernameTokenAuth) authenticate(ctx context.Context, r *http.Request) (*Principal, error) {
 	tok, err := u.readToken(r)
 	if err != nil {
 		return nil, err

@@ -204,7 +204,7 @@ func bearerChallenge(err error, code, description string) error {
 		parts = append(parts, fmt.Sprintf(`error_description=%q`, description))
 	}
 	h.Set("WWW-Authenticate", "Bearer "+strings.Join(parts, ", "))
-	return NewChallengeError(err, http.StatusUnauthorized, h)
+	return NewChallengeError(err, http.StatusUnauthorized, h, OnvifFaultNotAuthorized)
 }
 
 // NewStaticKeyFunc builds a jwt.Keyfunc that verifies tokens against the

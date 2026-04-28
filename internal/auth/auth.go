@@ -98,13 +98,27 @@ var (
 	ErrForbidden = errors.New("auth: access forbidden for role")
 )
 
+// ONVIF SOAP fault subcode values per ONVIF Core §5.12 (Errors).
+// These map onto the QName <env:Subcode><env:Value>...</env:Value></env:Subcode>
+// and require the namespace prefix `ter` to resolve to ONVIFErrorNamespace.
+const (
+	OnvifFaultNotAuthorized       = "ter:NotAuthorized"
+	OnvifFaultOperationProhibited = "ter:OperationProhibited"
+)
+
+// ONVIFErrorNamespace is the URI bound to the `ter` prefix in fault subcodes.
+const ONVIFErrorNamespace = "http://www.onvif.org/ver10/error"
+
 // ChallengeError wraps an authentication error with HTTP response metadata
-// (status code and headers such as WWW-Authenticate) that the service handler
-// should copy into the 401 response.
+// (status code, headers such as WWW-Authenticate) and the ONVIF SOAP fault
+// Subcode that the service handler should copy into the 401/403 response.
 type ChallengeError struct {
 	Err     error
 	Status  int
 	Headers http.Header
+	// Subcode is the ONVIF fault Subcode value (e.g. "ter:NotAuthorized").
+	// Empty means the service should omit the Subcode element.
+	Subcode string
 }
 
 // Error returns the wrapped error's message.
@@ -123,13 +137,15 @@ func (e *ChallengeError) Unwrap() error {
 	return e.Err
 }
 
-// NewChallengeError returns a *ChallengeError with the given status and headers.
-// Status defaults to 401 if zero.
-func NewChallengeError(err error, status int, headers http.Header) *ChallengeError {
+// NewChallengeError returns a *ChallengeError with the given status, headers
+// and ONVIF fault Subcode. Status defaults to 401 if zero. Subcode may be
+// empty when the caller does not need an ONVIF-specific Subcode (e.g. a plain
+// transport-level challenge).
+func NewChallengeError(err error, status int, headers http.Header, subcode string) *ChallengeError {
 	if status == 0 {
 		status = http.StatusUnauthorized
 	}
-	return &ChallengeError{Err: err, Status: status, Headers: headers}
+	return &ChallengeError{Err: err, Status: status, Headers: headers, Subcode: subcode}
 }
 
 // NewChain runs the provided Authenticators in order and implements the
@@ -185,7 +201,7 @@ func (c *chain) Authenticate(ctx context.Context, r *http.Request) (*Principal, 
 		return winner, nil
 	}
 	if len(combined) > 0 {
-		return nil, NewChallengeError(ErrNoCredentials, http.StatusUnauthorized, combined)
+		return nil, NewChallengeError(ErrNoCredentials, http.StatusUnauthorized, combined, OnvifFaultNotAuthorized)
 	}
 	return nil, ErrNoCredentials
 }

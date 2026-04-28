@@ -64,7 +64,7 @@ func TestChallengeErrorUnwrap(t *testing.T) {
 	t.Parallel()
 	headers := http.Header{}
 	headers.Set("WWW-Authenticate", `Digest realm="test"`)
-	ce := auth.NewChallengeError(errTestBoom, 0, headers)
+	ce := auth.NewChallengeError(errTestBoom, 0, headers, auth.OnvifFaultNotAuthorized)
 	if ce.Status != http.StatusUnauthorized {
 		t.Fatalf("default status want 401, got %d", ce.Status)
 	}
@@ -73,5 +73,33 @@ func TestChallengeErrorUnwrap(t *testing.T) {
 	}
 	if ce.Error() != errTestBoom.Error() {
 		t.Fatalf("unexpected Error(): %q", ce.Error())
+	}
+	if ce.Subcode != auth.OnvifFaultNotAuthorized {
+		t.Fatalf("Subcode = %q, want %q", ce.Subcode, auth.OnvifFaultNotAuthorized)
+	}
+}
+
+// TestChainAggregatesChallengeSubcode verifies that when no authenticator
+// supplies credentials, the aggregated ChallengeError carries the ONVIF
+// NotAuthorized subcode so the SOAP fault tells WS-Security clients (gSOAP)
+// that authentication is the failure mode.
+func TestChainAggregatesChallengeSubcode(t *testing.T) {
+	t.Parallel()
+	headers := http.Header{}
+	headers.Set("WWW-Authenticate", `Digest realm="test"`)
+	a := auth.AuthenticatorFunc(func(context.Context, *http.Request) (*auth.Principal, error) {
+		return nil, auth.NewChallengeError(auth.ErrNoCredentials, http.StatusUnauthorized, headers, auth.OnvifFaultNotAuthorized)
+	})
+	chain := auth.NewChain(a)
+	_, err := chain.Authenticate(context.Background(), newEmptyReq())
+	var ce *auth.ChallengeError
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected *ChallengeError, got %T: %v", err, err)
+	}
+	if ce.Subcode != auth.OnvifFaultNotAuthorized {
+		t.Fatalf("Subcode = %q, want %q", ce.Subcode, auth.OnvifFaultNotAuthorized)
+	}
+	if ce.Status != http.StatusUnauthorized {
+		t.Fatalf("Status = %d, want 401", ce.Status)
 	}
 }

@@ -56,14 +56,14 @@ func (h *SubscriptionManagerHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			writeFault(w, http.StatusRequestEntityTooLarge, faultCodeSender, tooLarge.Error())
+			writeFault(w, http.StatusRequestEntityTooLarge, faultCodeSender, "", tooLarge.Error())
 			return
 		}
-		writeFault(w, http.StatusBadRequest, faultCodeSender, fmt.Errorf("read request body: %w", err).Error())
+		writeFault(w, http.StatusBadRequest, faultCodeSender, "", fmt.Errorf("read request body: %w", err).Error())
 		return
 	}
 	if closeErr := r.Body.Close(); closeErr != nil {
-		writeFault(w, http.StatusBadRequest, faultCodeSender, closeErr.Error())
+		writeFault(w, http.StatusBadRequest, faultCodeSender, "", closeErr.Error())
 		return
 	}
 	r.Body = io.NopCloser(bytes.NewReader(raw))
@@ -79,7 +79,7 @@ func (h *SubscriptionManagerHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 				return
 			}
 		}
-		writeFault(w, http.StatusBadRequest, faultCodeSender, err.Error())
+		writeFault(w, http.StatusBadRequest, faultCodeSender, "", err.Error())
 		return
 	}
 
@@ -90,7 +90,7 @@ func (h *SubscriptionManagerHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 
 	subscriptionID := r.URL.Query().Get("id")
 	if subscriptionID == "" {
-		writeFault(w, http.StatusBadRequest, faultCodeSender, "missing subscription id")
+		writeFault(w, http.StatusBadRequest, faultCodeSender, "", "missing subscription id")
 		return
 	}
 
@@ -108,7 +108,7 @@ func (h *SubscriptionManagerHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 			status = http.StatusBadRequest
 			code = faultCodeSender
 		}
-		writeFault(w, status, code, err.Error())
+		writeFault(w, status, code, "", err.Error())
 		return
 	}
 	writeSOAP(w, respPayload)

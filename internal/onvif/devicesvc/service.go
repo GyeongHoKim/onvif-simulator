@@ -82,14 +82,14 @@ func (s *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			writeFault(w, http.StatusRequestEntityTooLarge, "Sender", tooLarge.Error())
+			writeFault(w, http.StatusRequestEntityTooLarge, "Sender", "", tooLarge.Error())
 			return
 		}
-		writeFault(w, http.StatusBadRequest, "Sender", fmt.Errorf("read request body: %w", err).Error())
+		writeFault(w, http.StatusBadRequest, "Sender", "", fmt.Errorf("read request body: %w", err).Error())
 		return
 	}
 	if closeErr := r.Body.Close(); closeErr != nil {
-		writeFault(w, http.StatusBadRequest, "Sender", closeErr.Error())
+		writeFault(w, http.StatusBadRequest, "Sender", "", closeErr.Error())
 		return
 	}
 	r.Body = io.NopCloser(bytes.NewReader(raw))
@@ -107,7 +107,7 @@ func (s *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		writeFault(w, http.StatusBadRequest, "Sender", err.Error())
+		writeFault(w, http.StatusBadRequest, "Sender", "", err.Error())
 		return
 	}
 
@@ -128,34 +128,41 @@ func (s *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusBadRequest
 			code = faultCodeSender
 		}
-		writeFault(w, status, code, err.Error())
+		writeFault(w, status, code, "", err.Error())
 		return
 	}
 	writeSOAP(w, respPayload)
 }
 
 // writeAuthFault translates an auth.Authorize error into a SOAP fault.
-// Forbidden errors map to HTTP 403; other auth errors (including challenges
-// returned as *auth.ChallengeError) map to 401 and copy the challenge's
-// headers (e.g. WWW-Authenticate) onto the response.
+// Status, WWW-Authenticate headers and ONVIF Subcode (e.g. ter:NotAuthorized)
+// are read from the *auth.ChallengeError so the SOAP fault matches ONVIF Core
+// §5.12 — gSOAP-based clients pattern-match on the Subcode to decide whether
+// to retry with credentials.
 func (*Handler) writeAuthFault(w http.ResponseWriter, authErr error) {
 	status := http.StatusUnauthorized
+	subcode := ""
 	var challenge *auth.ChallengeError
 	if errors.As(authErr, &challenge) {
 		if challenge.Status != 0 {
 			status = challenge.Status
 		}
+		subcode = challenge.Subcode
 		for k, vs := range challenge.Headers {
 			for _, v := range vs {
 				w.Header().Add(k, v)
 			}
 		}
 	}
+	// Fallback for callers that return a bare auth.ErrForbidden without
+	// wrapping it in a ChallengeError: still emit the correct ONVIF fault.
 	if errors.Is(authErr, auth.ErrForbidden) && status == http.StatusUnauthorized {
-		// The caller authenticated but their role is insufficient.
 		status = http.StatusForbidden
+		if subcode == "" {
+			subcode = auth.OnvifFaultOperationProhibited
+		}
 	}
-	writeFault(w, status, faultCodeSender, authErr.Error())
+	writeFault(w, status, faultCodeSender, subcode, authErr.Error())
 }
 
 // dispatch routes ONVIF operations to their handlers.
@@ -729,7 +736,7 @@ func writeSOAP(w http.ResponseWriter, payload []byte) {
 	}
 	body, err := xml.Marshal(envelope)
 	if err != nil {
-		writeFault(w, http.StatusInternalServerError, "Receiver", err.Error())
+		writeFault(w, http.StatusInternalServerError, "Receiver", "", err.Error())
 		return
 	}
 
@@ -743,15 +750,39 @@ func writeSOAP(w http.ResponseWriter, payload []byte) {
 	}
 }
 
-func writeFault(w http.ResponseWriter, status int, code, reason string) {
-	innerXML := fmt.Sprintf(
-		"<env:Fault xmlns:env=%q><env:Code><env:Value>env:%s</env:Value></env:Code>"+
-			"<env:Reason><env:Text xml:lang=%q>%s</env:Text></env:Reason></env:Fault>",
+// buildFaultInner renders a SOAP 1.2 fault body. When subcode is non-empty it
+// is emitted inside <env:Subcode> with the `ter` namespace prefix bound to
+// auth.ONVIFErrorNamespace, per ONVIF Core §5.12 (Errors).
+func buildFaultInner(code, subcode, reason string) string {
+	if subcode == "" {
+		return fmt.Sprintf(
+			"<env:Fault xmlns:env=%q><env:Code><env:Value>env:%s</env:Value></env:Code>"+
+				"<env:Reason><env:Text xml:lang=%q>%s</env:Text></env:Reason></env:Fault>",
+			soapNamespace,
+			xmlEscape(code),
+			"en",
+			xmlEscape(reason),
+		)
+	}
+	return fmt.Sprintf(
+		"<env:Fault xmlns:env=%q xmlns:ter=%q>"+
+			"<env:Code><env:Value>env:%s</env:Value>"+
+			"<env:Subcode><env:Value>%s</env:Value></env:Subcode>"+
+			"</env:Code>"+
+			"<env:Reason><env:Text xml:lang=%q>%s</env:Text></env:Reason>"+
+			"</env:Fault>",
 		soapNamespace,
+		auth.ONVIFErrorNamespace,
 		xmlEscape(code),
+		xmlEscape(subcode),
 		"en",
 		xmlEscape(reason),
 	)
+}
+
+// writeFault writes a SOAP 1.2 fault. See buildFaultInner for subcode handling.
+func writeFault(w http.ResponseWriter, status int, code, subcode, reason string) {
+	innerXML := buildFaultInner(code, subcode, reason)
 	fault := soapEnvelope{
 		XMLNSEnv: soapNamespace,
 		Body: soapBody{

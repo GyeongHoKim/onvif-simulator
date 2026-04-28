@@ -189,7 +189,7 @@ func (d *digestAuth) challenge(err error, stale bool) error {
 		}
 		h.Add("WWW-Authenticate", "Digest "+strings.Join(parts, ", "))
 	}
-	return NewChallengeError(err, http.StatusUnauthorized, h)
+	return NewChallengeError(err, http.StatusUnauthorized, h, OnvifFaultNotAuthorized)
 }
 
 // mintNonce produces a nonce of the form base64(ts||sig) where ts is a
