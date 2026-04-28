@@ -36,7 +36,7 @@ gui-linux: $(FRONTEND_DIST)
 	cd cmd/gui && wails build -platform linux/amd64 -tags webkit2_41
 
 format:
-	$(GO) fmt ./...
+	golangci-lint fmt ./...
 
 $(FRONTEND_DIST):
 	cd internal/gui/frontend && npm install && npm run build

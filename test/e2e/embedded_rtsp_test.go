@@ -132,4 +132,3 @@ func readRTPPackets(t *testing.T, streamURI string, deadline time.Duration) int 
 	}
 	return int(seen.Load())
 }
-
