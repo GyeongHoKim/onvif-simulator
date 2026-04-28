@@ -14,6 +14,8 @@ require (
 	github.com/pion/rtp v1.10.1
 	github.com/use-go/onvif v0.0.9
 	github.com/wailsapp/wails/v2 v2.12.0
+	go.uber.org/zap v1.27.1
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
 require (
@@ -70,6 +72,7 @@ require (
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
