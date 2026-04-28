@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { RiDeleteBinLine } from "@remixicon/react"
 
 import { Button } from "@/components/ui/button"
@@ -20,7 +20,7 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from "@/components/ui/empty"
-import { useSim, type LogEntry } from "@/store/simulator"
+import { useSim, startLogPolling, type LogEntry } from "@/store/simulator"
 
 function clockTime(iso: string): string {
   const d = new Date(iso)
@@ -35,6 +35,8 @@ export function LogScreen() {
   const [showEvents, setShowEvents] = useState(true)
   const [showMutations, setShowMutations] = useState(true)
   const [search, setSearch] = useState("")
+
+  useEffect(() => startLogPolling(2000), [])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -54,7 +56,7 @@ export function LogScreen() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">Log</h1>
-        <Button variant="outline" size="sm" onClick={clearLog}>
+        <Button variant="outline" size="sm" onClick={() => void clearLog()}>
           <RiDeleteBinLine data-icon="inline-start" />
           Clear
         </Button>
