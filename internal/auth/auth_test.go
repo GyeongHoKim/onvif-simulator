@@ -103,3 +103,38 @@ func TestChainAggregatesChallengeSubcode(t *testing.T) {
 		t.Fatalf("Status = %d, want 401", ce.Status)
 	}
 }
+
+func TestChainMergesCombinedHeadersIntoHardChallengeError(t *testing.T) {
+	t.Parallel()
+	digestHeaders := http.Header{}
+	digestHeaders.Add("WWW-Authenticate", `Digest realm="test"`)
+	bearerHeaders := http.Header{}
+	bearerHeaders.Add("WWW-Authenticate", `Bearer realm="test"`)
+
+	noCreds := auth.AuthenticatorFunc(func(context.Context, *http.Request) (*auth.Principal, error) {
+		return nil, auth.NewChallengeError(auth.ErrNoCredentials, http.StatusUnauthorized, digestHeaders, auth.OnvifFaultNotAuthorized)
+	})
+	hardFail := auth.AuthenticatorFunc(func(context.Context, *http.Request) (*auth.Principal, error) {
+		return nil, auth.NewChallengeError(errTestBadCredential, http.StatusUnauthorized, bearerHeaders, auth.OnvifFaultNotAuthorized)
+	})
+
+	chain := auth.NewChain(noCreds, hardFail)
+	_, err := chain.Authenticate(context.Background(), newEmptyReq())
+	var ce *auth.ChallengeError
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected *ChallengeError, got %T: %v", err, err)
+	}
+	got := ce.Headers.Values("WWW-Authenticate")
+	if len(got) != 2 {
+		t.Fatalf("WWW-Authenticate count = %d, want 2 (%v)", len(got), got)
+	}
+	if got[0] != `Digest realm="test"` {
+		t.Fatalf("first challenge = %q, want digest", got[0])
+	}
+	if got[1] != `Bearer realm="test"` {
+		t.Fatalf("second challenge = %q, want bearer", got[1])
+	}
+	if !errors.Is(err, errTestBadCredential) {
+		t.Fatalf("expected wrapped hard error, got %v", err)
+	}
+}

@@ -86,7 +86,7 @@ func (u *usernameTokenAuth) Authenticate(ctx context.Context, r *http.Request) (
 	// (gSOAP-based VMS, etc.) that authentication is the problem.
 	var alreadyWrapped *ChallengeError
 	if errors.As(err, &alreadyWrapped) {
-		return nil, err
+		return nil, alreadyWrapped
 	}
 	return nil, NewChallengeError(err, http.StatusUnauthorized, nil, OnvifFaultNotAuthorized)
 }

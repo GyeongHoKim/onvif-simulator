@@ -182,19 +182,22 @@ func (c *chain) Authenticate(ctx context.Context, r *http.Request) (*Principal, 
 		}
 		var ce *ChallengeError
 		isChallenge := errors.As(err, &ce)
-		if isChallenge {
-			for k, vv := range ce.Headers {
-				for _, v := range vv {
-					combined.Add(k, v)
-				}
-			}
-		}
 		// No credentials for this scheme — keep trying the others, but
 		// remember the challenge headers so the final 401 is informative.
 		if errors.Is(err, ErrNoCredentials) {
+			if isChallenge {
+				combined = mergeHeaders(combined, ce.Headers)
+			}
 			continue
 		}
 		// A hard validation error (bad password, stale nonce, forged token…).
+		if len(combined) > 0 {
+			if isChallenge {
+				ce.Headers = mergeHeaders(combined, ce.Headers)
+				return nil, ce
+			}
+			return nil, NewChallengeError(err, http.StatusUnauthorized, cloneHeaders(combined), OnvifFaultNotAuthorized)
+		}
 		return nil, err
 	}
 	if winner != nil {
@@ -204,4 +207,28 @@ func (c *chain) Authenticate(ctx context.Context, r *http.Request) (*Principal, 
 		return nil, NewChallengeError(ErrNoCredentials, http.StatusUnauthorized, combined, OnvifFaultNotAuthorized)
 	}
 	return nil, ErrNoCredentials
+}
+
+func cloneHeaders(h http.Header) http.Header {
+	if len(h) == 0 {
+		return nil
+	}
+	cloned := make(http.Header, len(h))
+	for k, vv := range h {
+		cloned[k] = append([]string(nil), vv...)
+	}
+	return cloned
+}
+
+func mergeHeaders(dst, src http.Header) http.Header {
+	merged := cloneHeaders(dst)
+	if merged == nil {
+		merged = make(http.Header)
+	}
+	for k, vv := range src {
+		for _, v := range vv {
+			merged.Add(k, v)
+		}
+	}
+	return merged
 }
