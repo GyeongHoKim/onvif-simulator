@@ -72,6 +72,27 @@ func TestUsernameTokenSuccess(t *testing.T) {
 	}
 }
 
+type boomReader struct{}
+
+func (boomReader) Read([]byte) (int, error) {
+	return 0, errTestBoom
+}
+
+func TestUsernameTokenBodyReadErrorNotChallengeError(t *testing.T) {
+	t.Parallel()
+	store := auth.NewMutableUserStore(nil)
+	a := auth.NewUsernameTokenAuthenticator(store, auth.UsernameTokenOptions{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/", io.NopCloser(boomReader{}))
+	_, err := a.Authenticate(context.Background(), req)
+	if !errors.Is(err, errTestBoom) {
+		t.Fatalf("expected read error, got %v", err)
+	}
+	var ce *auth.ChallengeError
+	if errors.As(err, &ce) {
+		t.Fatalf("I/O failure must not be wrapped as *ChallengeError")
+	}
+}
+
 func TestUsernameTokenMissingHeader(t *testing.T) {
 	t.Parallel()
 	store := auth.NewMutableUserStore([]auth.UserRecord{{Username: "u", Password: "p"}})
