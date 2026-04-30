@@ -196,7 +196,10 @@ func (c *chain) Authenticate(ctx context.Context, r *http.Request) (*Principal, 
 				ce.Headers = mergeHeaders(combined, ce.Headers)
 				return nil, ce
 			}
-			return nil, NewChallengeError(err, http.StatusUnauthorized, cloneHeaders(combined), OnvifFaultNotAuthorized)
+			if isAuthenticatorClientFailure(err) {
+				return nil, NewChallengeError(err, http.StatusUnauthorized, cloneHeaders(combined), OnvifFaultNotAuthorized)
+			}
+			return nil, err
 		}
 		return nil, err
 	}
@@ -231,4 +234,24 @@ func mergeHeaders(dst, src http.Header) http.Header {
 		}
 	}
 	return merged
+}
+
+// isAuthenticatorClientFailure reports whether err means this scheme rejected
+// the client's credentials or token (including policy violations like clock
+// skew), as opposed to an internal operational failure (I/O, backend errors).
+// Used by Chain and UsernameToken to decide when to wrap as *ChallengeError.
+func isAuthenticatorClientFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, ErrInvalidCredentials) ||
+		errors.Is(err, ErrStaleNonce) ||
+		errors.Is(err, ErrReplayedNonce) ||
+		errors.Is(err, ErrClockSkew) ||
+		errors.Is(err, ErrTokenMalformed) ||
+		errors.Is(err, ErrTokenExpired) ||
+		errors.Is(err, ErrTokenSignature) ||
+		errors.Is(err, ErrAudienceMismatch) ||
+		errors.Is(err, ErrIssuerMismatch) ||
+		errors.Is(err, ErrInsecureTransport)
 }

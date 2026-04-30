@@ -138,3 +138,56 @@ func TestChainMergesCombinedHeadersIntoHardChallengeError(t *testing.T) {
 		t.Fatalf("expected wrapped hard error, got %v", err)
 	}
 }
+
+// TestChainDoesNotWrapOperationalErrorWhenChallengeHeadersAccumulated verifies
+// that an internal error from a later authenticator is not coerced into 401
+// NotAuthorized just because an earlier scheme left WWW-Authenticate challenges
+// on the accumulated header map.
+func TestChainDoesNotWrapOperationalErrorWhenChallengeHeadersAccumulated(t *testing.T) {
+	t.Parallel()
+	digestHeaders := http.Header{}
+	digestHeaders.Add("WWW-Authenticate", `Digest realm="test"`)
+	noCreds := auth.AuthenticatorFunc(func(context.Context, *http.Request) (*auth.Principal, error) {
+		return nil, auth.NewChallengeError(auth.ErrNoCredentials, http.StatusUnauthorized, digestHeaders, auth.OnvifFaultNotAuthorized)
+	})
+	boom := auth.AuthenticatorFunc(func(context.Context, *http.Request) (*auth.Principal, error) {
+		return nil, errTestBoom
+	})
+	chain := auth.NewChain(noCreds, boom)
+	_, err := chain.Authenticate(context.Background(), newEmptyReq())
+	if !errors.Is(err, errTestBoom) {
+		t.Fatalf("expected operational error, got %v", err)
+	}
+	var ce *auth.ChallengeError
+	if errors.As(err, &ce) {
+		t.Fatalf("operational error must not become *ChallengeError, got %+v", ce)
+	}
+}
+
+// TestChainMergesCombinedHeadersIntoPlainInvalidCredentials checks that a plain
+// ErrInvalidCredentials (not already *ChallengeError) still merges earlier
+// challenge headers when building the final NotAuthorized response.
+func TestChainMergesCombinedHeadersIntoPlainInvalidCredentials(t *testing.T) {
+	t.Parallel()
+	digestHeaders := http.Header{}
+	digestHeaders.Add("WWW-Authenticate", `Digest realm="test"`)
+	noCreds := auth.AuthenticatorFunc(func(context.Context, *http.Request) (*auth.Principal, error) {
+		return nil, auth.NewChallengeError(auth.ErrNoCredentials, http.StatusUnauthorized, digestHeaders, auth.OnvifFaultNotAuthorized)
+	})
+	bad := auth.AuthenticatorFunc(func(context.Context, *http.Request) (*auth.Principal, error) {
+		return nil, auth.ErrInvalidCredentials
+	})
+	chain := auth.NewChain(noCreds, bad)
+	_, err := chain.Authenticate(context.Background(), newEmptyReq())
+	var ce *auth.ChallengeError
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected *ChallengeError, got %T: %v", err, err)
+	}
+	if !errors.Is(err, auth.ErrInvalidCredentials) {
+		t.Fatalf("expected ErrInvalidCredentials, got %v", err)
+	}
+	got := ce.Headers.Values("WWW-Authenticate")
+	if len(got) != 1 || got[0] != `Digest realm="test"` {
+		t.Fatalf("WWW-Authenticate = %v, want digest challenge merged", got)
+	}
+}
