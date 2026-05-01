@@ -101,7 +101,7 @@ jobs:
       - name: Package as .dmg
         run: |
           hdiutil create -volname "onvif-simulator" \
-            -srcfolder build/bin/onvif-simulator.app \
+            -srcfolder build/bin/onvif-simulator-gui.app \
             -ov -format UDZO \
             onvif-simulator-gui-darwin-amd64.dmg
 
