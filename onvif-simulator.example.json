@@ -22,7 +22,6 @@
         "name": "main",
         "token": "profile_main",
         "media_file_path": "/absolute/path/to/main.mp4",
-        "snapshot_uri": "http://127.0.0.1:8080/snapshot/main.jpg",
         "video_source_token": "VS_MAIN"
       },
       {
