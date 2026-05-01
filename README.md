@@ -100,22 +100,26 @@ The config file is named `onvif-simulator.json` and is auto-created on first run
 
 To override the path for a single run, pass `-config /path/to/onvif-simulator.json` to the CLI. As a fallback for ad-hoc use and tests, `Load` also accepts `./onvif-simulator.json` in the working directory when no path has been set.
 
-To start from the bundled example, copy it to the user config path for your OS (see the table above) or into the working directory:
+To start from the bundled example, create the user config directory if it does not exist, then copy the example file to the path for your OS (see the table above) or into the working directory:
 
 ```bash
-# Linux (XDG): ~/.config when XDG_CONFIG_HOME is unset
-cp onvif-simulator.example.json "$HOME/.config/onvif-simulator/onvif-simulator.json"
+# Linux: respects XDG_CONFIG_HOME when set, otherwise ~/.config
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/onvif-simulator"
+mkdir -p "$CONFIG_DIR"
+cp onvif-simulator.example.json "$CONFIG_DIR/onvif-simulator.json"
 
 # macOS
+mkdir -p "$HOME/Library/Application Support/onvif-simulator"
 cp onvif-simulator.example.json "$HOME/Library/Application Support/onvif-simulator/onvif-simulator.json"
 
-# Or keep it in the working directory for quick experiments
+# Or keep it in the working directory for quick experiments (no extra directory needed)
 cp onvif-simulator.example.json onvif-simulator.json
 ```
 
 **Windows (PowerShell)** — `%AppData%` expands to your roaming profile directory (see table above):
 
 ```powershell
+New-Item -ItemType Directory -Force -Path "$env:APPDATA\onvif-simulator" | Out-Null
 Copy-Item onvif-simulator.example.json "$env:APPDATA\onvif-simulator\onvif-simulator.json"
 # Or working directory:
 Copy-Item onvif-simulator.example.json onvif-simulator.json
