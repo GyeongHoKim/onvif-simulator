@@ -1,6 +1,11 @@
 BINARY := onvif-simulator
 GO     := go
 
+# Snapshot decoding uses go-astiav (libavcodec / libavformat / libswscale) via
+# cgo. CGO_ENABLED is forced on so cross-compilation hosts that default it off
+# fail loudly at compile time rather than at runtime when GetSnapshotUri runs.
+export CGO_ENABLED := 1
+
 ifeq ($(OS),Windows_NT)
   UNAME_S  := $(shell uname -s 2>NUL)
   CLI_OUT  := bin/$(BINARY).exe

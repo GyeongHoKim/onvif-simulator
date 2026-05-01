@@ -13,6 +13,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
 
+      - name: Install ffmpeg dev libraries (go-astiav cgo dep)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev pkg-config
+
       - uses: actions/setup-go@v6.4.0
         with:
           go-version-file: .go-version
@@ -41,6 +47,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6.0.2
+
+      - name: Install ffmpeg dev libraries (go-astiav cgo dep)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev pkg-config
 
       - uses: actions/setup-go@v6.4.0
         with:
