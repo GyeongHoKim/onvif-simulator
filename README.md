@@ -100,14 +100,25 @@ The config file is named `onvif-simulator.json` and is auto-created on first run
 
 To override the path for a single run, pass `-config /path/to/onvif-simulator.json` to the CLI. As a fallback for ad-hoc use and tests, `Load` also accepts `./onvif-simulator.json` in the working directory when no path has been set.
 
-To start from the bundled example, copy it to whichever location you prefer:
+To start from the bundled example, copy it to the user config path for your OS (see the table above) or into the working directory:
 
 ```bash
-# Edit the OS-standard location
+# Linux (XDG): ~/.config when XDG_CONFIG_HOME is unset
 cp onvif-simulator.example.json "$HOME/.config/onvif-simulator/onvif-simulator.json"
+
+# macOS
+cp onvif-simulator.example.json "$HOME/Library/Application Support/onvif-simulator/onvif-simulator.json"
 
 # Or keep it in the working directory for quick experiments
 cp onvif-simulator.example.json onvif-simulator.json
+```
+
+**Windows (PowerShell)** — `%AppData%` expands to your roaming profile directory (see table above):
+
+```powershell
+Copy-Item onvif-simulator.example.json "$env:APPDATA\onvif-simulator\onvif-simulator.json"
+# Or working directory:
+Copy-Item onvif-simulator.example.json onvif-simulator.json
 ```
 
 **Minimal required fields:**
@@ -122,8 +133,7 @@ cp onvif-simulator.example.json onvif-simulator.json
     "serial": "SN-0001"
   },
   "network": {
-    "http_port": 8080,
-    "rtsp_port": 8554
+    "http_port": 8080
   },
   "media": {
     "profiles": [
@@ -137,6 +147,8 @@ cp onvif-simulator.example.json onvif-simulator.json
 }
 ```
 
+(`network.rtsp_port` is optional; omit it to use the default `8554`.)
+
 **Optional sections** (all fields shown in `onvif-simulator.example.json`):
 
 | Section | Purpose |
@@ -146,9 +158,9 @@ cp onvif-simulator.example.json onvif-simulator.json
 | `events` | Configure the Event Service: `max_pull_points`, `subscription_timeout` (Go duration, e.g. `"1h"`), and the `topics` list (name + enabled flag). |
 
 > **Notes:**
-> - `network.rtsp_port` defaults to `8554` when omitted and must differ from `http_port`.
+> - `network.rtsp_port` is optional and defaults to `8554` when omitted or set to `0`; it must differ from `http_port`.
 > - `media_file_path` must be an absolute path to an mp4 with an H.264 or H.265 video track.
-> - `encoding`, `width`, `height`, and `fps` are auto-detected from the mp4 at startup; persisted values are only used as fallback display data when the simulator is stopped.
+> - When `media_file_path` is set, `encoding`, `width`, `height`, and `fps` are read from the file at startup (via probe) and replace the in-memory profile values for the running simulator; `bitrate` and `gop_length` are not derived from the file and still come from the config for ONVIF. Persisted JSON values for the probe-derived fields are only used as fallback display data when the simulator is stopped.
 
 If you don't have a sample clip handy, generate one with ffmpeg:
 

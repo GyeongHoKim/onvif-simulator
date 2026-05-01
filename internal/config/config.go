@@ -241,11 +241,10 @@ type MetadataConfig struct {
 // server loops to produce this profile's stream. SnapshotURI is still
 // pass-through (the simulator does not synthesize snapshots yet).
 //
-// Encoding, Width, Height, FPS, Bitrate, and GOPLength are auto-detected
-// from the mp4 file at simulator startup and overwritten in memory; they
-// are still marshaled into the on-disk config so a stopped simulator
-// still has the last-known values and so the GUI's read-only badges
-// (which receive them via the Wails ConfigSnapshot bridge) work.
+// Encoding, Width, Height, and FPS are probed from the mp4 when MediaFilePath
+// is set and overwritten in memory at simulator startup; Bitrate and GOPLength
+// are not derived from the file. Persisted JSON still carries the last-known
+// values so a stopped simulator and the GUI read-only fields have fallback data.
 type ProfileConfig struct {
 	Name          string `json:"name"`
 	Token         string `json:"token"`
