@@ -207,7 +207,7 @@ func newProfileFormModal(sim SimulatorAPI, p *config.ProfileConfig, edit bool) *
 		{"human-readable name", p.Name},
 		{"stable token (key)", p.Token},
 		{"/absolute/path/to/video.mp4", p.MediaFilePath},
-		{"http(s) snapshot URL (optional)", p.SnapshotURI},
+		{"snapshot URL override (blank = serve from media file)", p.SnapshotURI},
 		{"video source token (optional)", p.VideoSourceToken},
 	}
 	m := &profileFormModal{sim: sim, edit: edit}

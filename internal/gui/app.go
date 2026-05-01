@@ -223,7 +223,10 @@ func (a *App) PickMediaFile() (string, error) {
 	})
 }
 
-// SetProfileSnapshotURI updates the pass-through snapshot URI for a profile.
+// SetProfileSnapshotURI sets the snapshot URI override for a profile.
+// Pass an empty string to clear the override and let the simulator host the
+// snapshot itself at /onvif/snapshot/<token>.jpg (the recommended setup
+// when MediaFilePath is configured).
 func (a *App) SetProfileSnapshotURI(token, uri string) error {
 	return a.sim.SetProfileSnapshotURI(token, uri)
 }

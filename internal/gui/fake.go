@@ -58,7 +58,6 @@ func defaultFakeConfig() config.Config {
 				{
 					Name: "main", Token: "profile_main",
 					MediaFilePath:    "/var/onvif/main.mp4",
-					SnapshotURI:      "http://127.0.0.1:8080/snapshot/main.jpg",
 					VideoSourceToken: "VS_MAIN",
 				},
 				{
