@@ -11,6 +11,7 @@ A cross-platform ONVIF device simulator written in Go. Supports CLI, TUI, and GU
 
 - ONVIF Profile S (camera streaming simulation)
 - Multiple interface modes: CLI, TUI, GUI
+- Embedded RTSP server — point each profile at a local mp4 and the simulator loops it as the live stream
 - Configure multiple streams (main, sub)
 
 ## Supported profiles
@@ -85,12 +86,43 @@ The features are the same as the TUI mode.
 
 ### `onvif-simulator.json`
 
-onvif-simulator does not manage RTSP streams itself. Provide pre-existing RTSP endpoints in a JSON config file placed in the working directory; the simulator returns those URIs verbatim to ONVIF clients.
+onvif-simulator embeds its own RTSP server. For each profile, point `media_file_path` at a local H.264/H.265 mp4 file; the simulator loops it and serves an RTSP stream at `rtsp://<host>:<rtsp_port>/<profile token>`, which is what `GetStreamUri` returns.
 
-Copy the bundled example and edit it for your environment:
+#### File location
+
+The config file is named `onvif-simulator.json` and is auto-created on first run at the OS-standard user config directory:
+
+| OS      | Path                                                                                                          |
+|---------|---------------------------------------------------------------------------------------------------------------|
+| macOS   | `~/Library/Application Support/onvif-simulator/onvif-simulator.json`                                          |
+| Linux   | `$XDG_CONFIG_HOME/onvif-simulator/onvif-simulator.json` &nbsp;(falls back to `~/.config/onvif-simulator/...`) |
+| Windows | `%AppData%\onvif-simulator\onvif-simulator.json` &nbsp;(typically `C:\Users\<you>\AppData\Roaming\...`)       |
+
+To override the path for a single run, pass `-config /path/to/onvif-simulator.json` to the CLI. As a fallback for ad-hoc use and tests, `Load` also accepts `./onvif-simulator.json` in the working directory when no path has been set.
+
+To start from the bundled example, create the user config directory if it does not exist, then copy the example file to the path for your OS (see the table above) or into the working directory:
 
 ```bash
+# Linux: respects XDG_CONFIG_HOME when set, otherwise ~/.config
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/onvif-simulator"
+mkdir -p "$CONFIG_DIR"
+cp onvif-simulator.example.json "$CONFIG_DIR/onvif-simulator.json"
+
+# macOS
+mkdir -p "$HOME/Library/Application Support/onvif-simulator"
+cp onvif-simulator.example.json "$HOME/Library/Application Support/onvif-simulator/onvif-simulator.json"
+
+# Or keep it in the working directory for quick experiments (no extra directory needed)
 cp onvif-simulator.example.json onvif-simulator.json
+```
+
+**Windows (PowerShell)** — `%AppData%` expands to your roaming profile directory (see table above):
+
+```powershell
+New-Item -ItemType Directory -Force -Path "$env:APPDATA\onvif-simulator" | Out-Null
+Copy-Item onvif-simulator.example.json "$env:APPDATA\onvif-simulator\onvif-simulator.json"
+# Or working directory:
+Copy-Item onvif-simulator.example.json onvif-simulator.json
 ```
 
 **Minimal required fields:**
@@ -112,16 +144,14 @@ cp onvif-simulator.example.json onvif-simulator.json
       {
         "name": "main",
         "token": "profile_main",
-        "rtsp": "rtsp://127.0.0.1:8554/main",
-        "encoding": "H264",
-        "width": 1920,
-        "height": 1080,
-        "fps": 30
+        "media_file_path": "/absolute/path/to/main.mp4"
       }
     ]
   }
 }
 ```
+
+(`network.rtsp_port` is optional; omit it to use the default `8554`.)
 
 **Optional sections** (all fields shown in `onvif-simulator.example.json`):
 
@@ -131,7 +161,17 @@ cp onvif-simulator.example.json onvif-simulator.json
 | `runtime` | Persist Device Management runtime state: `discovery_mode`, `hostname`, `dns`, `default_gateway`, `network_protocols`, `system_date_and_time`. Written by ONVIF Set* operations; editing manually sets the initial value. |
 | `events` | Configure the Event Service: `max_pull_points`, `subscription_timeout` (Go duration, e.g. `"1h"`), and the `topics` list (name + enabled flag). |
 
-> **Note:** `encoding` must be one of `H264`, `H265`, or `MJPEG`. The `rtsp` field must be a valid `rtsp://` URL and must be reachable at runtime.
+> **Notes:**
+> - `network.rtsp_port` is optional and defaults to `8554` when omitted or set to `0`; it must differ from `http_port`.
+> - `media_file_path` must be an absolute path to an mp4 with an H.264 or H.265 video track.
+> - When `media_file_path` is set, `encoding`, `width`, `height`, and `fps` are read from the file at startup (via probe) and replace the in-memory profile values for the running simulator; `bitrate` and `gop_length` are not derived from the file and still come from the config for ONVIF. Persisted JSON values for the probe-derived fields are only used as fallback display data when the simulator is stopped.
+
+If you don't have a sample clip handy, generate one with ffmpeg:
+
+```bash
+ffmpeg -y -f lavfi -i testsrc=duration=10:size=1280x720:rate=30 \
+    -c:v libx264 -pix_fmt yuv420p sample.mp4
+```
 
 ## Development
 

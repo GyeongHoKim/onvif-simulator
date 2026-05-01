@@ -18,7 +18,9 @@ endif
 
 FRONTEND_DIST := internal/gui/frontend/dist
 
-.PHONY: cli gui gui-windows gui-darwin gui-linux format lint test test-go test-frontend coverage e2e clean setup manual
+.PHONY: build cli gui gui-windows gui-darwin gui-linux format lint test test-go test-frontend coverage e2e clean setup manual
+
+build: cli gui
 
 cli:
 	$(GO) build -o $(CLI_OUT) ./cmd/cli
@@ -36,7 +38,7 @@ gui-linux: $(FRONTEND_DIST)
 	cd cmd/gui && wails build -platform linux/amd64 -tags webkit2_41
 
 format:
-	$(GO) fmt ./...
+	golangci-lint fmt ./...
 
 $(FRONTEND_DIST):
 	cd internal/gui/frontend && npm install && npm run build

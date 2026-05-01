@@ -13,31 +13,22 @@
     ]
   },
   "network": {
-    "http_port": 8080
+    "http_port": 8080,
+    "rtsp_port": 8554
   },
   "media": {
     "profiles": [
       {
         "name": "main",
         "token": "profile_main",
-        "rtsp": "rtsp://127.0.0.1:8554/main",
-        "encoding": "H264",
-        "width": 1920,
-        "height": 1080,
-        "fps": 30,
-        "bitrate": 4096,
-        "gop_length": 60,
+        "media_file_path": "/absolute/path/to/main.mp4",
         "snapshot_uri": "http://127.0.0.1:8080/snapshot/main.jpg",
         "video_source_token": "VS_MAIN"
       },
       {
         "name": "sub",
         "token": "profile_sub",
-        "rtsp": "rtsp://127.0.0.1:8554/sub",
-        "encoding": "H264",
-        "width": 640,
-        "height": 480,
-        "fps": 15
+        "media_file_path": "/absolute/path/to/sub.mp4"
       }
     ]
   },
@@ -76,7 +67,7 @@
     },
     "network_protocols": [
       {"name": "HTTP",  "enabled": true,  "port": [8080]},
-      {"name": "RTSP",  "enabled": true,  "port": [554]},
+      {"name": "RTSP",  "enabled": true,  "port": [8554]},
       {"name": "HTTPS", "enabled": false, "port": [443]}
     ],
     "system_date_and_time": {
