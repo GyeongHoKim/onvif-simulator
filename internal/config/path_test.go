@@ -237,9 +237,10 @@ func TestEnsureExistsConcurrentRaceSingleWriter(t *testing.T) {
 	}
 }
 
-// TestEnsureExistsStatError covers the "exists but stat failed for another
-// reason" branch by passing a path under a file (not a directory), which
-// produces a not-a-directory error rather than ErrNotExist.
+// TestEnsureExistsStatError verifies EnsureExists surfaces an error when
+// its target's parent is a regular file. The exact error class is
+// platform-dependent (see comment inside) so the strict ENOTDIR-style
+// assertion only runs where it applies.
 func TestEnsureExistsStatError(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -248,12 +249,27 @@ func TestEnsureExistsStatError(t *testing.T) {
 		t.Fatalf("seed blocker: %v", err)
 	}
 
-	// blocker/onvif-simulator.json — Stat returns ENOTDIR (not ErrNotExist).
+	// The path points "under" a regular file. EnsureExists must surface a
+	// non-nil error in this case across all OSes, but the failing call
+	// differs:
+	//
+	//   Linux/macOS: os.Stat itself fails with ENOTDIR — distinct from
+	//                ErrNotExist — exercising the stat-error branch in
+	//                EnsureExists. We can assert on the error class.
+	//   Windows:     os.Stat reports ErrNotExist for paths under a file,
+	//                so EnsureExists falls through to writeTempFile, whose
+	//                MkdirAll fails (Windows wraps that error as
+	//                ErrNotExist as well). The function still returns an
+	//                error, just via a different branch — so we only
+	//                assert that an error came back.
 	_, err := config.EnsureExists(filepath.Join(blocker, config.FileName))
 	if err == nil {
-		t.Fatal("expected stat error when parent is a regular file")
+		t.Fatal("expected error when parent is a regular file")
+	}
+	if runtime.GOOS == "windows" {
+		return
 	}
 	if errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("expected non-ErrNotExist error, got %v", err)
+		t.Fatalf("expected non-ErrNotExist error on %s, got %v", runtime.GOOS, err)
 	}
 }
