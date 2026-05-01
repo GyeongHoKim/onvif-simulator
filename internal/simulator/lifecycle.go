@@ -14,6 +14,7 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/eventsvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/mediasvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/rtsp"
+	"github.com/GyeongHoKim/onvif-simulator/internal/snapshot"
 )
 
 // Start boots the HTTP server, the broker reaper, and WS-Discovery. Idempotent.
@@ -39,6 +40,15 @@ func (s *Simulator) Start(_ context.Context) error {
 		return rtspErr
 	}
 
+	snapshotCache, snapErr := extractSnapshots(&cfg)
+	if snapErr != nil {
+		_ = listener.Close() //nolint:errcheck // best-effort during failure
+		if rtspServer != nil {
+			rtspServer.Stop()
+		}
+		return snapErr
+	}
+
 	server := buildHTTPServer(s)
 	listenAddr := listener.Addr().String()
 
@@ -58,6 +68,7 @@ func (s *Simulator) Start(_ context.Context) error {
 	s.mu.Lock()
 	s.server = server
 	s.rtspServer = rtspServer
+	s.snapshotCache = snapshotCache
 	if probedProfiles != nil {
 		s.cfg.Media.Profiles = probedProfiles
 	}
@@ -80,6 +91,7 @@ func buildHTTPServer(s *Simulator) *http.Server {
 	mux.Handle(mediasvc.MediaServicePath, s.medHandler)
 	mux.Handle(eventsvc.EventServicePath, s.evtHandler)
 	mux.Handle(eventsvc.SubscriptionManagerPath, s.subHandler)
+	mux.Handle(snapshot.PathPrefix, snapshot.NewHandler(s.snapshotJPEG, s.mediaAuthHook))
 	return &http.Server{
 		Handler:      mux,
 		ReadTimeout:  15 * time.Second,
@@ -162,6 +174,32 @@ func startRTSPServer(cfg *config.Config) (*rtsp.Server, []config.ProfileConfig, 
 	return srv, probed, nil
 }
 
+// extractSnapshots decodes the first keyframe of every profile that has a
+// MediaFilePath set and no explicit SnapshotURI override, returning a token →
+// JPEG bytes map. Profiles whose snapshot URI is overridden (pointing at an
+// external HTTP service) and profiles with neither are skipped — the
+// SnapshotURI provider helper handles those cases.
+//
+// Decoding happens once at simulator Start. Caching the result in memory
+// trades a small RSS bump for zero per-request decode latency, matching the
+// "static device" mental model the simulator presents to ONVIF clients.
+func extractSnapshots(cfg *config.Config) (map[string][]byte, error) {
+	cache := make(map[string][]byte)
+	for i := range cfg.Media.Profiles {
+		p := &cfg.Media.Profiles[i]
+		if p.MediaFilePath == "" || p.SnapshotURI != "" {
+			continue
+		}
+		bytes, err := snapshot.Extract(p.MediaFilePath)
+		if err != nil {
+			return nil, fmt.Errorf("simulator: extract snapshot for profile %q (%s): %w",
+				p.Token, p.MediaFilePath, err)
+		}
+		cache[p.Token] = bytes
+	}
+	return cache, nil
+}
+
 // Stop gracefully shuts down. Idempotent.
 func (s *Simulator) Stop(ctx context.Context) error {
 	s.mu.Lock()
@@ -176,6 +214,7 @@ func (s *Simulator) Stop(ctx context.Context) error {
 	s.running = false
 	s.server = nil
 	s.rtspServer = nil
+	s.snapshotCache = nil
 	s.discoveryCancel = nil
 	s.discoveryDone = nil
 	s.mu.Unlock()

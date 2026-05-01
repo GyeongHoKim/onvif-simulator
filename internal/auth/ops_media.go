@@ -28,6 +28,10 @@ var MediaOperationClasses = map[string]AccessClass{
 	"GetVideoEncoderConfigurationOptions":     ClassReadMedia,
 	"GetStreamUri":                            ClassReadMedia,
 	"GetSnapshotUri":                          ClassReadMedia,
+	// GetSnapshotHTTP is the synthetic operation name used by the embedded
+	// snapshot HTTP endpoint (/onvif/snapshot/<token>.jpg). ONVIF Core §5.9.4
+	// classifies snapshot retrieval as read-only media access.
+	"GetSnapshotHTTP": ClassReadMedia,
 
 	// Read-only media queries (continued).
 	"GetGuaranteedNumberOfVideoEncoderInstances": ClassReadMedia,

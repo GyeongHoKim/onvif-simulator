@@ -11,6 +11,7 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/mediasvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/rtsp"
+	"github.com/GyeongHoKim/onvif-simulator/internal/snapshot"
 )
 
 // mediaProvider implements mediasvc.Provider for the simulator.
@@ -277,15 +278,33 @@ func streamURIFor(cfg *config.Config, p *config.ProfileConfig) string {
 	return "rtsp://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/" + p.Token
 }
 
+// SnapshotURI returns the URL ONVIF clients should fetch a JPEG from for the
+// given profile. The semantics mirror StreamURI:
+//
+//   - If ProfileConfig.SnapshotURI is set, it is treated as an explicit
+//     override and returned verbatim (pass-through to an external HTTP
+//     service).
+//   - Otherwise, when MediaFilePath is set, the simulator hosts the snapshot
+//     itself and returns http://<advertised host>:<httpport><snapshot path>.
+//   - When neither is set, ErrNoSnapshot is returned and the mediasvc handler
+//     maps it to a SOAP fault.
 func (p *mediaProvider) SnapshotURI(_ context.Context, profileToken string) (mediasvc.MediaURI, error) {
 	cfg := p.sim.snapshotConfig()
 	for i := range cfg.Media.Profiles {
-		if cfg.Media.Profiles[i].Token == profileToken {
-			if cfg.Media.Profiles[i].SnapshotURI == "" {
-				return mediasvc.MediaURI{}, fmt.Errorf("%w: %s", mediasvc.ErrNoSnapshot, profileToken)
-			}
-			return mediasvc.MediaURI{URI: cfg.Media.Profiles[i].SnapshotURI, Timeout: "PT0S"}, nil
+		prof := &cfg.Media.Profiles[i]
+		if prof.Token != profileToken {
+			continue
 		}
+		if prof.SnapshotURI != "" {
+			return mediasvc.MediaURI{URI: prof.SnapshotURI, Timeout: "PT0S"}, nil
+		}
+		if prof.MediaFilePath == "" {
+			return mediasvc.MediaURI{}, fmt.Errorf("%w: %s", mediasvc.ErrNoSnapshot, profileToken)
+		}
+		host := localAddrForXAddr()
+		port := cfg.Network.HTTPPort
+		uri := "http://" + net.JoinHostPort(host, strconv.Itoa(port)) + snapshot.PathFor(prof.Token)
+		return mediasvc.MediaURI{URI: uri, Timeout: "PT0S"}, nil
 	}
 	return mediasvc.MediaURI{}, fmt.Errorf("%w: %s", mediasvc.ErrProfileNotFound, profileToken)
 }

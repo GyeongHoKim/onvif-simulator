@@ -104,6 +104,7 @@ type Simulator struct {
 	started         time.Time
 	server          *http.Server
 	rtspServer      *rtsp.Server
+	snapshotCache   map[string][]byte
 	listenAddr      string
 	discoveryCancel context.CancelFunc
 	discoveryDone   chan struct{}
@@ -261,6 +262,20 @@ func (s *Simulator) snapshotConfig() config.Config {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return cloneConfig(&s.cfg)
+}
+
+// snapshotJPEG returns the cached JPEG bytes for a profile token, or
+// (nil, false) when the token has no decoded snapshot. Bytes are produced at
+// Start time by extractSnapshots and never mutate afterwards, so the slice
+// can be returned without copying — the caller (HTTP handler) only writes it.
+func (s *Simulator) snapshotJPEG(token string) ([]byte, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.snapshotCache == nil {
+		return nil, false
+	}
+	bytes, ok := s.snapshotCache[token]
+	return bytes, ok
 }
 
 // reloadFromDisk reads the config file again and updates live state. Called

@@ -3,6 +3,7 @@ package simulator
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
@@ -302,8 +303,34 @@ func TestSnapshotURIWhenSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SnapshotURI: %v", err)
 	}
-	if uri.URI == "" {
-		t.Fatal("expected non-empty snapshot uri")
+	if uri.URI != "http://127.0.0.1/snap.jpg" {
+		t.Fatalf("override SnapshotURI = %q, want passthrough", uri.URI)
+	}
+}
+
+// TestSnapshotURIAutoDerivedFromMediaFilePath covers the new branch where
+// SnapshotURI is empty but MediaFilePath is set: the simulator computes its
+// own /onvif/snapshot/<token>.jpg URL on its HTTP port.
+func TestSnapshotURIAutoDerivedFromMediaFilePath(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+
+	// Seed a MediaFilePath but leave SnapshotURI empty (the recommended setup).
+	if err := sim.SetProfileMediaFilePath("profile_main", "/tmp/whatever.mp4"); err != nil {
+		t.Fatalf("SetProfileMediaFilePath: %v", err)
+	}
+	if err := sim.SetProfileSnapshotURI("profile_main", ""); err != nil {
+		t.Fatalf("clear SnapshotURI: %v", err)
+	}
+	uri, err := sim.mediaProv.SnapshotURI(context.Background(), "profile_main")
+	if err != nil {
+		t.Fatalf("SnapshotURI: %v", err)
+	}
+	if !strings.Contains(uri.URI, "/onvif/snapshot/profile_main.jpg") {
+		t.Fatalf("SnapshotURI = %q, want auto-derived path", uri.URI)
+	}
+	if !strings.HasPrefix(uri.URI, "http://") {
+		t.Fatalf("SnapshotURI = %q, want http scheme", uri.URI)
 	}
 }
 

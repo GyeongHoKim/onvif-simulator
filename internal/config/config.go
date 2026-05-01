@@ -238,8 +238,14 @@ type MetadataConfig struct {
 // ProfileConfig describes a single ONVIF media profile.
 //
 // MediaFilePath is the path to a local mp4 file that the embedded RTSP
-// server loops to produce this profile's stream. SnapshotURI is still
-// pass-through (the simulator does not synthesize snapshots yet).
+// server loops to produce this profile's stream. The simulator also extracts
+// the first decodable keyframe of that file at startup and serves it as a
+// JPEG snapshot at /onvif/snapshot/<token>.jpg.
+//
+// SnapshotURI is now an *override* — when set, GetSnapshotUri returns it
+// verbatim (pass-through to an external HTTP service). When empty and
+// MediaFilePath is set, the simulator computes its own snapshot URL and
+// hosts the bytes itself.
 //
 // Encoding, Width, Height, and FPS are probed from the mp4 when MediaFilePath
 // is set and overwritten in memory at simulator startup; Bitrate and GOPLength
