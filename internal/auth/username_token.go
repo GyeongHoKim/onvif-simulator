@@ -77,6 +77,21 @@ func NewUsernameTokenAuthenticator(store UserStore, opts UsernameTokenOptions) A
 }
 
 func (u *usernameTokenAuth) Authenticate(ctx context.Context, r *http.Request) (*Principal, error) {
+	p, err := u.authenticate(ctx, r)
+	if err == nil || errors.Is(err, ErrNoCredentials) {
+		return p, err
+	}
+	var alreadyWrapped *ChallengeError
+	if errors.As(err, &alreadyWrapped) {
+		return nil, alreadyWrapped
+	}
+	if isAuthenticatorClientFailure(err) {
+		return nil, NewChallengeError(err, http.StatusUnauthorized, nil, OnvifFaultNotAuthorized)
+	}
+	return nil, err
+}
+
+func (u *usernameTokenAuth) authenticate(ctx context.Context, r *http.Request) (*Principal, error) {
 	tok, err := u.readToken(r)
 	if err != nil {
 		return nil, err

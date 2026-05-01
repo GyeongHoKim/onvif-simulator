@@ -98,13 +98,27 @@ var (
 	ErrForbidden = errors.New("auth: access forbidden for role")
 )
 
+// ONVIF SOAP fault subcode values per ONVIF Core §5.12 (Errors).
+// These map onto the QName <env:Subcode><env:Value>...</env:Value></env:Subcode>
+// and require the namespace prefix `ter` to resolve to ONVIFErrorNamespace.
+const (
+	OnvifFaultNotAuthorized       = "ter:NotAuthorized"
+	OnvifFaultOperationProhibited = "ter:OperationProhibited"
+)
+
+// ONVIFErrorNamespace is the URI bound to the `ter` prefix in fault subcodes.
+const ONVIFErrorNamespace = "http://www.onvif.org/ver10/error"
+
 // ChallengeError wraps an authentication error with HTTP response metadata
-// (status code and headers such as WWW-Authenticate) that the service handler
-// should copy into the 401 response.
+// (status code, headers such as WWW-Authenticate) and the ONVIF SOAP fault
+// Subcode that the service handler should copy into the 401/403 response.
 type ChallengeError struct {
 	Err     error
 	Status  int
 	Headers http.Header
+	// Subcode is the ONVIF fault Subcode value (e.g. "ter:NotAuthorized").
+	// Empty means the service should omit the Subcode element.
+	Subcode string
 }
 
 // Error returns the wrapped error's message.
@@ -123,13 +137,15 @@ func (e *ChallengeError) Unwrap() error {
 	return e.Err
 }
 
-// NewChallengeError returns a *ChallengeError with the given status and headers.
-// Status defaults to 401 if zero.
-func NewChallengeError(err error, status int, headers http.Header) *ChallengeError {
+// NewChallengeError returns a *ChallengeError with the given status, headers
+// and ONVIF fault Subcode. Status defaults to 401 if zero. Subcode may be
+// empty when the caller does not need an ONVIF-specific Subcode (e.g. a plain
+// transport-level challenge).
+func NewChallengeError(err error, status int, headers http.Header, subcode string) *ChallengeError {
 	if status == 0 {
 		status = http.StatusUnauthorized
 	}
-	return &ChallengeError{Err: err, Status: status, Headers: headers}
+	return &ChallengeError{Err: err, Status: status, Headers: headers, Subcode: subcode}
 }
 
 // NewChain runs the provided Authenticators in order and implements the
@@ -166,26 +182,76 @@ func (c *chain) Authenticate(ctx context.Context, r *http.Request) (*Principal, 
 		}
 		var ce *ChallengeError
 		isChallenge := errors.As(err, &ce)
-		if isChallenge {
-			for k, vv := range ce.Headers {
-				for _, v := range vv {
-					combined.Add(k, v)
-				}
-			}
-		}
 		// No credentials for this scheme — keep trying the others, but
 		// remember the challenge headers so the final 401 is informative.
 		if errors.Is(err, ErrNoCredentials) {
+			if isChallenge {
+				combined = mergeHeaders(combined, ce.Headers)
+			}
 			continue
 		}
 		// A hard validation error (bad password, stale nonce, forged token…).
+		if len(combined) > 0 {
+			if isChallenge {
+				ce.Headers = mergeHeaders(combined, ce.Headers)
+				return nil, ce
+			}
+			if isAuthenticatorClientFailure(err) {
+				return nil, NewChallengeError(err, http.StatusUnauthorized, cloneHeaders(combined), OnvifFaultNotAuthorized)
+			}
+			return nil, err
+		}
 		return nil, err
 	}
 	if winner != nil {
 		return winner, nil
 	}
 	if len(combined) > 0 {
-		return nil, NewChallengeError(ErrNoCredentials, http.StatusUnauthorized, combined)
+		return nil, NewChallengeError(ErrNoCredentials, http.StatusUnauthorized, combined, OnvifFaultNotAuthorized)
 	}
 	return nil, ErrNoCredentials
+}
+
+func cloneHeaders(h http.Header) http.Header {
+	if len(h) == 0 {
+		return nil
+	}
+	cloned := make(http.Header, len(h))
+	for k, vv := range h {
+		cloned[k] = append([]string(nil), vv...)
+	}
+	return cloned
+}
+
+func mergeHeaders(dst, src http.Header) http.Header {
+	merged := cloneHeaders(dst)
+	if merged == nil {
+		merged = make(http.Header)
+	}
+	for k, vv := range src {
+		for _, v := range vv {
+			merged.Add(k, v)
+		}
+	}
+	return merged
+}
+
+// isAuthenticatorClientFailure reports whether err means this scheme rejected
+// the client's credentials or token (including policy violations like clock
+// skew), as opposed to an internal operational failure (I/O, backend errors).
+// Used by Chain and UsernameToken to decide when to wrap as *ChallengeError.
+func isAuthenticatorClientFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, ErrInvalidCredentials) ||
+		errors.Is(err, ErrStaleNonce) ||
+		errors.Is(err, ErrReplayedNonce) ||
+		errors.Is(err, ErrClockSkew) ||
+		errors.Is(err, ErrTokenMalformed) ||
+		errors.Is(err, ErrTokenExpired) ||
+		errors.Is(err, ErrTokenSignature) ||
+		errors.Is(err, ErrAudienceMismatch) ||
+		errors.Is(err, ErrIssuerMismatch) ||
+		errors.Is(err, ErrInsecureTransport)
 }

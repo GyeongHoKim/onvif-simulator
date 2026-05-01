@@ -47,7 +47,8 @@ func NewOperationAuthorizer(a Authenticator, p Policy, classify OperationClassFu
 			return err
 		}
 		if !p.Allow(principal, class) {
-			return fmt.Errorf("%w: %s not allowed for class %d", ErrForbidden, principal.Username, class)
+			forbidden := fmt.Errorf("%w: %s not allowed for class %d", ErrForbidden, principal.Username, class)
+			return NewChallengeError(forbidden, http.StatusForbidden, nil, OnvifFaultOperationProhibited)
 		}
 		return nil
 	}

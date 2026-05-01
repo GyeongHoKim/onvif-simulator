@@ -110,8 +110,9 @@ func (s *Simulator) authorize(ctx context.Context, _ string, r *http.Request, cl
 		return err
 	}
 	if !auth.DefaultPolicy().Allow(principal, class) {
-		return fmt.Errorf("%w: %s not allowed for class %d",
+		forbidden := fmt.Errorf("%w: %s not allowed for class %d",
 			auth.ErrForbidden, principal.Username, class)
+		return auth.NewChallengeError(forbidden, http.StatusForbidden, nil, auth.OnvifFaultOperationProhibited)
 	}
 	return nil
 }

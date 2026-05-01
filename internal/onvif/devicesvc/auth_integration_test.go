@@ -139,6 +139,19 @@ func TestDeviceAuthChallengeOnMissingCredentials(t *testing.T) {
 	if !strings.HasPrefix(challenge, "Digest ") {
 		t.Fatalf("expected Digest challenge header, got %q", challenge)
 	}
+	// ONVIF Core §5.12: the SOAP fault on auth failure must carry the
+	// ter:NotAuthorized Subcode so gSOAP-style WS-Security clients (which
+	// ignore HTTP-level WWW-Authenticate) recognize the failure mode.
+	respBody := rec.Body.String()
+	if !strings.Contains(respBody, "ter:NotAuthorized") {
+		t.Errorf("auth fault missing ter:NotAuthorized subcode: %s", respBody)
+	}
+	if !strings.Contains(respBody, auth.ONVIFErrorNamespace) {
+		t.Errorf("auth fault missing ter namespace declaration (%q): %s", auth.ONVIFErrorNamespace, respBody)
+	}
+	if !strings.Contains(respBody, "<env:Subcode>") {
+		t.Errorf("auth fault missing <env:Subcode> element: %s", respBody)
+	}
 }
 
 func TestDeviceAuthDigestSuccess(t *testing.T) {
@@ -244,8 +257,30 @@ func TestDeviceAuthForbiddenReturns403(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 for forbidden op, got %d; body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "env:Sender") {
-		t.Fatalf("expected env:Sender fault code, got %s", rec.Body.String())
+	respBody := rec.Body.String()
+	if !strings.Contains(respBody, "env:Sender") {
+		t.Fatalf("expected env:Sender fault code, got %s", respBody)
+	}
+	// ONVIF Core §5.12: forbidden role -> ter:OperationProhibited subcode.
+	if !strings.Contains(respBody, "ter:OperationProhibited") {
+		t.Errorf("forbidden fault missing ter:OperationProhibited subcode: %s", respBody)
+	}
+}
+
+// TestDeviceAuthFaultSubcodeOnUnparseableBody verifies that the probe-friendly
+// fallback (empty/unparseable body, no Authorization header) emits the same
+// ONVIF-compliant fault with ter:NotAuthorized subcode rather than a bare 401.
+func TestDeviceAuthFaultSubcodeOnUnparseableBody(t *testing.T) {
+	h := newAuthenticatedHandler(t)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		devicesvc.DeviceServicePath, bytes.NewBufferString(""))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d want 401; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "ter:NotAuthorized") {
+		t.Errorf("auth fault missing ter:NotAuthorized subcode: %s", rec.Body.String())
 	}
 }
 

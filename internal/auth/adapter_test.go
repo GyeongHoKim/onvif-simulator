@@ -65,6 +65,19 @@ func TestOperationAuthorizerForbidden(t *testing.T) {
 	if !errors.Is(err, auth.ErrForbidden) {
 		t.Fatalf("expected ErrForbidden, got %v", err)
 	}
+	// The forbidden error must be wrapped in a ChallengeError carrying
+	// HTTP 403 and the ONVIF OperationProhibited subcode so the service
+	// handler emits an ONVIF-compliant SOAP fault.
+	var ce *auth.ChallengeError
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected *ChallengeError, got %T", err)
+	}
+	if ce.Status != http.StatusForbidden {
+		t.Fatalf("Status = %d, want 403", ce.Status)
+	}
+	if ce.Subcode != auth.OnvifFaultOperationProhibited {
+		t.Fatalf("Subcode = %q, want %q", ce.Subcode, auth.OnvifFaultOperationProhibited)
+	}
 }
 
 func TestOperationAuthorizerUnknownOpDefaultsToWriteSystem(t *testing.T) {

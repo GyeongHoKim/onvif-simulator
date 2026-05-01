@@ -72,6 +72,27 @@ func TestUsernameTokenSuccess(t *testing.T) {
 	}
 }
 
+type boomReader struct{}
+
+func (boomReader) Read([]byte) (int, error) {
+	return 0, errTestBoom
+}
+
+func TestUsernameTokenBodyReadErrorNotChallengeError(t *testing.T) {
+	t.Parallel()
+	store := auth.NewMutableUserStore(nil)
+	a := auth.NewUsernameTokenAuthenticator(store, auth.UsernameTokenOptions{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/", io.NopCloser(boomReader{}))
+	_, err := a.Authenticate(context.Background(), req)
+	if !errors.Is(err, errTestBoom) {
+		t.Fatalf("expected read error, got %v", err)
+	}
+	var ce *auth.ChallengeError
+	if errors.As(err, &ce) {
+		t.Fatalf("I/O failure must not be wrapped as *ChallengeError")
+	}
+}
+
 func TestUsernameTokenMissingHeader(t *testing.T) {
 	t.Parallel()
 	store := auth.NewMutableUserStore([]auth.UserRecord{{Username: "u", Password: "p"}})
@@ -99,6 +120,41 @@ func TestUsernameTokenBadPassword(t *testing.T) {
 	_, err := a.Authenticate(context.Background(), req)
 	if !errors.Is(err, auth.ErrInvalidCredentials) {
 		t.Fatalf("expected ErrInvalidCredentials, got %v", err)
+	}
+	// Hard validation failures must surface as a *ChallengeError carrying
+	// the ONVIF NotAuthorized subcode so the SOAP fault tells gSOAP-style
+	// clients that authentication is the issue.
+	var ce *auth.ChallengeError
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected *ChallengeError, got %T", err)
+	}
+	if ce.Subcode != auth.OnvifFaultNotAuthorized {
+		t.Fatalf("Subcode = %q, want %q", ce.Subcode, auth.OnvifFaultNotAuthorized)
+	}
+	if ce.Status != http.StatusUnauthorized {
+		t.Fatalf("Status = %d, want 401", ce.Status)
+	}
+}
+
+// TestUsernameTokenNoCredentialsRemainsBare verifies the soft "no credentials"
+// path still surfaces as a plain ErrNoCredentials so the auth chain can fall
+// through to other authenticators.
+func TestUsernameTokenNoCredentialsRemainsBare(t *testing.T) {
+	t.Parallel()
+	store := auth.NewMutableUserStore(nil)
+	a := auth.NewUsernameTokenAuthenticator(store, auth.UsernameTokenOptions{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/", strings.NewReader(
+		`<?xml version="1.0"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body/></s:Envelope>`,
+	))
+	_, err := a.Authenticate(context.Background(), req)
+	if !errors.Is(err, auth.ErrNoCredentials) {
+		t.Fatalf("expected ErrNoCredentials, got %v", err)
+	}
+	// Soft errors must NOT be wrapped — the chain depends on
+	// errors.Is(err, ErrNoCredentials) to fall through.
+	var ce *auth.ChallengeError
+	if errors.As(err, &ce) {
+		t.Fatalf("ErrNoCredentials should not be wrapped in *ChallengeError, got %+v", ce)
 	}
 }
 
