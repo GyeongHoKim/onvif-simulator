@@ -4,6 +4,7 @@ go 1.26.2
 
 require (
 	github.com/MicahParks/keyfunc/v3 v3.8.0
+	github.com/asticode/go-astiav v0.40.0
 	github.com/bluenviron/gortsplib/v5 v5.5.2
 	github.com/bluenviron/mediacommon/v2 v2.8.3
 	github.com/charmbracelet/bubbles v1.0.0
@@ -20,6 +21,7 @@ require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
 	github.com/MicahParks/jwkset v0.11.0 // indirect
 	github.com/abema/go-mp4 v1.5.0 // indirect
+	github.com/asticode/go-astikit v0.42.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/beevik/etree v1.1.0 // indirect
