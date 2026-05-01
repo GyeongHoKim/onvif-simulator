@@ -18,7 +18,9 @@ endif
 
 FRONTEND_DIST := internal/gui/frontend/dist
 
-.PHONY: cli gui gui-windows gui-darwin gui-linux format lint test test-go test-frontend coverage e2e clean setup manual
+.PHONY: build cli gui gui-windows gui-darwin gui-linux format lint test test-go test-frontend coverage e2e clean setup manual
+
+build: cli gui
 
 cli:
 	$(GO) build -o $(CLI_OUT) ./cmd/cli
