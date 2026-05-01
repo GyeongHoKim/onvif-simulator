@@ -185,6 +185,21 @@ mise install
 
 This installs Go 1.26.2, golangci-lint 2.11.4, and Node.js 24.15.0 (needed for GUI via Wails).
 
+The embedded snapshot endpoint links libavcodec/libavformat/libavutil/libswscale via cgo (`github.com/asticode/go-astiav`, ffmpeg n8.x), so the build requires the ffmpeg development headers in addition to the toolchain above:
+
+```bash
+# macOS
+brew install ffmpeg pkg-config
+
+# Ubuntu / Debian
+sudo apt-get install -y libavcodec-dev libavformat-dev libavutil-dev libswscale-dev pkg-config
+
+# Windows (MSYS2 mingw64 shell)
+pacman -S --needed mingw-w64-x86_64-ffmpeg mingw-w64-x86_64-pkg-config
+```
+
+If `pkg-config` cannot find ffmpeg automatically, point it at your install with `PKG_CONFIG_PATH` (e.g. `export PKG_CONFIG_PATH=/opt/homebrew/Cellar/ffmpeg/8.1/lib/pkgconfig`).
+
 For GUI development, also install the [Wails CLI](https://wails.io/docs/gettingstarted/installation):
 
 ```bash
