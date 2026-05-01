@@ -86,6 +86,12 @@ Section
 
     SetOutPath $INSTDIR
 
+    # Bundle mingw64 runtime DLLs (ffmpeg + cgo deps) collected by the
+    # release workflow into ..\..\bin\ via ntldd before makensis runs.
+    # Without these, the installed .exe fails to start on user machines
+    # that don't have MSYS2 mingw64 installed.
+    File "..\..\bin\*.dll"
+
     !insertmacro wails.files
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"

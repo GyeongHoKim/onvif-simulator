@@ -37,7 +37,7 @@ gui-windows: $(FRONTEND_DIST)
 	cd cmd/gui && wails build -nsis -platform windows/amd64
 
 gui-darwin: $(FRONTEND_DIST)
-	cd cmd/gui && wails build -platform darwin/amd64
+	cd cmd/gui && wails build -platform darwin/arm64
 
 gui-linux: $(FRONTEND_DIST)
 	cd cmd/gui && wails build -platform linux/amd64 -tags webkit2_41

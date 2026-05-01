@@ -10,6 +10,12 @@ permissions:
 
 jobs:
   cli:
+    # The CLI release stays as a CGO_ENABLED=0 cross-compile across
+    # linux/darwin/windows × amd64/arm64 so we keep portable static
+    # binaries. The snapshot endpoint is a cgo feature gated behind a
+    # build tag — these CLI artifacts return ErrSnapshotUnsupported on
+    # GetSnapshotUri, but RTSP / ONVIF / discovery still work normally.
+    # Users who want CLI snapshot decoding build from source via `make cli`.
     name: Release CLI
     runs-on: ubuntu-latest
     steps:
@@ -32,8 +38,29 @@ jobs:
   gui-windows:
     name: Release GUI (Windows)
     runs-on: windows-latest
+    # GUI build needs cgo + ffmpeg dev libs for the embedded snapshot
+    # endpoint, so we set up MSYS2 mingw64 (gcc + pkg-config + ffmpeg)
+    # and run subsequent steps under the msys2 shell.
     steps:
       - uses: actions/checkout@v6.0.2
+
+      - name: Setup MSYS2 + mingw-w64 ffmpeg
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-ffmpeg
+            mingw-w64-x86_64-ntldd-git
+
+      - name: Expose mingw64 toolchain to subsequent steps
+        shell: bash
+        run: |
+          echo "C:/msys64/mingw64/bin" >> "$GITHUB_PATH"
+          echo "PKG_CONFIG_PATH=C:/msys64/mingw64/lib/pkgconfig" >> "$GITHUB_ENV"
+          echo "CGO_ENABLED=1" >> "$GITHUB_ENV"
 
       - uses: actions/setup-go@v6.4.0
         with:
@@ -62,9 +89,34 @@ jobs:
         shell: bash
         run: echo "C:/Program Files (x86)/NSIS" >> "$GITHUB_PATH"
 
-      - name: Build GUI (NSIS installer)
+      # First pass: build .exe (and the initial installer wails generates,
+      # which we discard — it doesn't yet bundle ffmpeg / mingw runtime DLLs).
+      # This pass also populates build/windows/installer/wails_tools.nsh with
+      # real INFO_* defines from wails.json so the second makensis pass works.
+      - name: Build GUI (.exe + initial installer)
         shell: bash
         run: make gui-windows
+
+      # Walk the .exe's import table and copy every mingw64-resident DLL next
+      # to the .exe. project.nsi has a `File "..\..\bin\*.dll"` line that
+      # picks these up on the next makensis pass. The mingw64 path filter
+      # excludes Windows system DLLs and api-ms-* virtual names automatically.
+      - name: Bundle mingw64 DLL deps next to .exe
+        shell: msys2 {0}
+        run: |
+          cd build/bin
+          ntldd -R onvif-simulator-gui.exe \
+            | awk '/=>/ && $3 ~ /mingw64/ {print $3}' \
+            | sort -u \
+            | xargs -I{} cp -v "{}" .
+
+      # Second pass: regenerate just the installer (no Go re-compile) so the
+      # bundled DLLs end up inside it. wails_tools.nsh already has the right
+      # INFO_* defines from the first pass, so we only pass the binary path.
+      - name: Repackage installer with bundled DLLs
+        shell: bash
+        working-directory: build/windows/installer
+        run: makensis -DARG_WAILS_AMD64_BINARY=..\\..\\bin\\onvif-simulator-gui.exe project.nsi
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v3.0.0
@@ -75,10 +127,19 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   gui-macos:
-    name: Release GUI (macOS)
+    # arm64 only. macos-13 (Intel) is in GitHub's deprecation pipeline, and
+    # building a universal binary would require dual-arch ffmpeg dylibs that
+    # Homebrew doesn't ship. Intel users either run from source or wait for
+    # a future amd64 lane (see plan in repo's release notes).
+    name: Release GUI (macOS arm64)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6.0.2
+
+      # dylibbundler copies linked dylibs into the .app bundle and rewrites
+      # their install names so the app runs on machines without Homebrew.
+      - name: Install ffmpeg + dylibbundler
+        run: brew install ffmpeg pkg-config dylibbundler
 
       - uses: actions/setup-go@v6.4.0
         with:
@@ -98,22 +159,42 @@ jobs:
       - name: Build GUI (.app)
         run: make gui-darwin
 
+      # Without this step the .app links to /opt/homebrew/lib/libav*.dylib
+      # absolute paths and fails with dyld errors on user machines.
+      # @executable_path resolves to .app/Contents/MacOS/, so the rpath points
+      # back into the bundle's Frameworks directory.
+      - name: Bundle Homebrew dylibs into .app/Contents/Frameworks
+        run: |
+          dylibbundler -od -of -ov \
+            -b -d build/bin/onvif-simulator-gui.app/Contents/Frameworks/ \
+            -p @executable_path/../Frameworks/ \
+            -x build/bin/onvif-simulator-gui.app/Contents/MacOS/onvif-simulator-gui
+
+      # Wails ad-hoc signs during build, but install_name_tool rewrites
+      # invalidate the signature. Re-sign with an ad-hoc identity so
+      # Gatekeeper can at least verify the bundle is self-consistent.
+      - name: Re-sign .app with ad-hoc identity
+        run: codesign --force --deep --sign - build/bin/onvif-simulator-gui.app
+
       - name: Package as .dmg
         run: |
           hdiutil create -volname "onvif-simulator" \
             -srcfolder build/bin/onvif-simulator-gui.app \
             -ov -format UDZO \
-            onvif-simulator-gui-darwin-amd64.dmg
+            onvif-simulator-gui-darwin-arm64.dmg
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v3.0.0
         with:
-          files: onvif-simulator-gui-darwin-amd64.dmg
+          files: onvif-simulator-gui-darwin-arm64.dmg
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   gui-linux:
+    # Built on ubuntu-24.04 (glibc 2.39); the resulting AppImage will not run
+    # on older distros (Debian 11 / Ubuntu 22.04 / Fedora 38 etc.). If we ever
+    # need wider compatibility, switch to a debian:bullseye container.
     name: Release GUI (Linux)
     runs-on: ubuntu-latest
     steps:
@@ -131,37 +212,91 @@ jobs:
           cache: npm
           cache-dependency-path: internal/gui/frontend/package-lock.json
 
+      # We deliberately do NOT install apt's libav*-dev packages here:
+      # ubuntu-24.04 ships ffmpeg 6.1, but go-astiav v0.40.0 requires the
+      # ffmpeg n8.0 ABI. We install BtbN's prebuilt ffmpeg 8 shared build
+      # below instead.
       - name: Install system dependencies
-        run: sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config
+
+      - name: Cache BtbN ffmpeg shared build
+        id: cache-ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: ffmpeg-shared.tar.xz
+          key: ffmpeg-btbn-master-latest-linux64-gpl-shared-v1
+
+      - name: Download BtbN ffmpeg shared build
+        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o ffmpeg-shared.tar.xz \
+            https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl-shared.tar.xz
+
+      # BtbN's tarball lays out bin/ include/ lib/ share/ under a top-level
+      # directory; --strip-components=1 flattens it into /usr/local. The .pc
+      # files inside ship with absolute prefix paths from the build host, so
+      # we rewrite prefix= to /usr/local before pkg-config sees them.
+      - name: Install BtbN ffmpeg into /usr/local
+        run: |
+          sudo tar -xJf ffmpeg-shared.tar.xz -C /usr/local --strip-components=1
+          sudo find /usr/local/lib/pkgconfig -name '*.pc' -exec \
+            sed -i 's|^prefix=.*|prefix=/usr/local|' {} +
+          sudo ldconfig
+          echo "PKG_CONFIG_PATH=/usr/local/lib/pkgconfig" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=/usr/local/lib" >> "$GITHUB_ENV"
 
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
-      - name: Install AppImage tool
+      # linuxdeploy + the GTK plugin walk the binary's shared-lib graph and
+      # bundle GTK3, webkit2gtk-4.1, glib schemas, and webkit subprocess
+      # helpers into the AppDir. Without this the AppImage works only on
+      # hosts that already have webkit2gtk-4.1 installed.
+      - name: Install linuxdeploy + plugins
         run: |
-          curl -fsSL -o appimagetool.AppImage https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x appimagetool.AppImage
-          ./appimagetool.AppImage --appimage-extract
-          mv squashfs-root appimagetool-extracted
-          ln -s appimagetool-extracted/AppRun appimagetool
+          curl -fsSL -O https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          curl -fsSL -O https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh
+          curl -fsSL -O https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-gtk.sh linuxdeploy-plugin-appimage-x86_64.AppImage
 
       - name: Build GUI
         run: make gui-linux
 
+      # --library forces inclusion of the BtbN ffmpeg .so files even if
+      # linuxdeploy's automatic dependency walk misses them (it follows
+      # NEEDED entries; some libavfilter codecs are dlopen'd at runtime).
+      # Output filename comes from the .desktop Name field; rename to the
+      # canonical release artifact name afterward.
       - name: Package as AppImage
         run: |
-          mkdir -p AppDir/usr/bin
-          cp build/bin/onvif-simulator-gui AppDir/usr/bin/
-          cp build/appicon.png AppDir/onvif-simulator-gui.png
-          cat > AppDir/onvif-simulator-gui.desktop <<EOF
+          mkdir -p AppDir
+          cat > onvif-simulator-gui.desktop <<EOF
           [Desktop Entry]
-          Name=onvif-simulator
+          Name=onvif-simulator-gui
           Exec=onvif-simulator-gui
           Icon=onvif-simulator-gui
           Type=Application
           Categories=Utility;
           EOF
-          ARCH=x86_64 ./appimagetool AppDir onvif-simulator-gui-linux-amd64.AppImage
+          ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run \
+            --appdir AppDir \
+            -e build/bin/onvif-simulator-gui \
+            -i build/appicon.png \
+            --icon-filename onvif-simulator-gui \
+            -d onvif-simulator-gui.desktop \
+            --plugin gtk \
+            --library /usr/local/lib/libavcodec.so \
+            --library /usr/local/lib/libavformat.so \
+            --library /usr/local/lib/libavutil.so \
+            --library /usr/local/lib/libswscale.so \
+            --library /usr/local/lib/libswresample.so \
+            --library /usr/local/lib/libavfilter.so \
+            --library /usr/local/lib/libavdevice.so \
+            --output appimage
+          mv onvif-simulator-gui*.AppImage onvif-simulator-gui-linux-amd64.AppImage
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v3.0.0

@@ -36,17 +36,32 @@ iex (irm https://github.com/GyeongHoKim/onvif-simulator/releases/latest/download
 
 After installation, the `onvif-simulator` command will be available in your terminal.
 
+> **Note:** the released CLI binary is built without cgo, so the snapshot
+> endpoint (`GetSnapshotUri`) returns `ErrSnapshotUnsupported`. RTSP, ONVIF,
+> and discovery still work normally. If you need snapshot decoding from the
+> CLI, build from source with `make cli` after installing ffmpeg dev headers
+> (see Development → Prerequisites).
+
 ### GUI
 
 Download the installer for your platform from the [Releases](https://github.com/GyeongHoKim/onvif-simulator/releases) page:
 
-| Platform | File |
-|----------|------|
-| Windows  | `onvif-simulator-gui-windows-amd64.exe` |
-| macOS    | `onvif-simulator-gui-darwin-amd64.dmg` |
-| Linux    | `onvif-simulator-gui-linux-amd64.AppImage` |
+| Platform | File | Requirements |
+|----------|------|--------------|
+| Windows  | `onvif-simulator-gui-amd64-installer.exe` | Windows 10 / 11 (x64) |
+| macOS    | `onvif-simulator-gui-darwin-arm64.dmg`    | Apple Silicon (M1+), macOS 12+ |
+| Linux    | `onvif-simulator-gui-linux-amd64.AppImage` | glibc ≥ 2.39 (Ubuntu 24.04 / Debian 13 / Fedora 40+) |
 
 Run the installer and follow the on-screen instructions.
+
+> **Code signing:** the installers are **ad-hoc signed only** — no Apple
+> Developer ID, no Windows EV certificate. macOS Gatekeeper will block the
+> first launch (right-click → Open, or `xattr -cr <path>.app`); Windows
+> SmartScreen will warn (More info → Run anyway).
+>
+> **macOS Intel users:** an arm64-only build is shipped while we wait on the
+> macos-13 GitHub runner deprecation to settle. Build from source with
+> `make gui` if you need an Intel binary in the meantime.
 
 ## Usage
 
