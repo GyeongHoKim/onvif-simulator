@@ -298,7 +298,11 @@ func (p *mediaProvider) SnapshotURI(_ context.Context, profileToken string) (med
 		if prof.SnapshotURI != "" {
 			return mediasvc.MediaURI{URI: prof.SnapshotURI, Timeout: "PT0S"}, nil
 		}
-		if prof.MediaFilePath == "" {
+		if prof.MediaFilePath == "" || !snapshot.Supported {
+			// CGO_ENABLED=0 builds cannot decode mp4 keyframes locally, so
+			// auto-derived URLs would point at an endpoint that always 404s.
+			// Surface the absence as ErrNoSnapshot instead — clients see the
+			// same SOAP fault they would for a profile without a snapshot.
 			return mediasvc.MediaURI{}, fmt.Errorf("%w: %s", mediasvc.ErrNoSnapshot, profileToken)
 		}
 		host := localAddrForXAddr()

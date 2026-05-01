@@ -185,6 +185,12 @@ func startRTSPServer(cfg *config.Config) (*rtsp.Server, []config.ProfileConfig, 
 // "static device" mental model the simulator presents to ONVIF clients.
 func extractSnapshots(cfg *config.Config) (map[string][]byte, error) {
 	cache := make(map[string][]byte)
+	if !snapshot.Supported {
+		// CGO_ENABLED=0 build (e.g. goreleaser cross-compiled CLI artifact).
+		// SnapshotURI provider mirrors this and returns ErrNoSnapshot for
+		// auto-derive candidates, so leaving the cache empty is consistent.
+		return cache, nil
+	}
 	for i := range cfg.Media.Profiles {
 		p := &cfg.Media.Profiles[i]
 		if p.MediaFilePath == "" || p.SnapshotURI != "" {

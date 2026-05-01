@@ -1,3 +1,5 @@
+//go:build cgo
+
 package snapshot
 
 import (
@@ -10,9 +12,9 @@ import (
 	"github.com/asticode/go-astiav"
 )
 
-// ErrNoVideoStream means the input file has no decodable video stream we can
-// snapshot from.
-var ErrNoVideoStream = errors.New("snapshot: no decodable video stream")
+// Supported reports whether this binary can decode mp4 keyframes locally.
+// True when built with CGO_ENABLED=1 (the default for `make cli`/`make gui`).
+const Supported = true
 
 // errAllocFormatContext means libavformat refused to allocate an
 // AVFormatContext — practically only happens under OOM.
