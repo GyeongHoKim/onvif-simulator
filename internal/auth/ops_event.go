@@ -7,7 +7,7 @@ package auth
 // Operations from both handlers share one map because the same
 // auth.MapOperationClass call wires both handlers.
 var EventOperationClasses = map[string]AccessClass{
-	"GetServiceCapabilities": ClassPreAuth,
+	opGetServiceCapabilities: ClassPreAuth,
 
 	// GetEventProperties reads the static topic set description.
 	"GetEventProperties": ClassReadSystem,
