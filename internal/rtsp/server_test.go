@@ -94,6 +94,10 @@ func TestWithLoggerNilFallsBackToDiscard(t *testing.T) {
 	if s == nil {
 		t.Fatal("New returned nil")
 	}
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start with nil logger (discard fallback): %v", err)
+	}
+	s.Stop()
 }
 
 func TestServerPort(t *testing.T) {
