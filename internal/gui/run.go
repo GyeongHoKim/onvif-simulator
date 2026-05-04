@@ -6,6 +6,7 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -14,6 +15,10 @@ import (
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+// Bound HTTP server Shutdown in simulator.Stop so GUI exit cannot hang
+// indefinitely if the listen socket misbehaves.
+const simulatorStopTimeout = 5 * time.Second
 
 // Run starts the Wails GUI. Call from cmd/gui/main.go.
 //
@@ -35,7 +40,12 @@ func Run() {
 		Bind:             []any{app},
 	})
 	if app.sim != nil {
-		_ = app.sim.Stop(context.Background()) //nolint:errcheck // best-effort cleanup on exit
+		stopCtx, cancel := context.WithTimeout(context.Background(), simulatorStopTimeout)
+		stopErr := app.sim.Stop(stopCtx)
+		cancel()
+		if stopErr != nil {
+			fmt.Fprintf(os.Stderr, "simulator stop: %v\n", stopErr)
+		}
 	}
 	if err != nil {
 		// stderr is the last-resort path: the simulator's logger may have
