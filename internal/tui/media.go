@@ -36,7 +36,7 @@ func newMediaModel(sim SimulatorAPI) *mediaModel {
 }
 
 func (*mediaModel) Init() tea.Cmd { return nil }
-func (*mediaModel) Title() string { return "Media" }
+func (*mediaModel) Title() string { return titleMedia }
 func (*mediaModel) Help() string  { return "a: add · e: edit · d: delete" }
 
 func (m *mediaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

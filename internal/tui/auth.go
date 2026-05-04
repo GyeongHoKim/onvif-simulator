@@ -34,7 +34,7 @@ func newAuthModel(sim SimulatorAPI) *authModel {
 }
 
 func (*authModel) Init() tea.Cmd { return nil }
-func (*authModel) Title() string { return "Auth" }
+func (*authModel) Title() string { return titleAuth }
 func (*authModel) Help() string  { return "t: toggle auth · a: add user · d: delete" }
 
 func (m *authModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

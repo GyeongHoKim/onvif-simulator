@@ -48,14 +48,14 @@ func newLogModel() *logModel {
 }
 
 func (*logModel) Init() tea.Cmd { return nil }
-func (*logModel) Title() string { return "Log" }
+func (*logModel) Title() string { return titleLog }
 func (*logModel) Help() string  { return "e: events · m: mutations · /: search · c: clear" }
 
 func (m *logModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case eventMsg:
 		m.append(&logEntry{
-			time: msg.Time, kind: "event",
+			time: msg.Time, kind: logEntryKindEvent,
 			target: msg.Source, topic: msg.Topic,
 			source: msg.Source, payload: msg.Payload,
 			detail: fmt.Sprintf("%s %s %s",
@@ -63,7 +63,7 @@ func (m *logModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 	case mutationMsg:
 		m.append(&logEntry{
-			time: msg.Time, kind: "mutation",
+			time: msg.Time, kind: logEntryKindMutation,
 			target: msg.Target,
 			detail: fmt.Sprintf("%s %s %s",
 				msg.Kind, orDash(msg.Target), msg.Detail),
@@ -131,10 +131,10 @@ func (m *logModel) View() string {
 	shown := 0
 	for i := len(m.entries) - 1; i >= 0; i-- {
 		e := m.entries[i]
-		if e.kind == "event" && !m.showEvents {
+		if e.kind == logEntryKindEvent && !m.showEvents {
 			continue
 		}
-		if e.kind == "mutation" && !m.showMuts {
+		if e.kind == logEntryKindMutation && !m.showMuts {
 			continue
 		}
 		if needle != "" && !strings.Contains(strings.ToLower(e.detail), needle) {
