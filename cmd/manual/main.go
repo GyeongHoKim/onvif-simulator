@@ -89,17 +89,18 @@ func run() int {
 				logger.Warn("kill pkgsite", "err", killErr)
 			}
 			<-exitCh
-			return 0
+			return 1
 		}
 		fmt.Printf("opening %s\n", url)
 		openBrowser(ctx, url)
 		if exitErr := <-exitCh; exitErr != nil {
 			logger.Info("pkgsite exited", "err", exitErr)
 		}
+		return 0
 	case exitErr := <-exitCh:
 		logger.Warn("pkgsite exited unexpectedly", "err", exitErr)
+		return 1
 	}
-	return 0
 }
 
 func waitReady(ctx context.Context, addr string, logger *slog.Logger) error {
