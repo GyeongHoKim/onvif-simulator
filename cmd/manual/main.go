@@ -12,13 +12,15 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/GyeongHoKim/onvif-simulator/internal/obs"
 )
 
 const (
@@ -37,8 +39,13 @@ func main() {
 	port := flag.Int("port", defaultPort, "port to serve docs on")
 	flag.Parse()
 
+	logger, _, lerr := obs.Build(obs.Config{Level: "info"})
+	if lerr != nil {
+		logger = obs.Discard()
+	}
+
 	ctx := context.Background()
-	module := moduleFromGoMod()
+	module := moduleFromGoMod(logger)
 	addr := fmt.Sprintf(":%d", *port)
 	url := fmt.Sprintf("http://localhost:%d/%s", *port, module)
 
@@ -47,22 +54,23 @@ func main() {
 	srv.Stdout = os.Stdout
 	srv.Stderr = os.Stderr
 	if err := srv.Start(); err != nil {
-		log.Fatalf("failed to start pkgsite: %v", err)
+		logger.Error("failed to start pkgsite", "err", err)
+		os.Exit(1)
 	}
 
 	fmt.Printf("waiting for pkgsite on %s ...\n", addr)
 
 	readyCh := make(chan error, 1)
 	exitCh := make(chan error, 1)
-	go func() { readyCh <- waitReady(ctx, addr) }()
+	go func() { readyCh <- waitReady(ctx, addr, logger) }()
 	go func() { exitCh <- srv.Wait() }()
 
 	select {
 	case readyErr := <-readyCh:
 		if readyErr != nil {
-			log.Printf("aborting: %v", readyErr)
+			logger.Warn("aborting: pkgsite did not become ready", "err", readyErr)
 			if killErr := srv.Process.Kill(); killErr != nil {
-				log.Printf("kill pkgsite: %v", killErr)
+				logger.Warn("kill pkgsite", "err", killErr)
 			}
 			<-exitCh
 			return
@@ -70,21 +78,21 @@ func main() {
 		fmt.Printf("opening %s\n", url)
 		openBrowser(ctx, url)
 		if exitErr := <-exitCh; exitErr != nil {
-			log.Printf("pkgsite exited: %v", exitErr)
+			logger.Info("pkgsite exited", "err", exitErr)
 		}
 	case exitErr := <-exitCh:
-		log.Printf("pkgsite exited unexpectedly: %v", exitErr)
+		logger.Warn("pkgsite exited unexpectedly", "err", exitErr)
 	}
 }
 
-func waitReady(ctx context.Context, addr string) error {
+func waitReady(ctx context.Context, addr string, logger *slog.Logger) error {
 	deadline := time.Now().Add(waitDeadline)
 	dialer := &net.Dialer{Timeout: dialTimeout}
 	for time.Now().Before(deadline) {
 		conn, err := dialer.DialContext(ctx, "tcp", addr)
 		if err == nil {
 			if cerr := conn.Close(); cerr != nil {
-				log.Printf("close probe conn: %v", cerr)
+				logger.Debug("close probe conn", "err", cerr)
 			}
 			return nil
 		}
@@ -111,10 +119,11 @@ func openBrowser(ctx context.Context, url string) {
 	}
 }
 
-func moduleFromGoMod() string {
+func moduleFromGoMod(logger *slog.Logger) string {
 	data, err := os.ReadFile("go.mod")
 	if err != nil {
-		log.Fatalf("read go.mod: %v", err)
+		logger.Error("read go.mod", "err", err)
+		os.Exit(1)
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
@@ -122,6 +131,7 @@ func moduleFromGoMod() string {
 			return strings.TrimSpace(strings.TrimPrefix(line, "module "))
 		}
 	}
-	log.Fatal("module directive not found in go.mod")
+	logger.Error("module directive not found in go.mod")
+	os.Exit(1)
 	return ""
 }
