@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +16,24 @@ import (
 )
 
 var errPayloadMismatch = errors.New("payload mismatch")
+
+// lockedBuffer is an io.Writer safe for concurrent slog output + test reads.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *lockedBuffer) contains(sub []byte) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return bytes.Contains(l.buf.Bytes(), sub)
+}
 
 func TestMulticastUDPAddr(t *testing.T) {
 	t.Parallel()
@@ -116,20 +137,31 @@ func TestSendMulticastSelfReceive(t *testing.T) {
 		)
 	}()
 
-	// Allow the listener to bind before we send.
-	time.Sleep(100 * time.Millisecond)
-
-	if err := wsdiscovery.SendMulticast(payload); err != nil {
-		t.Fatalf("SendMulticast: %v", err)
-	}
-
-	select {
-	case b := <-got:
-		if !bytes.Equal(b, payload) {
-			t.Fatalf("payload mismatch: %q vs %q", b, payload)
+	deadline := time.Now().Add(3 * time.Second)
+	var received []byte
+	recvOK := false
+	for time.Now().Before(deadline) {
+		if err := wsdiscovery.SendMulticast(payload); err != nil {
+			if strings.Contains(err.Error(), "no route to host") {
+				t.Skip("IPv4 multicast route unavailable:", err)
+			}
+			t.Fatalf("SendMulticast: %v", err)
 		}
-	case <-time.After(3 * time.Second):
+		select {
+		case b := <-got:
+			received = b
+			recvOK = true
+		case <-time.After(50 * time.Millisecond):
+		}
+		if recvOK {
+			break
+		}
+	}
+	if !recvOK {
 		t.Fatal("timed out waiting for multicast datagram")
+	}
+	if !bytes.Equal(received, payload) {
+		t.Fatalf("payload mismatch: %q vs %q", received, payload)
 	}
 
 	cancel()
@@ -168,18 +200,40 @@ func TestListenMulticastWithLoggerContextCancel(t *testing.T) {
 	}
 }
 
-func TestListenMulticastDelegatesToDiscardLogger(t *testing.T) {
+func TestListenMulticastWithLoggerEmitsListenDebug(t *testing.T) {
 	t.Parallel()
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	// ListenMulticast is ListenMulticastWithLogger(..., Discard(), ...).
-	err := wsdiscovery.ListenMulticast(
-		ctx,
-		nil,
-		func(*net.UDPAddr, []byte) {},
-	)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("got %v want context.Canceled", err)
+	if testing.Short() {
+		t.Skip("multicast I/O")
 	}
+	var out lockedBuffer
+	logger := slog.New(slog.NewJSONHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- wsdiscovery.ListenMulticastWithLogger(
+			ctx,
+			nil,
+			logger,
+			func(*net.UDPAddr, []byte) {},
+		)
+	}()
+
+	deadline := time.Now().Add(1500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if out.contains([]byte("listening")) {
+			cancel()
+			listenErr := <-errCh
+			if listenErr != nil && !errors.Is(listenErr, context.Canceled) && !errors.Is(listenErr, context.DeadlineExceeded) {
+				t.Fatalf("listener returned %v", listenErr)
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	<-errCh
+	t.Fatal("expected debug log containing listening")
 }
