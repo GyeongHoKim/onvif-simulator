@@ -41,6 +41,26 @@ describe("Log screen", () => {
     expect(screen.getByText("profile_x")).toBeInTheDocument()
   })
 
+  it("renders log rows with level badge and request_id suffix", () => {
+    useSim.setState({
+      log: [
+        {
+          kind: "log",
+          time: new Date("2026-04-25T01:02:05Z").toISOString(),
+          level: "WARN",
+          component: "broker",
+          message: "tick",
+          attrs: { request_id: "req-1234abcd" },
+        },
+      ],
+    })
+    render(<LogScreen />)
+    expect(screen.getByText("WARN")).toBeInTheDocument()
+    expect(screen.getByText("broker")).toBeInTheDocument()
+    expect(screen.getByText("abcd")).toBeInTheDocument()
+    expect(screen.getByText(/tick/)).toBeInTheDocument()
+  })
+
   it("filters by kind via the checkbox", async () => {
     const user = userEvent.setup()
     useSim.setState({
@@ -59,15 +79,25 @@ describe("Log screen", () => {
           target: "t",
           detail: "d",
         },
+        {
+          kind: "log",
+          time: new Date().toISOString(),
+          level: "INFO",
+          component: "auth",
+          message: "hello",
+          attrs: {},
+        },
       ],
     })
     render(<LogScreen />)
     expect(screen.getByText("Op")).toBeInTheDocument()
-    // Toggle the Mutations filter via its checkbox role (case-insensitive).
+    expect(screen.getByText("hello")).toBeInTheDocument()
+    // Order: Events, Mutations, Logs.
     const checkboxes = screen.getAllByRole("checkbox")
-    // Order: Events, Mutations.
     await user.click(checkboxes[1])
     expect(screen.queryByText("Op")).not.toBeInTheDocument()
+    await user.click(checkboxes[2])
+    expect(screen.queryByText("hello")).not.toBeInTheDocument()
   })
 
   it("clears the log when Clear is clicked", async () => {
