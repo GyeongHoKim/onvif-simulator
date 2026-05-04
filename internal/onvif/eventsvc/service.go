@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/GyeongHoKim/onvif-simulator/internal/auth"
+	"github.com/GyeongHoKim/onvif-simulator/internal/obs"
 )
 
 const (
@@ -37,6 +39,7 @@ type EventServiceHandler struct {
 	provider                Provider
 	auth                    AuthHook
 	subscriptionManagerAddr string
+	logger                  *slog.Logger
 }
 
 // EventServiceOption customizes an EventServiceHandler.
@@ -48,6 +51,16 @@ func WithEventAuthHook(hook AuthHook) EventServiceOption {
 		if hook != nil {
 			h.auth = hook
 		}
+	}
+}
+
+// WithLogger installs a structured logger. Nil falls back to discard.
+func WithLogger(logger *slog.Logger) EventServiceOption {
+	return func(h *EventServiceHandler) {
+		if logger == nil {
+			logger = obs.Discard()
+		}
+		h.logger = logger
 	}
 }
 
@@ -68,11 +81,16 @@ func NewEventServiceHandler(provider Provider, opts ...EventServiceOption) *Even
 	h := &EventServiceHandler{
 		provider: provider,
 		auth:     AuthFunc(func(context.Context, string, *http.Request) error { return nil }),
+		logger:   obs.Discard(),
 	}
 	for _, opt := range opts {
 		opt(h)
 	}
 	return h
+}
+
+func (h *EventServiceHandler) loggerForRequest(r *http.Request) *slog.Logger {
+	return obs.LoggerFromContextOr(r.Context(), h.logger)
 }
 
 // ServeHTTP dispatches SOAP Event Service operations.
@@ -110,6 +128,7 @@ func (h *EventServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 				return
 			}
 		}
+		h.loggerForRequest(r).Warn("events: parse soap envelope", "err", err)
 		writeFault(w, http.StatusBadRequest, faultCodeSender, "", err.Error())
 		return
 	}
@@ -123,15 +142,23 @@ func (h *EventServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		status := http.StatusInternalServerError
 		code := faultCodeReceiver
+		level := slog.LevelError
 		switch {
 		case errors.Is(err, errUnsupportedOp):
 			status = http.StatusNotImplemented
 			code = faultCodeSender
+			level = slog.LevelWarn
 		case errors.Is(err, errDecodePayload),
 			errors.Is(err, ErrInvalidArgs):
 			status = http.StatusBadRequest
 			code = faultCodeSender
+			level = slog.LevelWarn
 		}
+		h.loggerForRequest(r).LogAttrs(r.Context(), level, "events: dispatch fault",
+			slog.String("operation", operation),
+			slog.Int("status", status),
+			slog.String("err", err.Error()),
+		)
 		writeFault(w, status, code, "", err.Error())
 		return
 	}

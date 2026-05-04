@@ -105,15 +105,52 @@ func printUsage(w io.Writer) {
 
 // ---------- serve ---------------------------------------------------------------
 
+// logFlags is the shared flag block for serve / tui. Logger sinks are file-only,
+// so flag set is intentionally minimal.
+type logFlags struct {
+	level *string
+	file  *string
+}
+
+func registerLogFlags(fs *flag.FlagSet) logFlags {
+	return logFlags{
+		level: fs.String("log-level", "",
+			"log level: debug|info|warn|error (overrides logging.level in config and ONVIF_LOG_LEVEL)"),
+		file: fs.String("log-file", "",
+			`log file path (overrides logging.file in config and ONVIF_LOG_FILE; "-" disables file output)`),
+	}
+}
+
+// resolveOverrides merges flag and env values; the simulator merges in
+// cfg.Logging from disk and falls back to defaults from there.
+func (lf logFlags) resolveOverrides() (level, file string) {
+	level = firstNonEmpty(*lf.level, os.Getenv("ONVIF_LOG_LEVEL"))
+	file = firstNonEmpty(*lf.file, os.Getenv("ONVIF_LOG_FILE"))
+	return level, file
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 func runServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "path to onvif-simulator.json (overrides working directory default)")
+	lf := registerLogFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	lvl, file := lf.resolveOverrides()
 
-	opts := simulator.Options{
+	sim, err := simulator.New(simulator.Options{
 		ConfigPath: *cfgPath,
+		LogLevel:   lvl,
+		LogFile:    file,
 		OnEvent: func(e simulator.EventRecord) {
 			fmt.Printf("[event] %s topic=%s source=%s payload=%s\n",
 				e.Time.Format(time.RFC3339), e.Topic, e.Source, e.Payload)
@@ -122,8 +159,7 @@ func runServe(args []string) error {
 			fmt.Printf("[mutation] %s kind=%s target=%s detail=%s\n",
 				m.Time.Format(time.RFC3339), m.Kind, m.Target, m.Detail)
 		},
-	}
-	sim, err := simulator.New(opts)
+	})
 	if err != nil {
 		return err
 	}
@@ -173,10 +209,19 @@ func runServe(args []string) error {
 func runTUI(args []string) error {
 	fs := flag.NewFlagSet("tui", flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "path to onvif-simulator.json")
+	lf := registerLogFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	sim, err := simulator.New(simulator.Options{ConfigPath: *cfgPath})
+	lvl, file := lf.resolveOverrides()
+
+	// File-only logger means the TUI's alt-screen is never at risk: there
+	// is no stderr sink that could overwrite Bubble Tea's frame.
+	sim, err := simulator.New(simulator.Options{
+		ConfigPath: *cfgPath,
+		LogLevel:   lvl,
+		LogFile:    file,
+	})
 	if err != nil {
 		return err
 	}

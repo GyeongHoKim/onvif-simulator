@@ -3,6 +3,7 @@ package rtsp
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"path/filepath"
 	"sync/atomic"
@@ -85,6 +86,43 @@ func readRTP(t *testing.T, port int, token string, deadline time.Duration) int {
 		time.Sleep(20 * time.Millisecond)
 	}
 	return int(got.Load())
+}
+
+func TestWithLoggerNilFallsBackToDiscard(t *testing.T) {
+	t.Parallel()
+	s := New(freePort(t), WithLogger(nil))
+	if s == nil {
+		t.Fatal("New returned nil")
+	}
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start with nil logger (discard fallback): %v", err)
+	}
+	s.Stop()
+}
+
+func TestServerPort(t *testing.T) {
+	t.Parallel()
+	p := freePort(t)
+	s := New(p, WithLogger(slog.New(slog.DiscardHandler)))
+	if s.Port() != p {
+		t.Errorf("Port()=%d want %d", s.Port(), p)
+	}
+}
+
+func TestServerStartFailsWhenPortBusy(t *testing.T) {
+	t.Parallel()
+	p := freePort(t)
+	first := New(p)
+	if err := first.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { first.Stop() })
+
+	second := New(p, WithLogger(slog.New(slog.DiscardHandler)))
+	if err := second.Start(); err == nil {
+		second.Stop()
+		t.Fatal("expected Start error when port is already bound")
+	}
 }
 
 func TestServerStartStopIdempotent(t *testing.T) {

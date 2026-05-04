@@ -12,13 +12,15 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/GyeongHoKim/onvif-simulator/internal/obs"
 )
 
 const (
@@ -31,14 +33,35 @@ const (
 	pkgsiteVersion = "v0.0.0-20260421174859-26eab2f0c5ff"
 )
 
-var errPkgsiteNotReady = errors.New("pkgsite server did not become ready")
+var (
+	errPkgsiteNotReady = errors.New("pkgsite server did not become ready")
+	errNoModule        = errors.New("module directive not found in go.mod")
+)
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	port := flag.Int("port", defaultPort, "port to serve docs on")
 	flag.Parse()
 
+	logger, state, lerr := obs.Build(obs.Config{Level: "info"})
+	if lerr != nil {
+		logger = obs.Discard()
+	}
+	if state != nil {
+		defer func() {
+			_ = state.Close() //nolint:errcheck // best-effort flush on shutdown
+		}()
+	}
+
 	ctx := context.Background()
-	module := moduleFromGoMod()
+	module, err := moduleFromGoMod()
+	if err != nil {
+		logger.Error("resolve module", "err", err)
+		return 1
+	}
 	addr := fmt.Sprintf(":%d", *port)
 	url := fmt.Sprintf("http://localhost:%d/%s", *port, module)
 
@@ -47,44 +70,47 @@ func main() {
 	srv.Stdout = os.Stdout
 	srv.Stderr = os.Stderr
 	if err := srv.Start(); err != nil {
-		log.Fatalf("failed to start pkgsite: %v", err)
+		logger.Error("failed to start pkgsite", "err", err)
+		return 1
 	}
 
 	fmt.Printf("waiting for pkgsite on %s ...\n", addr)
 
 	readyCh := make(chan error, 1)
 	exitCh := make(chan error, 1)
-	go func() { readyCh <- waitReady(ctx, addr) }()
+	go func() { readyCh <- waitReady(ctx, addr, logger) }()
 	go func() { exitCh <- srv.Wait() }()
 
 	select {
 	case readyErr := <-readyCh:
 		if readyErr != nil {
-			log.Printf("aborting: %v", readyErr)
+			logger.Warn("aborting: pkgsite did not become ready", "err", readyErr)
 			if killErr := srv.Process.Kill(); killErr != nil {
-				log.Printf("kill pkgsite: %v", killErr)
+				logger.Warn("kill pkgsite", "err", killErr)
 			}
 			<-exitCh
-			return
+			return 1
 		}
 		fmt.Printf("opening %s\n", url)
 		openBrowser(ctx, url)
 		if exitErr := <-exitCh; exitErr != nil {
-			log.Printf("pkgsite exited: %v", exitErr)
+			logger.Info("pkgsite exited", "err", exitErr)
 		}
+		return 0
 	case exitErr := <-exitCh:
-		log.Printf("pkgsite exited unexpectedly: %v", exitErr)
+		logger.Warn("pkgsite exited unexpectedly", "err", exitErr)
+		return 1
 	}
 }
 
-func waitReady(ctx context.Context, addr string) error {
+func waitReady(ctx context.Context, addr string, logger *slog.Logger) error {
 	deadline := time.Now().Add(waitDeadline)
 	dialer := &net.Dialer{Timeout: dialTimeout}
 	for time.Now().Before(deadline) {
 		conn, err := dialer.DialContext(ctx, "tcp", addr)
 		if err == nil {
 			if cerr := conn.Close(); cerr != nil {
-				log.Printf("close probe conn: %v", cerr)
+				logger.Debug("close probe conn", "err", cerr)
 			}
 			return nil
 		}
@@ -111,17 +137,16 @@ func openBrowser(ctx context.Context, url string) {
 	}
 }
 
-func moduleFromGoMod() string {
+func moduleFromGoMod() (string, error) {
 	data, err := os.ReadFile("go.mod")
 	if err != nil {
-		log.Fatalf("read go.mod: %v", err)
+		return "", fmt.Errorf("read go.mod: %w", err)
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "module ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "module "))
+			return strings.TrimSpace(strings.TrimPrefix(line, "module ")), nil
 		}
 	}
-	log.Fatal("module directive not found in go.mod")
-	return ""
+	return "", errNoModule
 }

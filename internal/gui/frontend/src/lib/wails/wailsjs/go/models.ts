@@ -98,6 +98,20 @@ export namespace config {
 		    return a;
 		}
 	}
+	export class LoggingConfig {
+	    level?: string;
+	    file?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new LoggingConfig(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.level = source["level"];
+	        this.file = source["file"];
+	    }
+	}
 	export class SystemDateTimeConfig {
 	    date_time_type?: string;
 	    daylight_savings?: boolean;
@@ -440,6 +454,7 @@ export namespace config {
 	    auth?: AuthConfig;
 	    events?: EventsConfig;
 	    runtime?: RuntimeConfig;
+	    logging?: LoggingConfig;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -454,6 +469,7 @@ export namespace config {
 	        this.auth = this.convertValues(source["auth"], AuthConfig);
 	        this.events = this.convertValues(source["events"], EventsConfig);
 	        this.runtime = this.convertValues(source["runtime"], RuntimeConfig);
+	        this.logging = this.convertValues(source["logging"], LoggingConfig);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -474,6 +490,7 @@ export namespace config {
 		    return a;
 		}
 	}
+	
 	
 	
 	

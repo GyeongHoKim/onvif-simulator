@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/GyeongHoKim/onvif-simulator/internal/obs"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/eventsvc"
 )
 
@@ -62,6 +64,11 @@ type BrokerConfig struct {
 	// Each subscription's address is composed as this base URL with "?id=<id>"
 	// appended. When empty, only the relative path is used.
 	SubscriptionManagerAddr string
+	// Logger receives subscription lifecycle and topic-routing diagnostics.
+	// Nil installs a discard logger; UpdateConfig with a nil Logger preserves
+	// whatever logger the broker had before so callers can hot-swap topic
+	// lists without losing observability.
+	Logger *slog.Logger
 }
 
 // Broker is the concrete eventsvc.Provider.  Wire it into the ONVIF Event
@@ -85,6 +92,10 @@ type Broker struct {
 	mu   sync.Mutex
 	subs map[string]*subscription // keyed by subscriptionID
 
+	// logger is read under mu so UpdateConfig can swap it atomically with
+	// topic / pull-point limits.
+	logger *slog.Logger
+
 	// stopCh is closed by Stop to terminate the background reaper.
 	stopCh    chan struct{}
 	startOnce sync.Once
@@ -101,9 +112,14 @@ func New(cfg BrokerConfig) *Broker {
 		cfg.SubscriptionTimeout = DefaultSubscriptionTimeout
 	}
 	cfg.Topics = cloneTopics(cfg.Topics)
+	logger := cfg.Logger
+	if logger == nil {
+		logger = obs.Discard()
+	}
 	return &Broker{
 		cfg:    cfg,
 		subs:   make(map[string]*subscription),
+		logger: logger,
 		stopCh: make(chan struct{}),
 	}
 }
@@ -135,10 +151,12 @@ func (b *Broker) Publish(topic, message string) {
 	defer b.mu.Unlock()
 
 	if !b.topicEnabledLocked(topic) {
+		b.logger.Debug("event: drop publish, topic disabled or unknown", "topic", topic)
 		return
 	}
 
 	now := time.Now()
+	delivered := 0
 	for _, sub := range b.subs {
 		if now.After(sub.terminationTime) {
 			continue
@@ -151,7 +169,9 @@ func (b *Broker) Publish(topic, message string) {
 			Topic:                 topic,
 			Message:               message,
 		})
+		delivered++
 	}
+	b.logger.Debug("event: publish", "topic", topic, "delivered", delivered)
 }
 
 // subscriptionAddrLocked composes the full subscription manager URL for the
@@ -185,6 +205,9 @@ func (b *Broker) topicEnabledLocked(topic string) bool {
 // UpdateConfig replaces the broker's runtime configuration. Active
 // subscriptions are not affected; the new config takes effect for future
 // CreatePullPointSubscription calls and for GetEventProperties.
+//
+// A nil cfg.Logger preserves the broker's existing logger so callers can
+// hot-swap topics or pull-point limits without re-plumbing observability.
 func (b *Broker) UpdateConfig(cfg BrokerConfig) {
 	if cfg.MaxPullPoints <= 0 {
 		cfg.MaxPullPoints = DefaultMaxPullPoints
@@ -195,6 +218,9 @@ func (b *Broker) UpdateConfig(cfg BrokerConfig) {
 	cfg.Topics = cloneTopics(cfg.Topics)
 	b.mu.Lock()
 	b.cfg = cfg
+	if cfg.Logger != nil {
+		b.logger = cfg.Logger
+	}
 	b.mu.Unlock()
 }
 
@@ -233,6 +259,10 @@ func (b *Broker) CreatePullPointSubscription(
 
 	b.reapLocked()
 	if len(b.subs) >= b.cfg.MaxPullPoints {
+		b.logger.Warn("event: max pull points reached",
+			"max", b.cfg.MaxPullPoints,
+			"active", len(b.subs),
+		)
 		return eventsvc.SubscriptionInfo{}, fmt.Errorf("%w (%d)", errMaxPullPointsReached, b.cfg.MaxPullPoints)
 	}
 
@@ -395,6 +425,10 @@ func (b *Broker) reapLocked() {
 	for id, sub := range b.subs {
 		if now.After(sub.terminationTime) {
 			delete(b.subs, id)
+			b.logger.Info("event: subscription expired",
+				"subscription_id", id,
+				"termination_time", sub.terminationTime,
+			)
 		}
 	}
 }

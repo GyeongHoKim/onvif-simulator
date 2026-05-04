@@ -7,14 +7,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
+
+	"github.com/GyeongHoKim/onvif-simulator/internal/obs"
 )
 
 // SubscriptionManagerHandler serves the ONVIF SubscriptionManager endpoint.
 type SubscriptionManagerHandler struct {
 	provider Provider
 	auth     AuthHook
+	logger   *slog.Logger
 }
 
 // SubscriptionManagerOption customizes a SubscriptionManagerHandler.
@@ -29,6 +33,17 @@ func WithSubscriptionManagerAuthHook(hook AuthHook) SubscriptionManagerOption {
 	}
 }
 
+// WithSubscriptionManagerLogger installs a structured logger. Nil falls back
+// to discard.
+func WithSubscriptionManagerLogger(logger *slog.Logger) SubscriptionManagerOption {
+	return func(h *SubscriptionManagerHandler) {
+		if logger == nil {
+			logger = obs.Discard()
+		}
+		h.logger = logger
+	}
+}
+
 // NewSubscriptionManagerHandler creates a Subscription Manager HTTP handler.
 func NewSubscriptionManagerHandler(provider Provider, opts ...SubscriptionManagerOption) *SubscriptionManagerHandler {
 	if provider == nil {
@@ -37,11 +52,16 @@ func NewSubscriptionManagerHandler(provider Provider, opts ...SubscriptionManage
 	h := &SubscriptionManagerHandler{
 		provider: provider,
 		auth:     AuthFunc(func(context.Context, string, *http.Request) error { return nil }),
+		logger:   obs.Discard(),
 	}
 	for _, opt := range opts {
 		opt(h)
 	}
 	return h
+}
+
+func (h *SubscriptionManagerHandler) loggerForRequest(r *http.Request) *slog.Logger {
+	return obs.LoggerFromContextOr(r.Context(), h.logger)
 }
 
 // ServeHTTP dispatches SOAP SubscriptionManager operations.
@@ -79,6 +99,7 @@ func (h *SubscriptionManagerHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 				return
 			}
 		}
+		h.loggerForRequest(r).Warn("subscription: parse soap envelope", "err", err)
 		writeFault(w, http.StatusBadRequest, faultCodeSender, "", err.Error())
 		return
 	}
@@ -90,28 +111,47 @@ func (h *SubscriptionManagerHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 
 	subscriptionID := r.URL.Query().Get("id")
 	if subscriptionID == "" {
+		h.loggerForRequest(r).Warn("subscription: missing subscription id", "operation", operation)
 		writeFault(w, http.StatusBadRequest, faultCodeSender, "", "missing subscription id")
 		return
 	}
 
 	respPayload, err := h.dispatch(r.Context(), subscriptionID, operation, payload)
 	if err != nil {
-		status := http.StatusInternalServerError
-		code := faultCodeReceiver
-		switch {
-		case errors.Is(err, errUnsupportedOp):
-			status = http.StatusNotImplemented
-			code = faultCodeSender
-		case errors.Is(err, errDecodePayload),
-			errors.Is(err, ErrSubscriptionNotFound),
-			errors.Is(err, ErrInvalidArgs):
-			status = http.StatusBadRequest
-			code = faultCodeSender
-		}
-		writeFault(w, status, code, "", err.Error())
+		h.writeDispatchFault(w, r, operation, subscriptionID, err)
 		return
 	}
 	writeSOAP(w, respPayload)
+}
+
+// writeDispatchFault maps a dispatch-stage error to a SOAP fault response and
+// emits a structured log line. Extracted from ServeHTTP to keep the dispatcher
+// inside the funlen budget.
+func (h *SubscriptionManagerHandler) writeDispatchFault(
+	w http.ResponseWriter, r *http.Request, operation, subscriptionID string, err error,
+) {
+	status := http.StatusInternalServerError
+	code := faultCodeReceiver
+	level := slog.LevelError
+	switch {
+	case errors.Is(err, errUnsupportedOp):
+		status = http.StatusNotImplemented
+		code = faultCodeSender
+		level = slog.LevelWarn
+	case errors.Is(err, errDecodePayload),
+		errors.Is(err, ErrSubscriptionNotFound),
+		errors.Is(err, ErrInvalidArgs):
+		status = http.StatusBadRequest
+		code = faultCodeSender
+		level = slog.LevelWarn
+	}
+	h.loggerForRequest(r).LogAttrs(r.Context(), level, "subscription: dispatch fault",
+		slog.String("operation", operation),
+		slog.String("subscription_id", subscriptionID),
+		slog.Int("status", status),
+		slog.String("err", err.Error()),
+	)
+	writeFault(w, status, code, "", err.Error())
 }
 
 func (h *SubscriptionManagerHandler) dispatch(
