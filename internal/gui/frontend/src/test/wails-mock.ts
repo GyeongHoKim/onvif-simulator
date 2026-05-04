@@ -34,6 +34,9 @@ export function resetWailsMocks(): void {
         case "Running":
           m.mockResolvedValue(false)
           break
+        case "RecentLogs":
+          m.mockResolvedValue([])
+          break
         default:
           m.mockResolvedValue(undefined)
       }
@@ -77,6 +80,7 @@ export const appMocks = {
   UpsertUser: lf(),
   RemoveUser: lf(),
   SetAuthEnabled: lf(),
+  RecentLogs: lf(() => []),
 }
 
 export const runtimeMocks = {

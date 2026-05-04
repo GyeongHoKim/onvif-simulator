@@ -14,6 +14,14 @@ type EventRecord = guiNs.EventRecord
 export type LogEntry =
   | { kind: "event"; time: string; topic: string; source: string; payload: string }
   | { kind: "mutation"; time: string; op: string; target: string; detail: string }
+  | {
+      kind: "log"
+      time: string
+      level: string
+      component: string
+      message: string
+      attrs: Record<string, unknown>
+    }
 
 const LOG_CAP = 500
 
@@ -34,6 +42,7 @@ type SimState = {
     target: string
     detail: string
   }) => void
+  appendLog: (r: guiNs.LogRecord) => void
   clearLog: () => void
 }
 
@@ -45,8 +54,13 @@ export const useSim = create<SimState>((set, get) => ({
 
   bootstrap: async () => {
     await Promise.all([get().refreshStatus(), get().refreshConfig(), get().refreshUsers()])
+    const recent = await App.RecentLogs()
+    for (const r of recent) {
+      get().appendLog(r)
+    }
     wruntime.EventsOn("event:new", (rec: EventRecord) => get().appendEvent(rec))
     wruntime.EventsOn("mutation:new", (rec) => get().appendMutation(rec))
+    wruntime.EventsOn("log:new", (rec: guiNs.LogRecord) => get().appendLog(rec))
   },
 
   refreshStatus: async () => {
@@ -86,6 +100,19 @@ export const useSim = create<SimState>((set, get) => ({
       op: r.kind,
       target: r.target,
       detail: r.detail,
+    }
+    set((s) => ({ log: [entry, ...s.log].slice(0, LOG_CAP) }))
+  },
+
+  appendLog: (r) => {
+    const attrs = r.attrs ?? {}
+    const entry: LogEntry = {
+      kind: "log",
+      time: String(r.time),
+      level: r.level,
+      component: r.component,
+      message: r.message,
+      attrs: attrs as Record<string, unknown>,
     }
     set((s) => ({ log: [entry, ...s.log].slice(0, LOG_CAP) }))
   },

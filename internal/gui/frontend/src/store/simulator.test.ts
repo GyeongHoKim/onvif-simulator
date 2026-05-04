@@ -32,9 +32,12 @@ describe("simulator store", () => {
     expect(useSim.getState().config?.media.profiles[0].token).toBe("profile_main")
     expect(useSim.getState().users[0].username).toBe("admin")
 
+    expect(appMocks.RecentLogs).toHaveBeenCalled()
+
     const onSubs = runtimeMocks.EventsOn.mock.calls.map((c) => c[0])
     expect(onSubs).toContain("event:new")
     expect(onSubs).toContain("mutation:new")
+    expect(onSubs).toContain("log:new")
   })
 
   it("appendEvent caps the log at 500 entries and prepends new ones", () => {
