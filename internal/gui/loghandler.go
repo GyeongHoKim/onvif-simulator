@@ -86,7 +86,9 @@ func (h *loghandler) Handle(_ context.Context, r slog.Record) error {
 		fn := *p
 		func() {
 			defer func() {
-				recover() //nolint:errcheck // panic isolation for Wails emit
+				if r := recover(); r != nil {
+					_ = r // Wails emit must not panic into the slog handler.
+				}
 			}()
 			fn(rec)
 		}()
