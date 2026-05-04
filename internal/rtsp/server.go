@@ -160,12 +160,14 @@ func (s *Server) AddSource(token, filePath string) (*ProbeResult, error) {
 		return nil, fmt.Errorf("rtsp: initialize stream %s: %w", token, initErr)
 	}
 
-	// cancel lives on the source struct and is invoked by RemoveSource /
-	// Stop; G118 otherwise flags it as never-called.
-	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // owned by source
+	// cancel is invoked from RemoveSource/Stop and also deferred in the
+	// looper goroutine so gosec G118 sees a definite call site; calling
+	// cancel twice is safe per context semantics.
+	ctx, cancel := context.WithCancel(context.Background())
 	stopped := make(chan struct{})
 	lp := newLooper(filePath, stream, media, probe)
 	go func() {
+		defer cancel()
 		defer close(stopped)
 		lp.run(ctx)
 	}()
