@@ -176,7 +176,9 @@ func runServe(args []string) error {
 
 	ctrl, ctrlErr := startControlServer(sim)
 	if ctrlErr != nil {
-		_ = sim.Stop(context.Background()) //nolint:errcheck // cleanup after failed start.
+		if stopErr := sim.Stop(context.Background()); stopErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not stop simulator after control server error: %v\n", stopErr)
+		}
 		return ctrlErr
 	}
 	fmt.Printf("control port %d\n", ctrl.port)
@@ -200,8 +202,9 @@ func runServe(args []string) error {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
 
-	_ = ctrl.shutdown(shutdownCtx) //nolint:errcheck // best-effort loopback shutdown.
-	return sim.Stop(shutdownCtx)
+	ctrlShutdownErr := ctrl.shutdown(shutdownCtx)
+	stopErr := sim.Stop(shutdownCtx)
+	return errors.Join(ctrlShutdownErr, stopErr)
 }
 
 // ---------- tui -----------------------------------------------------------------
@@ -233,7 +236,9 @@ func runTUI(args []string) error {
 	defer func() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer shutdownCancel()
-		_ = sim.Stop(shutdownCtx) //nolint:errcheck // best-effort shutdown after TUI exits.
+		if err := sim.Stop(shutdownCtx); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: simulator shutdown: %v\n", err)
+		}
 	}()
 	return tui.Run(sim)
 }
@@ -248,7 +253,7 @@ func runConfig(args []string) error {
 	// Reject unknown subcommands BEFORE config.EnsureExists, otherwise a
 	// typo'd subcommand would still create the user config directory and
 	// write a default file.
-	if sub != "show" && sub != "validate" {
+	if sub != cliConfigShow && sub != cliConfigValidate {
 		return fmt.Errorf("%w: %q", errConfigUnknownSubcommand, sub)
 	}
 	fs := flag.NewFlagSet("config "+sub, flag.ContinueOnError)
@@ -269,7 +274,7 @@ func runConfig(args []string) error {
 	config.SetPath(resolved)
 
 	switch sub {
-	case "show":
+	case cliConfigShow:
 		cfg, err := config.Load()
 		if err != nil {
 			return err
@@ -277,7 +282,7 @@ func runConfig(args []string) error {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(cfg)
-	case "validate":
+	case cliConfigValidate:
 		if _, err := config.Load(); err != nil {
 			return err
 		}
@@ -359,9 +364,9 @@ func postSyncEvent(port int, args []string) error {
 
 func parseOnOff(s string) (bool, error) {
 	switch strings.ToLower(s) {
-	case "on", "true", "1":
+	case cliLiteralOn, "true", "1":
 		return true, nil
-	case "off", "false", "0":
+	case cliLiteralOff, "false", "0":
 		return false, nil
 	default:
 		return false, fmt.Errorf("%w: %q", errUnrecognisedOnOff, s)
@@ -385,7 +390,10 @@ func postControl(port int, path string, body []byte) error {
 	}
 	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // body close error is not actionable.
 	if resp.StatusCode >= httpFaultThreshold {
-		msg, _ := io.ReadAll(resp.Body) //nolint:errcheck // body read error is subordinate to the HTTP status.
+		msg, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("%w: %d: read body: %w", errControlServer, resp.StatusCode, readErr)
+		}
 		return fmt.Errorf("%w: %d: %s", errControlServer, resp.StatusCode, strings.TrimSpace(string(msg)))
 	}
 	return nil

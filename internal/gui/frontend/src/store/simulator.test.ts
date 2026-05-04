@@ -32,9 +32,55 @@ describe("simulator store", () => {
     expect(useSim.getState().config?.media.profiles[0].token).toBe("profile_main")
     expect(useSim.getState().users[0].username).toBe("admin")
 
+    expect(appMocks.RecentLogs).toHaveBeenCalled()
+
     const onSubs = runtimeMocks.EventsOn.mock.calls.map((c) => c[0])
     expect(onSubs).toContain("event:new")
     expect(onSubs).toContain("mutation:new")
+    expect(onSubs).toContain("log:new")
+  })
+
+  it("bootstrap continues when RecentLogs fails and still registers listeners", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      appMocks.RecentLogs.mockRejectedValueOnce(new Error("offline"))
+      await useSim.getState().bootstrap()
+      expect(errSpy).toHaveBeenCalled()
+      const onSubs = runtimeMocks.EventsOn.mock.calls.map((c) => c[0])
+      expect(onSubs).toContain("log:new")
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
+
+  it("bootstrap does not duplicate RecentLogs rows on repeat", async () => {
+    const row = {
+      time: "2020-01-01T00:00:00Z",
+      level: "info",
+      message: "hello",
+      component: "c",
+      attrs: {} as Record<string, unknown>,
+    }
+    appMocks.RecentLogs.mockResolvedValue([row])
+    await useSim.getState().bootstrap()
+    await useSim.getState().bootstrap()
+    const logs = useSim.getState().log.filter((e) => e.kind === "log")
+    expect(logs).toHaveLength(1)
+    if (logs[0].kind === "log") expect(logs[0].message).toBe("hello")
+  })
+
+  it("bootstrap does not stack duplicate wails event handlers", async () => {
+    await useSim.getState().bootstrap()
+    await useSim.getState().bootstrap()
+    emitWailsEvent("event:new", {
+      time: new Date().toISOString(),
+      topic: "tns1:T",
+      source: "once",
+      payload: "x",
+    })
+    const events = useSim.getState().log.filter((e) => e.kind === "event")
+    expect(events).toHaveLength(1)
+    if (events[0].kind === "event") expect(events[0].source).toBe("once")
   })
 
   it("appendEvent caps the log at 500 entries and prepends new ones", () => {

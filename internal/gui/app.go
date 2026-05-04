@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"time"
 
@@ -93,8 +94,9 @@ type simulatorAPI interface {
 // Wails can marshal — primitives, []T, and plain structs from internal/config
 // or this package.
 type App struct {
-	ctx context.Context
-	sim simulatorAPI
+	ctx  context.Context
+	sim  simulatorAPI
+	logs *loghandler
 }
 
 // NewApp constructs the Wails app with its simulator backend. When a config
@@ -107,6 +109,7 @@ type App struct {
 // absolute log path under os.UserCacheDir before opening its file.
 func NewApp() *App {
 	app := &App{}
+	app.logs = newLogHandler()
 
 	emitEvent := func(r EventRecord) {
 		if app.ctx != nil {
@@ -119,7 +122,7 @@ func NewApp() *App {
 		}
 	}
 
-	adapter, err := newSimulatorAdapter("", emitEvent, emitMutation)
+	adapter, err := newSimulatorAdapter("", []slog.Handler{app.logs}, emitEvent, emitMutation)
 	if err == nil {
 		app.sim = adapter
 		return app
@@ -140,6 +143,9 @@ func NewApp() *App {
 // OnStartup captures the Wails runtime context so we can emit events.
 func (a *App) OnStartup(ctx context.Context) {
 	a.ctx = ctx
+	a.logs.setEmitter(func(r LogRecord) {
+		runtime.EventsEmit(ctx, "log:new", r)
+	})
 }
 
 // Lifecycle ---------------------------------------------------------------
@@ -163,6 +169,11 @@ func (a *App) ConfigSnapshot() config.Config { return a.sim.ConfigSnapshot() }
 
 // Users returns the live auth user store projection.
 func (a *App) Users() []UserView { return a.sim.Users() }
+
+// RecentLogs returns the simulator's most recent slog records (oldest-first,
+// up to 256). The frontend calls this on mount before subscribing to "log:new"
+// so records emitted before OnStartup (e.g. simulator: ready) are not lost.
+func (a *App) RecentLogs() []LogRecord { return a.logs.Snapshot() }
 
 // Event triggers ----------------------------------------------------------
 

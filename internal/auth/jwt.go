@@ -116,9 +116,8 @@ func (j *jwtAuth) Authenticate(_ context.Context, r *http.Request) (*Principal, 
 		return nil, bearerChallenge(ErrTokenMalformed, "invalid_token", "unsupported claim shape")
 	}
 	if j.iss != "" {
-		//nolint:errcheck // type-assertion _: missing or non-string claim falls through to explicit mismatch check.
-		iss, _ := claims["iss"].(string)
-		if iss != j.iss {
+		iss, issOK := claims["iss"].(string)
+		if !issOK || iss != j.iss {
 			return nil, bearerChallenge(ErrIssuerMismatch, "invalid_token", fmt.Sprintf("unexpected issuer %q", iss))
 		}
 	}
@@ -126,9 +125,8 @@ func (j *jwtAuth) Authenticate(_ context.Context, r *http.Request) (*Principal, 
 		return nil, bearerChallenge(ErrAudienceMismatch, "invalid_token", "audience does not include expected value")
 	}
 
-	//nolint:errcheck // type-assertion _: missing or non-string claim falls through to explicit emptiness check.
-	username, _ := claims[j.usernameClaim].(string)
-	if username == "" {
+	username, nameOK := claims[j.usernameClaim].(string)
+	if !nameOK || username == "" {
 		return nil, bearerChallenge(ErrTokenMalformed, "invalid_token", fmt.Sprintf("missing %q claim", j.usernameClaim))
 	}
 	roles := rolesFromClaim(claims[j.rolesClaim])
@@ -228,8 +226,10 @@ func NewStaticKeyFunc(pemBlocks [][]byte) (jwt.Keyfunc, error) {
 		if len(keys) == 1 {
 			return keys[0], nil
 		}
-		//nolint:errcheck // type-assertion _: missing kid falls through to errJWTNoMatchingKey below.
-		kid, _ := tok.Header["kid"].(string)
+		var kid string
+		if s, ok := tok.Header["kid"].(string); ok {
+			kid = s
+		}
 		for i, key := range keys {
 			if kid == strconv.Itoa(i) {
 				return key, nil

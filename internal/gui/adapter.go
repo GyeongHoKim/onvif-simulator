@@ -2,6 +2,7 @@ package gui
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
 	"github.com/GyeongHoKim/onvif-simulator/internal/simulator"
@@ -12,16 +13,18 @@ type simulatorAdapter struct {
 }
 
 // newSimulatorAdapter wires the real Simulator behind the GUI's interface.
-// The simulator builds its own file logger from cfg.Logging; the GUI does
-// not need to plumb logger references. onEvent / onMutation flow into
-// Wails event emitters via NewApp's closures.
+// The simulator builds its own file logger from cfg.Logging; extras handlers
+// fan out alongside that sink (e.g. GUI log ring). onEvent / onMutation flow
+// into Wails event emitters via NewApp's closures.
 func newSimulatorAdapter(
 	configPath string,
+	extras []slog.Handler,
 	onEvent func(EventRecord),
 	onMutation func(MutationRecord),
 ) (*simulatorAdapter, error) {
 	opts := simulator.Options{
 		ConfigPath: configPath,
+		LogExtras:  extras,
 		OnEvent: func(r simulator.EventRecord) {
 			if onEvent != nil {
 				onEvent(toLocalEvent(r))

@@ -231,7 +231,7 @@ func (h *Handler) dispatchProfile(ctx context.Context, op string, payload []byte
 	resp []byte, handled bool, err error,
 ) {
 	switch op {
-	case "GetServiceCapabilities":
+	case opGetServiceCapabilities:
 		resp, err := h.handleGetServiceCapabilities(ctx)
 		return resp, true, err
 	case "GetProfiles":
@@ -240,10 +240,10 @@ func (h *Handler) dispatchProfile(ctx context.Context, op string, payload []byte
 	case "GetProfile":
 		resp, err := h.handleGetProfile(ctx, payload)
 		return resp, true, err
-	case "CreateProfile":
+	case opCreateProfile:
 		resp, err := h.handleCreateProfile(ctx, payload)
 		return resp, true, err
-	case "DeleteProfile":
+	case opDeleteProfile:
 		resp, err := h.handleDeleteProfile(ctx, payload)
 		return resp, true, err
 	}
@@ -260,22 +260,22 @@ func (h *Handler) dispatchVideoSource(ctx context.Context, op string, payload []
 	case "GetVideoSourceConfigurations":
 		resp, err := h.handleGetVideoSourceConfigurations(ctx)
 		return resp, true, err
-	case "GetVideoSourceConfiguration":
+	case opGetVideoSourceConfiguration:
 		resp, err := h.handleGetVideoSourceConfiguration(ctx, payload)
 		return resp, true, err
-	case "SetVideoSourceConfiguration":
+	case opSetVideoSourceConfiguration:
 		resp, err := h.handleSetVideoSourceConfiguration(ctx, payload)
 		return resp, true, err
-	case "AddVideoSourceConfiguration":
+	case opAddVideoSourceConfiguration:
 		resp, err := h.handleAddVideoSourceConfiguration(ctx, payload)
 		return resp, true, err
-	case "RemoveVideoSourceConfiguration":
+	case opRemoveVideoSourceConfiguration:
 		resp, err := h.handleRemoveVideoSourceConfiguration(ctx, payload)
 		return resp, true, err
-	case "GetCompatibleVideoSourceConfigurations":
+	case opGetCompatibleVideoSourceConfigurations:
 		resp, err := h.handleGetCompatibleVideoSourceConfigurations(ctx, payload)
 		return resp, true, err
-	case "GetVideoSourceConfigurationOptions":
+	case opGetVideoSourceConfigurationOptions:
 		resp, err := h.handleGetVideoSourceConfigurationOptions(ctx, payload)
 		return resp, true, err
 	}
@@ -289,22 +289,22 @@ func (h *Handler) dispatchVideoEncoder(ctx context.Context, op string, payload [
 	case "GetVideoEncoderConfigurations":
 		resp, err := h.handleGetVideoEncoderConfigurations(ctx)
 		return resp, true, err
-	case "GetVideoEncoderConfiguration":
+	case opGetVideoEncoderConfiguration:
 		resp, err := h.handleGetVideoEncoderConfiguration(ctx, payload)
 		return resp, true, err
-	case "SetVideoEncoderConfiguration":
+	case opSetVideoEncoderConfiguration:
 		resp, err := h.handleSetVideoEncoderConfiguration(ctx, payload)
 		return resp, true, err
-	case "AddVideoEncoderConfiguration":
+	case opAddVideoEncoderConfiguration:
 		resp, err := h.handleAddVideoEncoderConfiguration(ctx, payload)
 		return resp, true, err
-	case "RemoveVideoEncoderConfiguration":
+	case opRemoveVideoEncoderConfiguration:
 		resp, err := h.handleRemoveVideoEncoderConfiguration(ctx, payload)
 		return resp, true, err
-	case "GetCompatibleVideoEncoderConfigurations":
+	case opGetCompatibleVideoEncoderConfigurations:
 		resp, err := h.handleGetCompatibleVideoEncoderConfigurations(ctx, payload)
 		return resp, true, err
-	case "GetVideoEncoderConfigurationOptions":
+	case opGetVideoEncoderConfigurationOptions:
 		resp, err := h.handleGetVideoEncoderConfigurationOptions(ctx, payload)
 		return resp, true, err
 	case "GetGuaranteedNumberOfVideoEncoderInstances":

@@ -8,7 +8,7 @@ var DeviceOperationClasses = map[string]AccessClass{
 	// §5.9.4.3 examples are explicit; the rest follow the same shape.
 	"GetEndpointReference":   ClassPreAuth,
 	"GetServices":            ClassPreAuth,
-	"GetServiceCapabilities": ClassPreAuth,
+	opGetServiceCapabilities: ClassPreAuth,
 	"GetCapabilities":        ClassPreAuth,
 	"GetWsdlUrl":             ClassPreAuth,
 	"GetSystemDateAndTime":   ClassPreAuth,

@@ -23,13 +23,13 @@ func TestParseOnOff(t *testing.T) {
 		want   bool
 		errCmp error
 	}{
-		"on":      {"on", true, nil},
-		"true":    {"TRUE", true, nil},
-		"1":       {"1", true, nil},
-		"off":     {"off", false, nil},
-		"false":   {"FALSE", false, nil},
-		"0":       {"0", false, nil},
-		"unknown": {"maybe", false, errUnrecognisedOnOff},
+		cliLiteralOn:  {cliLiteralOn, true, nil},
+		"true":        {"TRUE", true, nil},
+		"1":           {"1", true, nil},
+		cliLiteralOff: {cliLiteralOff, false, nil},
+		"false":       {"FALSE", false, nil},
+		"0":           {"0", false, nil},
+		"unknown":     {"maybe", false, errUnrecognisedOnOff},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -139,7 +139,7 @@ func TestRunConfigShow(t *testing.T) {
 	cfgPath, cleanup := writeTempConfig(t)
 	defer cleanup()
 
-	if err := runConfig([]string{"show", "-config", cfgPath}); err != nil {
+	if err := runConfig([]string{cliConfigShow, "-config", cfgPath}); err != nil {
 		t.Fatalf("runConfig show: %v", err)
 	}
 }
@@ -157,7 +157,7 @@ func TestRunEventNoControlPort(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	t.Setenv("USERPROFILE", tmp) // os.UserHomeDir uses USERPROFILE on Windows
-	err := runEvent([]string{"motion", "VS0", "on"})
+	err := runEvent([]string{"motion", "VS0", cliLiteralOn})
 	if !errors.Is(err, errControlNotRunning) {
 		t.Fatalf("expected errControlNotRunning, got %v", err)
 	}
@@ -209,13 +209,15 @@ func TestPostControlReturnsServerError(t *testing.T) {
 func TestPostSimpleEventEndToEnd(t *testing.T) {
 	var got tokenState
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewDecoder(r.Body).Decode(&got) //nolint:errcheck // assertion below.
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
 
 	port := mustPortFromURL(t, srv.URL)
-	if err := postSimpleEvent(port, "motion", []string{"VS9", "on"}); err != nil {
+	if err := postSimpleEvent(port, "motion", []string{"VS9", cliLiteralOn}); err != nil {
 		t.Fatalf("postSimpleEvent: %v", err)
 	}
 	if got.Token != "VS9" || !got.State {
@@ -226,14 +228,16 @@ func TestPostSimpleEventEndToEnd(t *testing.T) {
 func TestPostSyncEventEndToEnd(t *testing.T) {
 	var got syncRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewDecoder(r.Body).Decode(&got) //nolint:errcheck // assertion below.
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
 
 	port := mustPortFromURL(t, srv.URL)
 	if err := postSyncEvent(port, []string{
-		"tns1:Custom/Topic", "SrcItem", "Tok", "DataItem", "off",
+		"tns1:Custom/Topic", "SrcItem", "Tok", "DataItem", cliLiteralOff,
 	}); err != nil {
 		t.Fatalf("postSyncEvent: %v", err)
 	}

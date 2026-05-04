@@ -201,7 +201,7 @@ func (*Handler) writeAuthFault(w http.ResponseWriter, authErr error) {
 //nolint:gocyclo,cyclop,funlen // flat switch by design; splitting adds indirection
 func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte) ([]byte, error) {
 	switch operation {
-	case "GetDeviceInformation":
+	case opGetDeviceInformation:
 		info, err := s.provider.DeviceInfo(ctx)
 		if err != nil {
 			return nil, err
@@ -214,9 +214,9 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 			SerialNumber:    info.Serial,
 			HardwareID:      info.HardwareID,
 		})
-	case "GetServices":
+	case opGetServices:
 		return s.handleGetServices(ctx, payload)
-	case "GetServiceCapabilities":
+	case opGetServiceCapabilities:
 		caps, err := s.provider.GetServiceCapabilities(ctx)
 		if err != nil {
 			return nil, err
@@ -245,7 +245,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 				},
 			},
 		})
-	case "GetCapabilities":
+	case opGetCapabilities:
 		var req struct {
 			Category string `xml:"Category"`
 		}
@@ -284,7 +284,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 				Imaging: serviceCapabilityEnvelope{XAddr: caps.Imaging.XAddr},
 			},
 		})
-	case "GetWsdlUrl":
+	case opGetWsdlURL:
 		wsdlURL, err := s.provider.WsdlURL(ctx)
 		if err != nil {
 			return nil, err
@@ -296,14 +296,14 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 
 	// --- Discovery (§7.3) ---
 
-	case "GetDiscoveryMode":
+	case opGetDiscoveryMode:
 		info, err := s.provider.GetDiscoveryMode(ctx)
 		if err != nil {
 			return nil, err
 		}
 		return xml.Marshal(getDiscoveryModeResponse{XMLNS: DeviceNamespace, DiscoveryMode: info.DiscoveryMode})
 
-	case "SetDiscoveryMode":
+	case opSetDiscoveryMode:
 		var req struct {
 			DiscoveryMode string `xml:"DiscoveryMode"`
 		}
@@ -315,7 +315,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 		}
 		return xml.Marshal(emptyResponse{XMLName: xml.Name{Local: "SetDiscoveryModeResponse"}, XMLNS: DeviceNamespace})
 
-	case "GetScopes":
+	case opGetScopes:
 		scopes, err := s.provider.GetScopes(ctx)
 		if err != nil {
 			return nil, err
@@ -326,7 +326,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 		}
 		return xml.Marshal(getScopesResponse{XMLNS: DeviceNamespace, Scopes: entries})
 
-	case "SetScopes":
+	case opSetScopes:
 		var req struct {
 			Scopes []string `xml:"Scopes"`
 		}
@@ -338,7 +338,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 		}
 		return xml.Marshal(emptyResponse{XMLName: xml.Name{Local: "SetScopesResponse"}, XMLNS: DeviceNamespace})
 
-	case "AddScopes":
+	case opAddScopes:
 		var req struct {
 			ScopeItem []string `xml:"ScopeItem"`
 		}
@@ -350,7 +350,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 		}
 		return xml.Marshal(emptyResponse{XMLName: xml.Name{Local: "AddScopesResponse"}, XMLNS: DeviceNamespace})
 
-	case "RemoveScopes":
+	case opRemoveScopes:
 		var req struct {
 			ScopeItem []string `xml:"ScopeItem"`
 		}
@@ -365,7 +365,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 
 	// --- Network configuration (§7.4) ---
 
-	case "GetHostname":
+	case opGetHostname:
 		info, err := s.provider.GetHostname(ctx)
 		if err != nil {
 			return nil, err
@@ -375,7 +375,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 			HostnameInformation: hostnameInfoEnvelope(info),
 		})
 
-	case "SetHostname":
+	case opSetHostname:
 		var req struct {
 			Name string `xml:"Name"`
 		}
@@ -387,7 +387,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 		}
 		return xml.Marshal(emptyResponse{XMLName: xml.Name{Local: "SetHostnameResponse"}, XMLNS: DeviceNamespace})
 
-	case "GetDNS":
+	case opGetDNS:
 		info, err := s.provider.GetDNS(ctx)
 		if err != nil {
 			return nil, err
@@ -409,7 +409,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 			},
 		})
 
-	case "SetDNS":
+	case opSetDNS:
 		var req struct {
 			FromDHCP     bool     `xml:"FromDHCP"`
 			SearchDomain []string `xml:"SearchDomain"`
@@ -438,7 +438,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 		}
 		return xml.Marshal(emptyResponse{XMLName: xml.Name{Local: "SetDNSResponse"}, XMLNS: DeviceNamespace})
 
-	case "GetNetworkInterfaces":
+	case opGetNetworkInterfaces:
 		ifaces, err := s.provider.GetNetworkInterfaces(ctx)
 		if err != nil {
 			return nil, err
@@ -469,7 +469,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 		}
 		return xml.Marshal(getNetworkInterfacesResponse{XMLNS: DeviceNamespace, NetworkInterfaces: envs})
 
-	case "SetNetworkInterfaces":
+	case opSetNetworkInterfaces:
 		var req struct {
 			InterfaceToken   string                   `xml:"InterfaceToken"`
 			NetworkInterface networkInterfaceEnvelope `xml:"NetworkInterface"`
@@ -507,7 +507,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 		}
 		return xml.Marshal(setNetworkInterfacesResponse{XMLNS: DeviceNamespace})
 
-	case "GetNetworkProtocols":
+	case opGetNetworkProtocols:
 		protocols, err := s.provider.GetNetworkProtocols(ctx)
 		if err != nil {
 			return nil, err
@@ -518,7 +518,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 		}
 		return xml.Marshal(getNetworkProtocolsResponse{XMLNS: DeviceNamespace, NetworkProtocols: envs})
 
-	case "SetNetworkProtocols":
+	case opSetNetworkProtocols:
 		var req struct {
 			NetworkProtocols []networkProtocolEnvelope `xml:"NetworkProtocols"`
 		}
@@ -534,7 +534,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 		}
 		return xml.Marshal(emptyResponse{XMLName: xml.Name{Local: "SetNetworkProtocolsResponse"}, XMLNS: DeviceNamespace})
 
-	case "GetNetworkDefaultGateway":
+	case opGetNetworkDefaultGateway:
 		gw, err := s.provider.GetNetworkDefaultGateway(ctx)
 		if err != nil {
 			return nil, err
@@ -544,7 +544,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 			NetworkGateway: networkGatewayEnvelope(gw),
 		})
 
-	case "SetNetworkDefaultGateway":
+	case opSetNetworkDefaultGateway:
 		var req struct {
 			IPv4Address []string `xml:"IPv4Address"`
 			IPv6Address []string `xml:"IPv6Address"`
@@ -565,7 +565,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 
 	// --- System (§7.5) ---
 
-	case "GetSystemDateAndTime":
+	case opGetSystemDateAndTime:
 		info, err := s.provider.GetSystemDateAndTime(ctx)
 		if err != nil {
 			return nil, err
@@ -592,7 +592,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 			},
 		})
 
-	case "SetSystemDateAndTime":
+	case opSetSystemDateAndTime:
 		var req struct {
 			DateTimeType    string `xml:"DateTimeType"`
 			DaylightSavings bool   `xml:"DaylightSavings"`
@@ -628,7 +628,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 		}
 		return xml.Marshal(emptyResponse{XMLName: xml.Name{Local: "SetSystemDateAndTimeResponse"}, XMLNS: DeviceNamespace})
 
-	case "SetSystemFactoryDefault":
+	case opSetSystemFactoryDefault:
 		var req struct {
 			FactoryDefault string `xml:"FactoryDefault"`
 		}
@@ -640,7 +640,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 		}
 		return xml.Marshal(emptyResponse{XMLName: xml.Name{Local: "SetSystemFactoryDefaultResponse"}, XMLNS: DeviceNamespace})
 
-	case "SystemReboot":
+	case opSystemReboot:
 		message, err := s.provider.SystemReboot(ctx)
 		if err != nil {
 			return nil, err
@@ -649,7 +649,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 
 	// --- User handling (§7.6) ---
 
-	case "GetUsers":
+	case opGetUsers:
 		users, err := s.provider.GetUsers(ctx)
 		if err != nil {
 			return nil, err
@@ -660,7 +660,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 		}
 		return xml.Marshal(getUsersResponse{XMLNS: DeviceNamespace, Users: envs})
 
-	case "CreateUsers":
+	case opCreateUsers:
 		var req struct {
 			Users []userEnvelope `xml:"User"`
 		}
@@ -673,7 +673,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 		}
 		return xml.Marshal(emptyResponse{XMLName: xml.Name{Local: "CreateUsersResponse"}, XMLNS: DeviceNamespace})
 
-	case "SetUser":
+	case opSetUser:
 		var req struct {
 			Users []userEnvelope `xml:"User"`
 		}
@@ -686,7 +686,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 		}
 		return xml.Marshal(emptyResponse{XMLName: xml.Name{Local: "SetUserResponse"}, XMLNS: DeviceNamespace})
 
-	case "DeleteUsers":
+	case opDeleteUsers:
 		var req struct {
 			Usernames []string `xml:"Username"`
 		}

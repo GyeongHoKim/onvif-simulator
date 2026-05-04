@@ -10,12 +10,12 @@ func TestScreenIDString(t *testing.T) {
 		id   screenID
 		want string
 	}{
-		{screenDashboard, "Dashboard"},
-		{screenEvents, "Events"},
-		{screenMedia, "Media"},
-		{screenAuth, "Auth"},
-		{screenDevice, "Device"},
-		{screenLog, "Log"},
+		{screenDashboard, titleDashboard},
+		{screenEvents, titleEvents},
+		{screenMedia, titleMedia},
+		{screenAuth, titleAuth},
+		{screenDevice, titleDevice},
+		{screenLog, titleLog},
 		{screenCount, ""},
 		{screenID(99), ""},
 	}
@@ -55,7 +55,7 @@ func TestMessageTypesInstantiate(_ *testing.T) {
 	_ = mutationMsg{Time: now, Kind: "SetHostname"}
 	_ = flashMsg{text: "ok", kind: flashOK}
 	_ = clearFlashMsg{id: 1}
-	_ = lifecycleMsg{action: "start"}
+	_ = lifecycleMsg{action: lifecycleActionStart}
 	_ = openModalMsg{}
 	_ = closeModalMsg{}
 }

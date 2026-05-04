@@ -12,7 +12,7 @@ package auth
 // pipeline — RTP endpoints are external processes configured via
 // ProfileConfig.RTSP.
 var MediaOperationClasses = map[string]AccessClass{
-	"GetServiceCapabilities": ClassPreAuth,
+	opGetServiceCapabilities: ClassPreAuth,
 
 	// Read-only media queries.
 	"GetProfiles":                             ClassReadMedia,

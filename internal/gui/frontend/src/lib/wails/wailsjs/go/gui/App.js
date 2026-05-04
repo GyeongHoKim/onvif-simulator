@@ -42,6 +42,10 @@ export function PublishRaw(arg1, arg2) {
   return window['go']['gui']['App']['PublishRaw'](arg1, arg2);
 }
 
+export function RecentLogs() {
+  return window['go']['gui']['App']['RecentLogs']();
+}
+
 export function RemoveProfile(arg1) {
   return window['go']['gui']['App']['RemoveProfile'](arg1);
 }

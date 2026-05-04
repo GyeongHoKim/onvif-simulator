@@ -66,17 +66,17 @@ const (
 func (s screenID) String() string {
 	switch s {
 	case screenDashboard:
-		return "Dashboard"
+		return titleDashboard
 	case screenEvents:
-		return "Events"
+		return titleEvents
 	case screenMedia:
-		return "Media"
+		return titleMedia
 	case screenAuth:
-		return "Auth"
+		return titleAuth
 	case screenDevice:
-		return "Device"
+		return titleDevice
 	case screenLog:
-		return "Log"
+		return titleLog
 	case screenCount:
 		return ""
 	default:

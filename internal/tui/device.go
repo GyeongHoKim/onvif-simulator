@@ -37,7 +37,7 @@ func newDeviceModel(sim SimulatorAPI) *deviceModel {
 }
 
 func (*deviceModel) Init() tea.Cmd { return nil }
-func (*deviceModel) Title() string { return "Device" }
+func (*deviceModel) Title() string { return titleDevice }
 func (*deviceModel) Help() string {
 	return "tab: next · ←/→: discovery · enter: save"
 }
@@ -61,7 +61,7 @@ func (m *deviceModel) refreshFromSnapshot() {
 	if m.mode == "" {
 		m.mode = m.snapshot.Runtime.DiscoveryMode
 		if m.mode == "" {
-			m.mode = "Discoverable"
+			m.mode = discoveryModeDiscoverable
 		}
 	}
 }
@@ -76,11 +76,11 @@ func (m *deviceModel) handleKey(msg tea.KeyMsg) tea.Cmd {
 		m.syncFocus()
 	case keyLeft, "h":
 		if m.focus == 0 {
-			return m.changeMode("Discoverable")
+			return m.changeMode(discoveryModeDiscoverable)
 		}
 	case keyRight, "l":
 		if m.focus == 0 {
-			return m.changeMode("NonDiscoverable")
+			return m.changeMode(discoveryModeNonDiscoverable)
 		}
 	case keyEnter:
 		if m.focus == 1 {
@@ -161,7 +161,7 @@ func (m *deviceModel) identityCard() string {
 func (m *deviceModel) networkCard() string {
 	segment := segmentedControl(
 		m.focus == 0,
-		[]string{"Discoverable", "NonDiscoverable"},
+		[]string{discoveryModeDiscoverable, discoveryModeNonDiscoverable},
 		m.mode,
 	)
 	hostLine := "Hostname: " + m.hostname.View()

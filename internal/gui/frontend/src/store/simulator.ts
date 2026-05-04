@@ -14,8 +14,26 @@ type EventRecord = guiNs.EventRecord
 export type LogEntry =
   | { kind: "event"; time: string; topic: string; source: string; payload: string }
   | { kind: "mutation"; time: string; op: string; target: string; detail: string }
+  | {
+      kind: "log"
+      time: string
+      level: string
+      component: string
+      message: string
+      attrs: Record<string, unknown>
+    }
 
 const LOG_CAP = 500
+
+function logRecordDedupeKey(r: {
+  time: unknown
+  level: string
+  component: string
+  message: string
+  attrs?: Record<string, unknown> | null
+}): string {
+  return `${String(r.time)}\n${r.level}\n${r.component}\n${r.message}\n${JSON.stringify(r.attrs ?? {})}`
+}
 
 type SimState = {
   status: Status | null
@@ -34,6 +52,7 @@ type SimState = {
     target: string
     detail: string
   }) => void
+  appendLog: (r: guiNs.LogRecord) => void
   clearLog: () => void
 }
 
@@ -45,8 +64,26 @@ export const useSim = create<SimState>((set, get) => ({
 
   bootstrap: async () => {
     await Promise.all([get().refreshStatus(), get().refreshConfig(), get().refreshUsers()])
+    try {
+      const recent = await App.RecentLogs()
+      const seen = new Set(
+        get()
+          .log.filter((e): e is LogEntry & { kind: "log" } => e.kind === "log")
+          .map((e) => logRecordDedupeKey(e)),
+      )
+      for (const r of recent) {
+        const k = logRecordDedupeKey(r)
+        if (seen.has(k)) continue
+        seen.add(k)
+        get().appendLog(r)
+      }
+    } catch (err) {
+      console.error("simulator bootstrap: RecentLogs failed", err)
+    }
+    wruntime.EventsOff("event:new", "mutation:new", "log:new")
     wruntime.EventsOn("event:new", (rec: EventRecord) => get().appendEvent(rec))
     wruntime.EventsOn("mutation:new", (rec) => get().appendMutation(rec))
+    wruntime.EventsOn("log:new", (rec: guiNs.LogRecord) => get().appendLog(rec))
   },
 
   refreshStatus: async () => {
@@ -86,6 +123,19 @@ export const useSim = create<SimState>((set, get) => ({
       op: r.kind,
       target: r.target,
       detail: r.detail,
+    }
+    set((s) => ({ log: [entry, ...s.log].slice(0, LOG_CAP) }))
+  },
+
+  appendLog: (r) => {
+    const attrs = r.attrs ?? {}
+    const entry: LogEntry = {
+      kind: "log",
+      time: String(r.time),
+      level: r.level,
+      component: r.component,
+      message: r.message,
+      attrs: attrs as Record<string, unknown>,
     }
     set((s) => ({ log: [entry, ...s.log].slice(0, LOG_CAP) }))
   },

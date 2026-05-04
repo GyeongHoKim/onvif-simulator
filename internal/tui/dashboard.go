@@ -36,7 +36,7 @@ func newDashboardModel(sim SimulatorAPI) *dashboardModel {
 }
 
 func (*dashboardModel) Init() tea.Cmd { return nil }
-func (*dashboardModel) Title() string { return "Dashboard" }
+func (*dashboardModel) Title() string { return titleDashboard }
 func (*dashboardModel) Help() string  { return "s: start/stop · r: reload" }
 
 func (m *dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -80,13 +80,13 @@ func (m *dashboardModel) toggleLifecycle() tea.Cmd {
 		return func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), stopTimeout)
 			defer cancel()
-			return lifecycleMsg{action: "stop", err: sim.Stop(ctx)}
+			return lifecycleMsg{action: lifecycleActionStop, err: sim.Stop(ctx)}
 		}
 	}
 	m.transition = transitionStarting
 	sim := m.sim
 	return func() tea.Msg {
-		return lifecycleMsg{action: "start", err: sim.Start(context.Background())}
+		return lifecycleMsg{action: lifecycleActionStart, err: sim.Start(context.Background())}
 	}
 }
 

@@ -263,7 +263,10 @@ func TestBuildBothFileAndExtras(t *testing.T) {
 	if closeErr := state.Close(); closeErr != nil {
 		t.Fatalf("Close: %v", closeErr)
 	}
-	contents, _ := os.ReadFile(path) //nolint:errcheck // file existence already asserted via Close
+	contents, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatalf("ReadFile: %v", readErr)
+	}
 	if !strings.Contains(string(contents), `"msg":"dual"`) {
 		t.Errorf("file sink missing record: %s", contents)
 	}

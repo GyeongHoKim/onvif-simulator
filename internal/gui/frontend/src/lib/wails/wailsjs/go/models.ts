@@ -101,11 +101,11 @@ export namespace config {
 	export class LoggingConfig {
 	    level?: string;
 	    file?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new LoggingConfig(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.level = source["level"];
@@ -529,6 +529,45 @@ export namespace gui {
 	        this.topic = source["topic"];
 	        this.source = source["source"];
 	        this.payload = source["payload"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class LogRecord {
+	    // Go type: time
+	    time: any;
+	    level: string;
+	    message: string;
+	    component: string;
+	    attrs: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new LogRecord(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.time = this.convertValues(source["time"], null);
+	        this.level = source["level"];
+	        this.message = source["message"];
+	        this.component = source["component"];
+	        this.attrs = source["attrs"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

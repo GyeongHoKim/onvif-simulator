@@ -41,7 +41,7 @@ func newEventsModel(sim SimulatorAPI) *eventsModel {
 }
 
 func (*eventsModel) Init() tea.Cmd { return nil }
-func (*eventsModel) Title() string { return "Events" }
+func (*eventsModel) Title() string { return titleEvents }
 func (*eventsModel) Help() string {
 	return "↑/↓: select · space: toggle · enter: trigger · y: syncproperty"
 }

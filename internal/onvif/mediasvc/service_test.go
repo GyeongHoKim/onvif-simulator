@@ -35,7 +35,7 @@ func (stubProvider) Profiles(context.Context) ([]Profile, error) {
 		},
 		VideoEncoder: &VideoEncoderConfiguration{
 			Token: "VEConfig_main", Name: "main", UseCount: 1,
-			Encoding: "H264", Resolution: Resolution{Width: 1920, Height: 1080},
+			Encoding: encodingH264, Resolution: Resolution{Width: 1920, Height: 1080},
 			Quality:        5,
 			RateControl:    VideoRateControl{FrameRateLimit: 30, EncodingInterval: 1, BitrateLimit: 4096},
 			H264:           H264Configuration{GOVLength: 60, H264Profile: "Main"},
@@ -109,7 +109,7 @@ func (stubProvider) VideoSourceConfigurationOptions(context.Context, string, str
 
 func (stubProvider) VideoEncoderConfigurations(context.Context) ([]VideoEncoderConfiguration, error) {
 	return []VideoEncoderConfiguration{{
-		Token: "VEConfig_main", Name: "main", UseCount: 1, Encoding: "H264",
+		Token: "VEConfig_main", Name: "main", UseCount: 1, Encoding: encodingH264,
 		Resolution: Resolution{Width: 1920, Height: 1080}, Quality: 5,
 		RateControl: VideoRateControl{FrameRateLimit: 30, BitrateLimit: 4096, EncodingInterval: 1},
 		H264:        H264Configuration{GOVLength: 60, H264Profile: "Main"},
@@ -121,7 +121,7 @@ func (stubProvider) VideoEncoderConfiguration(_ context.Context, token string) (
 		return VideoEncoderConfiguration{}, ErrConfigNotFound
 	}
 	return VideoEncoderConfiguration{
-		Token: token, Name: "main", Encoding: "H264",
+		Token: token, Name: "main", Encoding: encodingH264,
 		Resolution: Resolution{Width: 1280, Height: 720}, Quality: 6,
 	}, nil
 }
@@ -135,7 +135,7 @@ func (stubProvider) AddVideoEncoderConfiguration(context.Context, string, string
 func (stubProvider) RemoveVideoEncoderConfiguration(context.Context, string) error { return nil }
 
 func (stubProvider) CompatibleVideoEncoderConfigurations(context.Context, string) ([]VideoEncoderConfiguration, error) {
-	return []VideoEncoderConfiguration{{Token: "VEConfig_main", Name: "main", Encoding: "H264"}}, nil
+	return []VideoEncoderConfiguration{{Token: "VEConfig_main", Name: "main", Encoding: encodingH264}}, nil
 }
 
 func (stubProvider) VideoEncoderConfigurationOptions(context.Context, string, string) (VideoEncoderConfigurationOptions, error) {
@@ -225,7 +225,7 @@ func TestVEConfigToEnvelope_OmitsClearedOptionalFields(t *testing.T) {
 		Token:      "VEConfig_main",
 		Name:       "main",
 		UseCount:   1,
-		Encoding:   "H264",
+		Encoding:   encodingH264,
 		Resolution: Resolution{Width: 1920, Height: 1080},
 		Quality:    5,
 		RateControl: VideoRateControl{
@@ -260,7 +260,7 @@ func TestVEConfigToEnvelope_OmitsClearedOptionalFields(t *testing.T) {
 		Token:      "VEConfig_main",
 		Name:       "main",
 		UseCount:   1,
-		Encoding:   "H264",
+		Encoding:   encodingH264,
 		Resolution: Resolution{Width: 1920, Height: 1080},
 		Quality:    5,
 	})
@@ -364,7 +364,7 @@ type mediaURIResponseView struct {
 
 func TestServeHTTP_GetServiceCapabilities(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	rec := doRequest(t, svc, "GetServiceCapabilities", "")
+	rec := doRequest(t, svc, opGetServiceCapabilities, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
@@ -399,7 +399,7 @@ func TestServeHTTP_GetProfiles(t *testing.T) {
 	if resp.Profiles[0].VideoEncoderConfiguration == nil {
 		t.Fatal("VideoEncoderConfiguration must be present")
 	}
-	if resp.Profiles[0].VideoEncoderConfiguration.Encoding != "H264" {
+	if resp.Profiles[0].VideoEncoderConfiguration.Encoding != encodingH264 {
 		t.Fatalf(
 			"encoder encoding = %q, want H264",
 			resp.Profiles[0].VideoEncoderConfiguration.Encoding,
@@ -615,8 +615,8 @@ func TestServeHTTP_DispatchHappyPath(t *testing.T) {
 		inner    string
 		respElem string
 	}{
-		{"DeleteProfile", "<ProfileToken>profile_main</ProfileToken>", "DeleteProfileResponse"},
-		{"CreateProfile", "<Name>sub</Name><Token>profile_sub</Token>", "CreateProfileResponse"},
+		{opDeleteProfile, "<ProfileToken>profile_main</ProfileToken>", "DeleteProfileResponse"},
+		{opCreateProfile, "<Name>sub</Name><Token>profile_sub</Token>", "CreateProfileResponse"},
 		{"GetVideoSources", "", "GetVideoSourcesResponse"},
 		{"GetVideoSourceConfigurations", "", "GetVideoSourceConfigurationsResponse"},
 		{"GetVideoSourceConfiguration",
@@ -675,13 +675,13 @@ func TestServeHTTP_DecodeErrorPaths(t *testing.T) {
 	malformed := "<ProfileToken><bad></ProfileToken>"
 
 	ops := []string{
-		"GetProfile", "CreateProfile", "DeleteProfile",
-		"GetVideoSourceConfiguration", "SetVideoSourceConfiguration",
-		"AddVideoSourceConfiguration", "RemoveVideoSourceConfiguration",
-		"GetCompatibleVideoSourceConfigurations", "GetVideoSourceConfigurationOptions",
-		"GetVideoEncoderConfiguration", "SetVideoEncoderConfiguration",
-		"AddVideoEncoderConfiguration", "RemoveVideoEncoderConfiguration",
-		"GetCompatibleVideoEncoderConfigurations", "GetVideoEncoderConfigurationOptions",
+		"GetProfile", opCreateProfile, opDeleteProfile,
+		opGetVideoSourceConfiguration, opSetVideoSourceConfiguration,
+		opAddVideoSourceConfiguration, opRemoveVideoSourceConfiguration,
+		opGetCompatibleVideoSourceConfigurations, opGetVideoSourceConfigurationOptions,
+		opGetVideoEncoderConfiguration, opSetVideoEncoderConfiguration,
+		opAddVideoEncoderConfiguration, opRemoveVideoEncoderConfiguration,
+		opGetCompatibleVideoEncoderConfigurations, opGetVideoEncoderConfigurationOptions,
 		"GetStreamUri", "GetSnapshotUri",
 	}
 	for _, op := range ops {

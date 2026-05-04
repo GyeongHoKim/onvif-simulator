@@ -34,6 +34,9 @@ export function resetWailsMocks(): void {
         case "Running":
           m.mockResolvedValue(false)
           break
+        case "RecentLogs":
+          m.mockResolvedValue([])
+          break
         default:
           m.mockResolvedValue(undefined)
       }
@@ -77,6 +80,7 @@ export const appMocks = {
   UpsertUser: lf(),
   RemoveUser: lf(),
   SetAuthEnabled: lf(),
+  RecentLogs: lf(() => []),
 }
 
 export const runtimeMocks = {
@@ -89,7 +93,11 @@ export const runtimeMocks = {
     set.add(cb)
     return () => set?.delete(cb)
   }),
-  EventsOff: vi.fn(),
+  EventsOff: vi.fn((...eventNames: string[]) => {
+    for (const name of eventNames) {
+      eventListeners.delete(name)
+    }
+  }),
   EventsEmit: vi.fn(),
 }
 

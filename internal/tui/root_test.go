@@ -63,7 +63,7 @@ func TestDashboard_ToggleStartStop(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected lifecycleMsg, got %T", msg)
 	}
-	if life.action != "start" || life.err != nil {
+	if life.action != lifecycleActionStart || life.err != nil {
 		t.Fatalf("unexpected lifecycle msg: %+v", life)
 	}
 	// Stop
@@ -75,7 +75,7 @@ func TestDashboard_ToggleStartStop(t *testing.T) {
 	if !ok {
 		t.Fatal("second cmd did not produce lifecycleMsg")
 	}
-	if life.action != "stop" {
+	if life.action != lifecycleActionStop {
 		t.Fatalf("expected stop action, got %+v", life)
 	}
 	if !slices.Contains(sim.callsCopy(), "Start") {
@@ -142,7 +142,7 @@ func TestMedia_EditProfileCallsMediaFilePath(t *testing.T) {
 func TestLog_RingBufferTruncation(t *testing.T) {
 	m := newLogModel()
 	for i := range logRingCapacity + 50 {
-		m.append(&logEntry{kind: "event", detail: "e"})
+		m.append(&logEntry{kind: logEntryKindEvent, detail: "e"})
 		_ = i
 	}
 	if len(m.entries) != logRingCapacity {
@@ -210,7 +210,7 @@ func TestRootModel_LifecycleMsgOK(t *testing.T) {
 	sim := newMockSim()
 	root := newRootModel(sim)
 
-	_, cmd := root.Update(lifecycleMsg{action: "start", err: nil})
+	_, cmd := root.Update(lifecycleMsg{action: lifecycleActionStart, err: nil})
 	if cmd == nil {
 		t.Fatal("expected cmd from lifecycleMsg")
 	}
@@ -223,7 +223,7 @@ func TestRootModel_LifecycleMsgError(t *testing.T) {
 	sim := newMockSim()
 	root := newRootModel(sim)
 
-	root.Update(lifecycleMsg{action: "start", err: errBindFailed})
+	root.Update(lifecycleMsg{action: lifecycleActionStart, err: errBindFailed})
 	if root.flash.kind != flashErr {
 		t.Fatalf("expected flashErr for failed lifecycle, got %v", root.flash.kind)
 	}
@@ -411,7 +411,7 @@ func TestLogModel_EventMsg(t *testing.T) {
 	if len(m.entries) != 1 {
 		t.Fatalf("expected 1 log entry, got %d", len(m.entries))
 	}
-	if m.entries[0].kind != "event" {
+	if m.entries[0].kind != logEntryKindEvent {
 		t.Fatalf("expected kind 'event', got %q", m.entries[0].kind)
 	}
 }
@@ -423,7 +423,7 @@ func TestLogModel_MutationMsg(t *testing.T) {
 	if len(m.entries) != 1 {
 		t.Fatalf("expected 1 log entry, got %d", len(m.entries))
 	}
-	if m.entries[0].kind != "mutation" {
+	if m.entries[0].kind != logEntryKindMutation {
 		t.Fatalf("expected kind 'mutation', got %q", m.entries[0].kind)
 	}
 }
@@ -432,7 +432,7 @@ func TestLogModel_FilterToggleKeys(t *testing.T) {
 	m := newLogModel()
 	for i := range 3 {
 		_ = i
-		m.append(&logEntry{kind: "event"})
+		m.append(&logEntry{kind: logEntryKindEvent})
 	}
 
 	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})

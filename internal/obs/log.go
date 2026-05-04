@@ -155,11 +155,11 @@ func (s *State) Close() error {
 // ("warning", "WARN", " Debug ").
 func ParseLevel(s string) slog.Level {
 	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "debug":
+	case lvlDebug:
 		return slog.LevelDebug
-	case "warn", "warning":
+	case lvlWarn, lvlWarning:
 		return slog.LevelWarn
-	case "error":
+	case lvlError:
 		return slog.LevelError
 	default:
 		return slog.LevelInfo
@@ -170,7 +170,7 @@ func ParseLevel(s string) slog.Level {
 // as valid (means "use default"). Used by config validation.
 func IsValidLevel(s string) bool {
 	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "", "debug", "info", "warn", "warning", "error":
+	case lvlEmpty, lvlDebug, lvlInfo, lvlWarn, lvlWarning, lvlError:
 		return true
 	default:
 		return false

@@ -47,7 +47,7 @@ func newMockSim() *mockSim {
 					{Name: topicDigitalIn, Enabled: false},
 				},
 			},
-			Runtime: config.RuntimeConfig{DiscoveryMode: "Discoverable"},
+			Runtime: config.RuntimeConfig{DiscoveryMode: discoveryModeDiscoverable},
 		},
 	}
 }
