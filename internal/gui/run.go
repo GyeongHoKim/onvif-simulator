@@ -2,8 +2,10 @@
 package gui
 
 import (
+	"context"
 	"embed"
-	"log"
+	"fmt"
+	"os"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -14,6 +16,10 @@ import (
 var assets embed.FS
 
 // Run starts the Wails GUI. Call from cmd/gui/main.go.
+//
+// On Wails return (window closed by the user) we Stop the simulator so it
+// flushes its file logger and tears down its HTTP/RTSP servers. Without
+// this, .app bundle exits would leak the open log file's last few records.
 func Run() {
 	app := NewApp()
 
@@ -28,7 +34,14 @@ func Run() {
 		OnStartup:        app.OnStartup,
 		Bind:             []any{app},
 	})
+	if app.sim != nil {
+		_ = app.sim.Stop(context.Background()) //nolint:errcheck // best-effort cleanup on exit
+	}
 	if err != nil {
-		log.Fatalf("wails run: %v", err)
+		// stderr is the last-resort path: the simulator's logger may have
+		// been closed by Stop above, and the user double-clicked an .app
+		// bundle so there's no console — but `wails dev` shows it.
+		fmt.Fprintf(os.Stderr, "wails run: %v\n", err)
+		os.Exit(1)
 	}
 }

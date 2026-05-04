@@ -12,8 +12,9 @@ type simulatorAdapter struct {
 }
 
 // newSimulatorAdapter wires the real Simulator behind the GUI's interface.
-// onEvent / onMutation are passed verbatim through simulator.Options so the
-// caller (NewApp) can fan records out to Wails event emitters.
+// The simulator builds its own file logger from cfg.Logging; the GUI does
+// not need to plumb logger references. onEvent / onMutation flow into
+// Wails event emitters via NewApp's closures.
 func newSimulatorAdapter(
 	configPath string,
 	onEvent func(EventRecord),

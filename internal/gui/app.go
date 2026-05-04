@@ -3,8 +3,9 @@ package gui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
-	"log"
+	"os"
 	"time"
 
 	runtime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -97,9 +98,13 @@ type App struct {
 }
 
 // NewApp constructs the Wails app with its simulator backend. When a config
-// file is present in the working directory we wire the real
-// *simulator.Simulator; otherwise we fall back to the in-memory stub so
-// `wails dev` boots even on a fresh checkout without a configured device.
+// file is present we wire the real *simulator.Simulator (which owns its own
+// file logger pointed at the OS user-cache directory); otherwise we fall
+// back to the in-memory stub so `wails dev` boots even on a fresh checkout
+// without a configured device.
+//
+// The .app bundle's working dir is "/" so the simulator always resolves an
+// absolute log path under os.UserCacheDir before opening its file.
 func NewApp() *App {
 	app := &App{}
 
@@ -120,7 +125,11 @@ func NewApp() *App {
 		return app
 	}
 	if !errors.Is(err, fs.ErrNotExist) {
-		log.Printf("onvif-simulator: config error: %v", err)
+		// The simulator's own logger isn't reachable here (it failed to
+		// construct), and GUI windows are not yet up. Stderr is the only
+		// path the operator can see this on `wails dev`; the .app bundle
+		// run swallows it but the simulator stub will still boot the UI.
+		fmt.Fprintf(os.Stderr, "onvif-simulator: config load failed, falling back to stub: %v\n", err)
 	}
 
 	stub := newSimulatorStub(emitEvent, emitMutation)
