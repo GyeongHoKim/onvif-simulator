@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"sync"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/bluenviron/gortsplib/v5/pkg/base"
 	"github.com/bluenviron/gortsplib/v5/pkg/description"
 	"github.com/bluenviron/gortsplib/v5/pkg/format"
+
+	"github.com/GyeongHoKim/onvif-simulator/internal/obs"
 )
 
 // ErrSourceExists is returned by AddSource when a source with the same token
@@ -38,6 +41,7 @@ type Server struct {
 	srv     *gortsplib.Server
 	sources map[string]*source
 	started bool
+	logger  *slog.Logger
 }
 
 type source struct {
@@ -50,13 +54,31 @@ type source struct {
 	stopped chan struct{}
 }
 
+// Option customizes a Server.
+type Option func(*Server)
+
+// WithLogger installs a structured logger. Nil falls back to discard.
+func WithLogger(logger *slog.Logger) Option {
+	return func(s *Server) {
+		if logger == nil {
+			logger = obs.Discard()
+		}
+		s.logger = logger
+	}
+}
+
 // New constructs a Server bound to the given TCP port. The caller must invoke
 // Start before AddSource.
-func New(port int) *Server {
-	return &Server{
+func New(port int, opts ...Option) *Server {
+	s := &Server{
 		port:    port,
 		sources: make(map[string]*source),
+		logger:  obs.Discard(),
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // Port reports the TCP port the server is configured to listen on.
@@ -74,10 +96,12 @@ func (s *Server) Start() error {
 		RTSPAddress: ":" + strconv.Itoa(s.port),
 	}
 	if err := srv.Start(); err != nil {
+		s.logger.Warn("rtsp: start listener", "port", s.port, "err", err)
 		return fmt.Errorf("rtsp: start listener on port %d: %w", s.port, err)
 	}
 	s.srv = srv
 	s.started = true
+	s.logger.Info("rtsp: listener started", "port", s.port)
 	return nil
 }
 
