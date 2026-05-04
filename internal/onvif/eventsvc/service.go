@@ -54,8 +54,8 @@ func WithEventAuthHook(hook AuthHook) EventServiceOption {
 	}
 }
 
-// WithEventLogger installs a structured logger. Nil falls back to discard.
-func WithEventLogger(logger *slog.Logger) EventServiceOption {
+// WithLogger installs a structured logger. Nil falls back to discard.
+func WithLogger(logger *slog.Logger) EventServiceOption {
 	return func(h *EventServiceHandler) {
 		if logger == nil {
 			logger = obs.Discard()

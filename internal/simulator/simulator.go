@@ -264,7 +264,7 @@ func New(opts Options) (*Simulator, error) {
 	)
 	sim.evtHandler = eventsvc.NewEventServiceHandler(broker,
 		eventsvc.WithEventAuthHook(eventsvc.AuthFunc(sim.eventAuthHook)),
-		eventsvc.WithEventLogger(root.With("component", "events")),
+		eventsvc.WithLogger(root.With("component", "events")),
 	)
 	sim.subHandler = eventsvc.NewSubscriptionManagerHandler(broker,
 		eventsvc.WithSubscriptionManagerAuthHook(eventsvc.AuthFunc(sim.eventAuthHook)),
