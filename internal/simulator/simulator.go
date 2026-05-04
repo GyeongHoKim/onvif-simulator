@@ -9,15 +9,18 @@ package simulator
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/GyeongHoKim/onvif-simulator/internal/auth"
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
 	"github.com/GyeongHoKim/onvif-simulator/internal/event"
+	"github.com/GyeongHoKim/onvif-simulator/internal/obs"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/devicesvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/eventsvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/mediasvc"
@@ -43,6 +46,26 @@ type Options struct {
 	// OnMutation is called after every persisted config mutation. Same
 	// contract as OnEvent — implementations must not block.
 	OnMutation func(MutationRecord)
+
+	// Logger is an explicit override for the root structured logger.
+	// When set, the simulator does not auto-build a logger from
+	// cfg.Logging and skips hot-reload of LoggingConfig. Used by tests
+	// and embedders that want full control.
+	Logger *slog.Logger
+
+	// LogLevel overrides cfg.Logging.Level when non-empty. Sticky across
+	// hot-reload — front-end CLI flags / env vars feed into this so the
+	// operator's intent persists.
+	LogLevel string
+
+	// LogFile overrides cfg.Logging.File when non-empty. Same sticky
+	// semantics as LogLevel.
+	LogFile string
+
+	// LogExtras is a list of extra slog handlers fanned alongside the
+	// file sink. Tests use this to capture records; future GUI Wails
+	// bridges can inject a frontend emitter here without touching CLI.
+	LogExtras []slog.Handler
 }
 
 // EventRecord is one line of the recent-events ring buffer.
@@ -95,6 +118,17 @@ type Simulator struct {
 	// cfgPath is the on-disk location of the config file.
 	cfgPath string
 
+	// rootLogger is the un-scoped logger handed to every component.
+	// componentLogger derives child loggers via .With("component", name).
+	rootLogger *slog.Logger
+	logger     *slog.Logger
+
+	// logState owns the live handler stack when the simulator built the
+	// logger itself (Options.Logger == nil). Nil when the caller injected
+	// an explicit Logger, in which case hot-reload is the caller's
+	// responsibility. Closed by Stop.
+	logState *obs.State
+
 	// mu guards the mutable fields below (cfg, running, started, server,
 	// listenAddr, discoveryCancel) as well as the authentication chain
 	// rebuild on auth changes.
@@ -146,6 +180,11 @@ type Simulator struct {
 // The resolved path is registered with config.SetPath so every mutation
 // helper writes back to the same location, and config.EnsureExists creates
 // a baseline file on first run.
+//
+// Options is intentionally passed by value: keeps callsite literals
+// concise and matches the package's other public constructors.
+//
+//nolint:gocritic // hugeParam — by-design value receiver
 func New(opts Options) (*Simulator, error) {
 	cfgPath, err := config.Resolve(opts.ConfigPath)
 	if err != nil {
@@ -176,8 +215,14 @@ func New(opts Options) (*Simulator, error) {
 		return nil, fmt.Errorf("simulator: load config: %w", err)
 	}
 
+	root, logState, logErr := buildRootLogger(opts, &cfg)
+	if logErr != nil {
+		return nil, fmt.Errorf("simulator: build logger: %w", logErr)
+	}
+
 	store := auth.NewMutableUserStore(nil)
 	controller := auth.NewController(store)
+	controller.SetLogger(root.With("component", "auth"))
 	controller.SyncFromConfig(&cfg)
 
 	ringSize := clampBufferSize(opts.EventBufferSize)
@@ -186,6 +231,9 @@ func New(opts Options) (*Simulator, error) {
 		opts:         opts,
 		cfgPath:      cfgPath,
 		cfg:          cfg,
+		rootLogger:   root,
+		logger:       root.With("component", "simulator"),
+		logState:     logState,
 		store:        store,
 		controller:   controller,
 		ring:         newEventRing(ringSize),
@@ -193,7 +241,9 @@ func New(opts Options) (*Simulator, error) {
 		msgNumberSeq: 0,
 	}
 
-	broker := event.New(brokerConfigFromConfig(&cfg))
+	brokerCfg := brokerConfigFromConfig(&cfg)
+	brokerCfg.Logger = root.With("component", "event")
+	broker := event.New(brokerCfg)
 	sim.broker = broker
 
 	sim.deviceProv = newDeviceProvider(sim)
@@ -204,19 +254,30 @@ func New(opts Options) (*Simulator, error) {
 	}
 	committed = true
 
-	sim.devHandler = devicesvc.NewHandler(sim.deviceProv, devicesvc.WithAuthHook(
-		devicesvc.AuthFunc(sim.deviceAuthHook),
-	))
-	sim.medHandler = mediasvc.NewHandler(sim.mediaProv, mediasvc.WithAuthHook(
-		mediasvc.AuthFunc(sim.mediaAuthHook),
-	))
+	sim.devHandler = devicesvc.NewHandler(sim.deviceProv,
+		devicesvc.WithAuthHook(devicesvc.AuthFunc(sim.deviceAuthHook)),
+		devicesvc.WithLogger(root.With("component", "device")),
+	)
+	sim.medHandler = mediasvc.NewHandler(sim.mediaProv,
+		mediasvc.WithAuthHook(mediasvc.AuthFunc(sim.mediaAuthHook)),
+		mediasvc.WithLogger(root.With("component", "media")),
+	)
 	sim.evtHandler = eventsvc.NewEventServiceHandler(broker,
 		eventsvc.WithEventAuthHook(eventsvc.AuthFunc(sim.eventAuthHook)),
+		eventsvc.WithEventLogger(root.With("component", "events")),
 	)
 	sim.subHandler = eventsvc.NewSubscriptionManagerHandler(broker,
 		eventsvc.WithSubscriptionManagerAuthHook(eventsvc.AuthFunc(sim.eventAuthHook)),
+		eventsvc.WithSubscriptionManagerLogger(root.With("component", "subscription")),
 	)
 
+	sim.logger.Info("simulator: ready",
+		"http_port", cfg.Network.HTTPPort,
+		"rtsp_port", cfg.Network.RTSPPortOrDefault(),
+		"profiles", len(cfg.Media.Profiles),
+		"users", len(cfg.Auth.Users),
+		"auth_enabled", cfg.Auth.Enabled,
+	)
 	return sim, nil
 }
 
@@ -268,6 +329,7 @@ func (s *Simulator) snapshotConfig() config.Config {
 func (s *Simulator) reloadFromDisk() error {
 	fresh, err := config.Load()
 	if err != nil {
+		s.logger.Warn("simulator: reload from disk failed", "err", err)
 		return err
 	}
 	s.mu.Lock()
@@ -276,7 +338,50 @@ func (s *Simulator) reloadFromDisk() error {
 
 	s.broker.UpdateConfig(brokerConfigFromConfig(&fresh))
 	s.controller.SyncFromConfig(&fresh)
+	// Hot-reload LoggingConfig only when the simulator owns the LogState
+	// (Options.Logger was nil at construction). Operator overrides via
+	// Options.LogLevel / Options.LogFile remain sticky across reloads.
+	if s.logState != nil {
+		applyErr := s.logState.Apply(obs.Config{
+			Level: firstNonEmpty(s.opts.LogLevel, fresh.Logging.Level),
+			File:  firstNonEmpty(s.opts.LogFile, fresh.Logging.File),
+		})
+		if applyErr != nil {
+			s.logger.Warn("simulator: apply logging config", "err", applyErr)
+		}
+	}
 	return s.rebuildAuthChain(&fresh)
+}
+
+// buildRootLogger resolves the root logger for a fresh simulator. When the
+// caller supplied Options.Logger we honor it as-is and skip hot-reload;
+// otherwise we build from cfg.Logging plus operator overrides and return
+// the State so the simulator can flush it on Stop.
+//
+//nolint:gocritic // mirrors New's signature.
+func buildRootLogger(opts Options, cfg *config.Config) (*slog.Logger, *obs.State, error) {
+	if opts.Logger != nil {
+		return opts.Logger, nil, nil
+	}
+	obsCfg := obs.Config{
+		Level:  firstNonEmpty(opts.LogLevel, cfg.Logging.Level),
+		File:   firstNonEmpty(opts.LogFile, cfg.Logging.File),
+		Extras: opts.LogExtras,
+	}
+	logger, state, err := obs.Build(obsCfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	return logger, state, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // recordMutation emits an OnMutation callback (if set).

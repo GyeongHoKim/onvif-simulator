@@ -19,11 +19,12 @@ const discoveryModeNonDiscoverable = "NonDiscoverable"
 func (s *Simulator) runDiscovery(ctx context.Context, host string, port int) {
 	s.sendHelloMulticast()
 
-	err := wsdiscovery.ListenMulticast(ctx, nil, func(from *net.UDPAddr, buf []byte) {
+	logger := s.rootLogger.With("component", "discovery")
+	err := wsdiscovery.ListenMulticastWithLogger(ctx, nil, logger, func(from *net.UDPAddr, buf []byte) {
 		s.handleDiscoveryDatagram(from, buf, host, port)
 	})
 	if err != nil && !errorsIsContextCanceled(err) {
-		// Listener exited on error; simulator keeps running without discovery.
+		logger.Warn("discovery: listener exited", "err", err)
 		return
 	}
 }

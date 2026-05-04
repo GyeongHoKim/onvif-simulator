@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
+	"github.com/GyeongHoKim/onvif-simulator/internal/obs"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/devicesvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/eventsvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/mediasvc"
@@ -30,10 +32,12 @@ func (s *Simulator) Start(_ context.Context) error {
 	lc := &net.ListenConfig{}
 	listener, err := lc.Listen(context.Background(), "tcp", addr)
 	if err != nil {
+		s.logger.Error("simulator: listen", "addr", addr, "err", err)
 		return fmt.Errorf("simulator: listen %s: %w", addr, err)
 	}
 
-	rtspServer, probedProfiles, rtspErr := startRTSPServer(&cfg)
+	rtspLogger := s.rootLogger.With("component", "rtsp")
+	rtspServer, probedProfiles, rtspErr := startRTSPServer(&cfg, rtspLogger)
 	if rtspErr != nil {
 		_ = listener.Close() //nolint:errcheck // best-effort during failure
 		return rtspErr
@@ -74,12 +78,17 @@ func (s *Simulator) Start(_ context.Context) error {
 // buildHTTPServer wires the ONVIF service handlers onto a fresh HTTP server.
 // The server itself is started by the caller via Serve so the listener can be
 // closed before Start returns on early-error paths.
+//
+// Each handler is wrapped in obs.RequestMiddleware so every SOAP request gets
+// a generated/echoed request id, a request-scoped logger, and a one-line
+// summary at request completion (level scaled by HTTP status).
 func buildHTTPServer(s *Simulator) *http.Server {
+	httpLogger := s.rootLogger.With("component", "http")
 	mux := http.NewServeMux()
-	mux.Handle(devicesvc.DeviceServicePath, s.devHandler)
-	mux.Handle(mediasvc.MediaServicePath, s.medHandler)
-	mux.Handle(eventsvc.EventServicePath, s.evtHandler)
-	mux.Handle(eventsvc.SubscriptionManagerPath, s.subHandler)
+	mux.Handle(devicesvc.DeviceServicePath, obs.RequestMiddleware(s.devHandler, httpLogger))
+	mux.Handle(mediasvc.MediaServicePath, obs.RequestMiddleware(s.medHandler, httpLogger))
+	mux.Handle(eventsvc.EventServicePath, obs.RequestMiddleware(s.evtHandler, httpLogger))
+	mux.Handle(eventsvc.SubscriptionManagerPath, obs.RequestMiddleware(s.subHandler, httpLogger))
 	return &http.Server{
 		Handler:      mux,
 		ReadTimeout:  15 * time.Second,
@@ -119,7 +128,7 @@ func serveAndIgnoreClosed(server *http.Server, listener net.Listener) {
 // simulator falls back to passing through the legacy ProfileConfig.RTSP
 // field via media_provider.StreamURI. This keeps existing tests/configs
 // working until callers migrate to the new field.
-func startRTSPServer(cfg *config.Config) (*rtsp.Server, []config.ProfileConfig, error) {
+func startRTSPServer(cfg *config.Config, logger *slog.Logger) (*rtsp.Server, []config.ProfileConfig, error) {
 	hasFilePath := false
 	for i := range cfg.Media.Profiles {
 		if cfg.Media.Profiles[i].MediaFilePath != "" {
@@ -131,7 +140,7 @@ func startRTSPServer(cfg *config.Config) (*rtsp.Server, []config.ProfileConfig, 
 		return nil, nil, nil
 	}
 
-	srv := rtsp.New(cfg.Network.RTSPPortOrDefault())
+	srv := rtsp.New(cfg.Network.RTSPPortOrDefault(), rtsp.WithLogger(logger))
 	if err := srv.Start(); err != nil {
 		return nil, nil, fmt.Errorf("simulator: start rtsp server: %w", err)
 	}
@@ -163,10 +172,15 @@ func startRTSPServer(cfg *config.Config) (*rtsp.Server, []config.ProfileConfig, 
 }
 
 // Stop gracefully shuts down. Idempotent.
+//
+// When the simulator built its own logger (Options.Logger == nil), Stop also
+// flushes and closes the underlying log file. Callers that injected an
+// explicit Logger keep responsibility for closing their own State.
 func (s *Simulator) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	if !s.running {
 		s.mu.Unlock()
+		s.closeOwnedLogger()
 		return nil
 	}
 	server := s.server
@@ -202,7 +216,21 @@ func (s *Simulator) Stop(ctx context.Context) error {
 	s.listenAddr = ""
 	s.started = time.Time{}
 	s.mu.Unlock()
+
+	s.closeOwnedLogger()
 	return shutdownErr
+}
+
+// closeOwnedLogger releases the simulator-owned LogState exactly once.
+// No-op when the caller injected an explicit Logger (LogState is nil).
+func (s *Simulator) closeOwnedLogger() {
+	s.mu.Lock()
+	state := s.logState
+	s.logState = nil
+	s.mu.Unlock()
+	if state != nil {
+		_ = state.Close() //nolint:errcheck // best-effort flush on shutdown
+	}
 }
 
 // Running reports whether Start has been called and Stop has not yet returned.
