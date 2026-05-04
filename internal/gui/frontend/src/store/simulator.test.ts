@@ -42,12 +42,31 @@ describe("simulator store", () => {
 
   it("bootstrap continues when RecentLogs fails and still registers listeners", async () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
-    appMocks.RecentLogs.mockRejectedValueOnce(new Error("offline"))
+    try {
+      appMocks.RecentLogs.mockRejectedValueOnce(new Error("offline"))
+      await useSim.getState().bootstrap()
+      expect(errSpy).toHaveBeenCalled()
+      const onSubs = runtimeMocks.EventsOn.mock.calls.map((c) => c[0])
+      expect(onSubs).toContain("log:new")
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
+
+  it("bootstrap does not duplicate RecentLogs rows on repeat", async () => {
+    const row = {
+      time: "2020-01-01T00:00:00Z",
+      level: "info",
+      message: "hello",
+      component: "c",
+      attrs: {} as Record<string, unknown>,
+    }
+    appMocks.RecentLogs.mockResolvedValue([row])
     await useSim.getState().bootstrap()
-    expect(errSpy).toHaveBeenCalled()
-    const onSubs = runtimeMocks.EventsOn.mock.calls.map((c) => c[0])
-    expect(onSubs).toContain("log:new")
-    errSpy.mockRestore()
+    await useSim.getState().bootstrap()
+    const logs = useSim.getState().log.filter((e) => e.kind === "log")
+    expect(logs).toHaveLength(1)
+    if (logs[0].kind === "log") expect(logs[0].message).toBe("hello")
   })
 
   it("bootstrap does not stack duplicate wails event handlers", async () => {

@@ -25,6 +25,16 @@ export type LogEntry =
 
 const LOG_CAP = 500
 
+function logRecordDedupeKey(r: {
+  time: unknown
+  level: string
+  component: string
+  message: string
+  attrs?: Record<string, unknown> | null
+}): string {
+  return `${String(r.time)}\n${r.level}\n${r.component}\n${r.message}\n${JSON.stringify(r.attrs ?? {})}`
+}
+
 type SimState = {
   status: Status | null
   config: Config | null
@@ -56,7 +66,15 @@ export const useSim = create<SimState>((set, get) => ({
     await Promise.all([get().refreshStatus(), get().refreshConfig(), get().refreshUsers()])
     try {
       const recent = await App.RecentLogs()
+      const seen = new Set(
+        get()
+          .log.filter((e): e is LogEntry & { kind: "log" } => e.kind === "log")
+          .map((e) => logRecordDedupeKey(e)),
+      )
       for (const r of recent) {
+        const k = logRecordDedupeKey(r)
+        if (seen.has(k)) continue
+        seen.add(k)
         get().appendLog(r)
       }
     } catch (err) {

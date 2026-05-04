@@ -268,11 +268,61 @@ func TestParseOperation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseOperation: %v", err)
 	}
-	if op != opGetWsdlURL {
-		t.Fatalf("operation = %q, want %q", op, opGetWsdlURL)
+	// Compare to the ONVIF wire literal, not opGetWsdlURL, so a wrong constant
+	// cannot mask a parse regression.
+	const wireGetWsdlURL = "GetWsdlUrl"
+	if op != wireGetWsdlURL {
+		t.Fatalf("operation = %q, want %q", op, wireGetWsdlURL)
 	}
 	if len(payload) == 0 {
 		t.Fatal("payload must not be empty")
+	}
+}
+
+func TestDeviceSvcOpWireLiterals(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{"opAddScopes", opAddScopes, "AddScopes"},
+		{"opCreateUsers", opCreateUsers, "CreateUsers"},
+		{"opDeleteUsers", opDeleteUsers, "DeleteUsers"},
+		{"opGetCapabilities", opGetCapabilities, "GetCapabilities"},
+		{"opGetDeviceInformation", opGetDeviceInformation, "GetDeviceInformation"},
+		{"opGetDiscoveryMode", opGetDiscoveryMode, "GetDiscoveryMode"},
+		{"opGetDNS", opGetDNS, "GetDNS"},
+		{"opGetHostname", opGetHostname, "GetHostname"},
+		{"opGetNetworkDefaultGateway", opGetNetworkDefaultGateway, "GetNetworkDefaultGateway"},
+		{"opGetNetworkInterfaces", opGetNetworkInterfaces, "GetNetworkInterfaces"},
+		{"opGetNetworkProtocols", opGetNetworkProtocols, "GetNetworkProtocols"},
+		{"opGetScopes", opGetScopes, "GetScopes"},
+		{"opGetServiceCapabilities", opGetServiceCapabilities, "GetServiceCapabilities"},
+		{"opGetServices", opGetServices, "GetServices"},
+		{"opGetSystemDateAndTime", opGetSystemDateAndTime, "GetSystemDateAndTime"},
+		{"opGetUsers", opGetUsers, "GetUsers"},
+		{"opGetWsdlURL", opGetWsdlURL, "GetWsdlUrl"},
+		{"opRemoveScopes", opRemoveScopes, "RemoveScopes"},
+		{"opSetDiscoveryMode", opSetDiscoveryMode, "SetDiscoveryMode"},
+		{"opSetDNS", opSetDNS, "SetDNS"},
+		{"opSetHostname", opSetHostname, "SetHostname"},
+		{"opSetNetworkDefaultGateway", opSetNetworkDefaultGateway, "SetNetworkDefaultGateway"},
+		{"opSetNetworkInterfaces", opSetNetworkInterfaces, "SetNetworkInterfaces"},
+		{"opSetNetworkProtocols", opSetNetworkProtocols, "SetNetworkProtocols"},
+		{"opSetScopes", opSetScopes, "SetScopes"},
+		{"opSetSystemDateAndTime", opSetSystemDateAndTime, "SetSystemDateAndTime"},
+		{"opSetSystemFactoryDefault", opSetSystemFactoryDefault, "SetSystemFactoryDefault"},
+		{"opSetUser", opSetUser, "SetUser"},
+		{"opSystemReboot", opSystemReboot, "SystemReboot"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if tc.value != tc.want {
+				t.Fatalf("constant %s = %q, want ONVIF wire literal %q", tc.name, tc.value, tc.want)
+			}
+		})
 	}
 }
 
