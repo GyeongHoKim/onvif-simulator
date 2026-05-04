@@ -221,6 +221,18 @@ func TestStateAppliedClosersAreReleased(t *testing.T) {
 	}
 }
 
+func TestBuildDiscardHandlerWhenNoSinks(t *testing.T) {
+	t.Parallel()
+	// File "-" disables the file sink; with no Extras, applyInternal takes
+	// the len(sinks)==0 branch and installs slog.DiscardHandler.
+	logger, state, err := Build(Config{File: noFileSentinel})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() }) //nolint:errcheck // no file closers
+	logger.Info("smoke")                    // must not panic; records go nowhere
+}
+
 func TestBuildExtrasOnlySinkSentinel(t *testing.T) {
 	t.Parallel()
 	captured := &captureHandler{}

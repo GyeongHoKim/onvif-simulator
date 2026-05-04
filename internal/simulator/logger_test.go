@@ -201,6 +201,54 @@ func TestApplyLoggingConfigOnReload(t *testing.T) {
 	}
 }
 
+func TestReloadFromDiskInvalidJSON(t *testing.T) {
+	cfgPath, _ := writeTestConfig(t)
+	prior := config.Path()
+	t.Cleanup(func() { config.SetPath(prior) })
+
+	sim, err := New(Options{ConfigPath: cfgPath})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = sim.Stop(context.Background()) }) //nolint:errcheck // best-effort shutdown in tests
+
+	if writeErr := os.WriteFile(cfgPath, []byte("{not-json"), 0o600); writeErr != nil {
+		t.Fatalf("write: %v", writeErr)
+	}
+	if reloadErr := sim.reloadFromDisk(); reloadErr == nil {
+		t.Fatal("expected reload error for invalid config JSON")
+	}
+}
+
+func TestReloadFromDiskApplyLoggingFails(t *testing.T) {
+	cfgPath, logPath := writeTestConfig(t)
+	prior := config.Path()
+	t.Cleanup(func() { config.SetPath(prior) })
+
+	sim, err := New(Options{ConfigPath: cfgPath})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = sim.Stop(context.Background()) }) //nolint:errcheck // best-effort shutdown in tests
+
+	mutated := sim.ConfigSnapshot()
+	mutated.Logging.File = "/bad\x00path/log.log"
+	out, marshalErr := json.MarshalIndent(&mutated, "", "  ")
+	if marshalErr != nil {
+		t.Fatalf("marshal: %v", marshalErr)
+	}
+	if writeErr := os.WriteFile(cfgPath, out, 0o600); writeErr != nil {
+		t.Fatalf("write: %v", writeErr)
+	}
+	if reloadErr := sim.reloadFromDisk(); reloadErr != nil {
+		t.Fatalf("reloadFromDisk: %v", reloadErr)
+	}
+	// Logging Apply fails but reload continues; prior log file should still exist.
+	if _, statErr := os.Stat(logPath); statErr != nil {
+		t.Fatalf("expected prior log file to remain: %v", statErr)
+	}
+}
+
 func TestLogLevelOverrideStickyAcrossReload(t *testing.T) {
 	cfgPath, logPath := writeTestConfig(t)
 	prior := config.Path()

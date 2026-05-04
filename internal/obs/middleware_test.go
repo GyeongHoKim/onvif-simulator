@@ -137,6 +137,23 @@ func TestLoggerFromContextDefaultsToDiscard(t *testing.T) {
 	}
 }
 
+func TestLoggerFromContextOr(t *testing.T) {
+	t.Parallel()
+	fallback := slog.New(slog.DiscardHandler).With("role", "fallback")
+	if got := LoggerFromContextOr(context.Background(), fallback); got != fallback {
+		t.Fatal("without middleware ctx, should use fallback")
+	}
+	if got := LoggerFromContextOr(context.Background(), nil); got == nil {
+		t.Fatal("nil fallback should behave like Discard(), not nil")
+	}
+
+	scoped := slog.New(slog.DiscardHandler).With("role", "scoped")
+	ctx := WithLogger(context.Background(), scoped)
+	if got := LoggerFromContextOr(ctx, fallback); got != scoped {
+		t.Fatal("scoped logger in ctx should win over fallback")
+	}
+}
+
 func TestWithLoggerRoundTrip(t *testing.T) {
 	t.Parallel()
 	want := slog.New(slog.DiscardHandler).With("k", "v")
