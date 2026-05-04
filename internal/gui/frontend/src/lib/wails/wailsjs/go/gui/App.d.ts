@@ -23,6 +23,8 @@ export function PickMediaFile():Promise<string>;
 
 export function PublishRaw(arg1:string,arg2:string):Promise<void>;
 
+export function RecentLogs():Promise<Array<gui.LogRecord>>;
+
 export function RemoveProfile(arg1:string):Promise<void>;
 
 export function RemoveUser(arg1:string):Promise<void>;
