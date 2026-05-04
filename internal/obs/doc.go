@@ -1,20 +1,23 @@
-// Package obs is the simulator's observability seam: it owns the structured
-// logger that every long-lived component (auth, event broker, ONVIF service
-// handlers, RTSP server, WS-Discovery, simulator lifecycle) accepts via a
-// WithLogger option.
+// Package obs is the simulator's observability seam: it provides the
+// file-only JSON logging stack that the simulator composes and every
+// long-lived component (auth, event broker, ONVIF service handlers, RTSP
+// server, WS-Discovery, simulator lifecycle) accepts via a WithLogger option.
 //
-// Components never construct a logger themselves and never write to
-// stdout/stderr directly. Front-ends (CLI, TUI, GUI) build a single root
-// *slog.Logger with Build, derive child loggers via the stdlib
-// (root.With("component", "media")), and inject them through the simulator's
-// composition root. Components that receive nil fall back to Discard so unit
-// tests can construct them without any wiring.
+// The simulator owns the single root *slog.Logger and its backing file sink:
+// it calls Build using LoggingConfig from onvif-simulator.json (merged with
+// runtime overrides), keeps the returned State for hot-reload, and applies
+// LoggingConfig edits live via State.Apply. Log records go to that
+// simulator-managed JSON file only—not to stdout or stderr.
 //
-// The State returned by Build owns the active sink stack. Apply mutates level
-// and sinks atomically so the *slog.Logger references already injected into
-// components observe the new behavior — used by the simulator to honor live
-// edits to LoggingConfig in onvif-simulator.json.
+// Front-ends (CLI, TUI, GUI) do not construct root loggers or call Build for
+// production logging; they only forward Options.LogLevel and Options.LogFile
+// (and optional LogExtras for tests or bridges) into simulator.Options.
 //
-// stdout is reserved for user-facing CLI program output; the logger only
-// writes to stderr (toggleable) and to the optional log file.
+// Components never build loggers themselves; they receive an injected
+// *slog.Logger (often a child via slog.With) or fall back to Discard when nil
+// so unit tests need no wiring.
+//
+// State returned by Build owns the active sink stack. Apply rebuilds level and
+// sinks atomically so existing *slog.Logger pointers continue to work—used when
+// LoggingConfig changes on disk.
 package obs
