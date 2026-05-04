@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/GyeongHoKim/onvif-simulator/internal/auth"
+	"github.com/GyeongHoKim/onvif-simulator/internal/obs"
 )
 
 const (
@@ -58,6 +60,7 @@ var xmlReplacer = strings.NewReplacer(
 type Handler struct {
 	provider Provider
 	auth     AuthHook
+	logger   *slog.Logger
 }
 
 // Option customizes a media service Handler.
@@ -72,6 +75,17 @@ func WithAuthHook(hook AuthHook) Option {
 	}
 }
 
+// WithLogger installs a structured logger. Nil is replaced with the discard
+// logger so handlers constructed without one stay silent.
+func WithLogger(logger *slog.Logger) Option {
+	return func(h *Handler) {
+		if logger == nil {
+			logger = obs.Discard()
+		}
+		h.logger = logger
+	}
+}
+
 // NewHandler creates a media-service HTTP handler.
 func NewHandler(provider Provider, opts ...Option) *Handler {
 	if provider == nil {
@@ -80,11 +94,16 @@ func NewHandler(provider Provider, opts ...Option) *Handler {
 	h := &Handler{
 		provider: provider,
 		auth:     AuthFunc(func(context.Context, string, *http.Request) error { return nil }),
+		logger:   obs.Discard(),
 	}
 	for _, opt := range opts {
 		opt(h)
 	}
 	return h
+}
+
+func (h *Handler) loggerForRequest(r *http.Request) *slog.Logger {
+	return obs.LoggerFromContextOr(r.Context(), h.logger)
 }
 
 // ServeHTTP dispatches SOAP media-service operations.
@@ -122,6 +141,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		h.loggerForRequest(r).Warn("media: parse soap envelope", "err", err)
 		writeFault(w, http.StatusBadRequest, faultCodeSender, "", err.Error())
 		return
 	}
@@ -135,10 +155,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		status := http.StatusInternalServerError
 		code := faultCodeReceiver
+		level := slog.LevelError
 		switch {
 		case errors.Is(err, errUnsupportedOp):
 			status = http.StatusNotImplemented
 			code = faultCodeSender
+			level = slog.LevelWarn
 		case errors.Is(err, errDecodePayload),
 			errors.Is(err, ErrProfileNotFound),
 			errors.Is(err, ErrConfigNotFound),
@@ -146,7 +168,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			errors.Is(err, ErrNoSnapshot):
 			status = http.StatusBadRequest
 			code = faultCodeSender
+			level = slog.LevelWarn
 		}
+		h.loggerForRequest(r).LogAttrs(r.Context(), level, "media: dispatch fault",
+			slog.String("operation", operation),
+			slog.Int("status", status),
+			slog.String("err", err.Error()),
+		)
 		writeFault(w, status, code, "", err.Error())
 		return
 	}

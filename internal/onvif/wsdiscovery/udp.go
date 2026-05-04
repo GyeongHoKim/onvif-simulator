@@ -3,8 +3,11 @@ package wsdiscovery
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"time"
+
+	"github.com/GyeongHoKim/onvif-simulator/internal/obs"
 )
 
 var (
@@ -66,17 +69,32 @@ func SendUDP(to *net.UDPAddr, payload []byte) error {
 }
 
 // ListenMulticast receives discovery multicast on :3702 until ctx is canceled.
+// Equivalent to ListenMulticastWithLogger with a discard logger.
 func ListenMulticast(ctx context.Context, iface *net.Interface, handler func(*net.UDPAddr, []byte)) error {
+	return ListenMulticastWithLogger(ctx, iface, obs.Discard(), handler)
+}
+
+// ListenMulticastWithLogger is the logger-aware variant of ListenMulticast.
+// Listener bind errors and persistent read errors are emitted at WARN; nil
+// logger falls back to discard.
+func ListenMulticastWithLogger(
+	ctx context.Context, iface *net.Interface, logger *slog.Logger, handler func(*net.UDPAddr, []byte),
+) error {
 	if handler == nil {
 		return errUDPNilHandler
+	}
+	if logger == nil {
+		logger = obs.Discard()
 	}
 	gaddr := &net.UDPAddr{IP: net.ParseIP(MulticastIPv4), Port: DefaultUDPPort}
 	c, err := net.ListenMulticastUDP("udp4", iface, gaddr)
 	if err != nil {
+		logger.Warn("discovery: bind multicast", "addr", gaddr.String(), "err", err)
 		return err
 	}
 	defer udpClose(c)
 
+	logger.Debug("discovery: listening", "addr", gaddr.String())
 	buf := make([]byte, udpMaxDatagram)
 	for {
 		select {
