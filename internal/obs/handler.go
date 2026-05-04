@@ -15,6 +15,7 @@ type sinkGeneration struct {
 	handler slog.Handler
 	closers []io.Closer
 	refs    atomic.Int64
+	retired atomic.Bool
 
 	closeMu sync.Mutex
 	closed  bool
@@ -62,6 +63,7 @@ func (a *atomicHandler) swapGen(next *sinkGeneration) {
 	if old == nil {
 		return
 	}
+	old.retired.Store(true)
 	if old.refs.Load() == 0 {
 		_ = old.closeOnce() //nolint:errcheck // best-effort close of retired idle generation
 	}
@@ -79,16 +81,29 @@ func (a *atomicHandler) Enabled(_ context.Context, level slog.Level) bool {
 //
 //nolint:gocritic // slog.Handler interface mandates value receiver for the record
 func (a *atomicHandler) Handle(ctx context.Context, r slog.Record) error {
-	g := a.gen.Load()
-	if g == nil {
-		return nil
+	var g *sinkGeneration
+	for {
+		g = a.gen.Load()
+		if g == nil {
+			return nil
+		}
+		if g.retired.Load() {
+			continue
+		}
+		g.refs.Add(1)
+		if a.gen.Load() != g {
+			if g.refs.Add(-1) == 0 && g.retired.Load() {
+				_ = g.closeOnce() //nolint:errcheck // lost race: drain retired generation
+			}
+			continue
+		}
+		break
 	}
-	g.refs.Add(1)
 	defer func() {
 		if g.refs.Add(-1) != 0 {
 			return
 		}
-		if a.gen.Load() != g {
+		if g.retired.Load() {
 			_ = g.closeOnce() //nolint:errcheck // best-effort close when last ref drops
 		}
 	}()

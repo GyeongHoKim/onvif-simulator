@@ -140,6 +140,7 @@ func (s *State) Close() error {
 	if old == nil {
 		return nil
 	}
+	old.retired.Store(true)
 	if old.refs.Load() == 0 {
 		return old.closeOnce()
 	}
