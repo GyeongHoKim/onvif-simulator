@@ -65,7 +65,6 @@ func Build(cfg Config) (*slog.Logger, *State, error) {
 		proxy:    newAtomicHandler(levelVar),
 		base:     Config{Extras: cfg.Extras},
 	}
-	s.levelVar.Set(ParseLevel(cfg.Level))
 	if err := s.applyInternal(cfg); err != nil {
 		return nil, nil, err
 	}
@@ -81,7 +80,7 @@ func (s *State) Apply(cfg Config) error {
 
 // applyInternal is the shared implementation behind Build and Apply.
 func (s *State) applyInternal(cfg Config) error {
-	s.levelVar.Set(ParseLevel(cfg.Level))
+	lvl := ParseLevel(cfg.Level)
 
 	var sinks []slog.Handler
 	var newClosers []io.Closer
@@ -115,6 +114,9 @@ func (s *State) applyInternal(cfg Config) error {
 		combined = newMultiHandler(sinks...)
 	}
 
+	// Commit level and sinks only after paths open and handlers build — avoid
+	// mutating levelVar if DefaultLogPath or openLogFile fails.
+	s.levelVar.Set(lvl)
 	s.proxy.swap(combined)
 
 	s.mu.Lock()
