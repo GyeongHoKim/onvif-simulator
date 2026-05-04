@@ -33,19 +33,35 @@ const (
 	pkgsiteVersion = "v0.0.0-20260421174859-26eab2f0c5ff"
 )
 
-var errPkgsiteNotReady = errors.New("pkgsite server did not become ready")
+var (
+	errPkgsiteNotReady = errors.New("pkgsite server did not become ready")
+	errNoModule        = errors.New("module directive not found in go.mod")
+)
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	port := flag.Int("port", defaultPort, "port to serve docs on")
 	flag.Parse()
 
-	logger, _, lerr := obs.Build(obs.Config{Level: "info"})
+	logger, state, lerr := obs.Build(obs.Config{Level: "info"})
 	if lerr != nil {
 		logger = obs.Discard()
 	}
+	if state != nil {
+		defer func() {
+			_ = state.Close() //nolint:errcheck // best-effort flush on shutdown
+		}()
+	}
 
 	ctx := context.Background()
-	module := moduleFromGoMod(logger)
+	module, err := moduleFromGoMod()
+	if err != nil {
+		logger.Error("resolve module", "err", err)
+		return 1
+	}
 	addr := fmt.Sprintf(":%d", *port)
 	url := fmt.Sprintf("http://localhost:%d/%s", *port, module)
 
@@ -55,7 +71,7 @@ func main() {
 	srv.Stderr = os.Stderr
 	if err := srv.Start(); err != nil {
 		logger.Error("failed to start pkgsite", "err", err)
-		os.Exit(1)
+		return 1
 	}
 
 	fmt.Printf("waiting for pkgsite on %s ...\n", addr)
@@ -73,7 +89,7 @@ func main() {
 				logger.Warn("kill pkgsite", "err", killErr)
 			}
 			<-exitCh
-			return
+			return 0
 		}
 		fmt.Printf("opening %s\n", url)
 		openBrowser(ctx, url)
@@ -83,6 +99,7 @@ func main() {
 	case exitErr := <-exitCh:
 		logger.Warn("pkgsite exited unexpectedly", "err", exitErr)
 	}
+	return 0
 }
 
 func waitReady(ctx context.Context, addr string, logger *slog.Logger) error {
@@ -119,19 +136,16 @@ func openBrowser(ctx context.Context, url string) {
 	}
 }
 
-func moduleFromGoMod(logger *slog.Logger) string {
+func moduleFromGoMod() (string, error) {
 	data, err := os.ReadFile("go.mod")
 	if err != nil {
-		logger.Error("read go.mod", "err", err)
-		os.Exit(1)
+		return "", fmt.Errorf("read go.mod: %w", err)
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "module ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "module "))
+			return strings.TrimSpace(strings.TrimPrefix(line, "module ")), nil
 		}
 	}
-	logger.Error("module directive not found in go.mod")
-	os.Exit(1)
-	return ""
+	return "", errNoModule
 }
