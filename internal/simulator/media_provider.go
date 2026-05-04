@@ -260,7 +260,7 @@ func (p *mediaProvider) StreamURI(
 			continue
 		}
 		uri := streamURIFor(&cfg, prof)
-		return mediasvc.MediaURI{URI: uri, Timeout: "PT0S"}, nil
+		return mediasvc.MediaURI{URI: uri, Timeout: mediaTimeoutPT0S}, nil
 	}
 	return mediasvc.MediaURI{}, fmt.Errorf("%w: %s", mediasvc.ErrProfileNotFound, profileToken)
 }
@@ -284,7 +284,7 @@ func (p *mediaProvider) SnapshotURI(_ context.Context, profileToken string) (med
 			if cfg.Media.Profiles[i].SnapshotURI == "" {
 				return mediasvc.MediaURI{}, fmt.Errorf("%w: %s", mediasvc.ErrNoSnapshot, profileToken)
 			}
-			return mediasvc.MediaURI{URI: cfg.Media.Profiles[i].SnapshotURI, Timeout: "PT0S"}, nil
+			return mediasvc.MediaURI{URI: cfg.Media.Profiles[i].SnapshotURI, Timeout: mediaTimeoutPT0S}, nil
 		}
 	}
 	return mediasvc.MediaURI{}, fmt.Errorf("%w: %s", mediasvc.ErrProfileNotFound, profileToken)
@@ -408,7 +408,7 @@ func veConfigFromProfile(p *config.ProfileConfig) mediasvc.VideoEncoderConfigura
 			EncodingInterval: 1,
 			BitrateLimit:     p.Bitrate,
 		},
-		SessionTimeout: "PT0S",
+		SessionTimeout: mediaTimeoutPT0S,
 	}
 	if p.Encoding == rtsp.CodecH264 {
 		cfg.H264 = mediasvc.H264Configuration{

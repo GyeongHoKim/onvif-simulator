@@ -286,7 +286,7 @@ func (p *deviceProvider) GetSystemDateAndTime(context.Context) (devicesvc.System
 		info.DateTimeType = "NTP"
 	}
 	t := time.Now().UTC()
-	if cfg.Runtime.SystemDateAndTime.ManualDateTimeUTC != "" && info.DateTimeType == "Manual" {
+	if cfg.Runtime.SystemDateAndTime.ManualDateTimeUTC != "" && info.DateTimeType == dateTimeTypeManual {
 		if parsed, err := time.Parse(time.RFC3339, cfg.Runtime.SystemDateAndTime.ManualDateTimeUTC); err == nil {
 			t = parsed
 		}

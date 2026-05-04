@@ -96,7 +96,7 @@ func TestDeviceProviderReadsConfig(t *testing.T) {
 		t.Fatalf("GetSystemDateAndTime: %v", err)
 	}
 	if err := dp.SetSystemDateAndTime(ctx, devicesvc.SetSystemDateAndTimeParams{
-		DateTimeType: "Manual", TZ: "UTC",
+		DateTimeType: dateTimeTypeManual, TZ: "UTC",
 		UTCDateTime: devicesvc.SystemDateTime{Year: 2026, Month: 1, Day: 1, Hour: 0, Minute: 0, Second: 0},
 	}); err != nil {
 		t.Fatalf("SetSystemDateAndTime: %v", err)
@@ -335,7 +335,7 @@ func TestGetSystemDateAndTimeManual(t *testing.T) {
 
 	ctx := context.Background()
 	if err := sim.deviceProv.SetSystemDateAndTime(ctx, devicesvc.SetSystemDateAndTimeParams{
-		DateTimeType: "Manual",
+		DateTimeType: dateTimeTypeManual,
 		TZ:           "UTC",
 		UTCDateTime:  devicesvc.SystemDateTime{Year: 2026, Month: 4, Day: 1, Hour: 12},
 	}); err != nil {
@@ -348,7 +348,7 @@ func TestGetSystemDateAndTimeManual(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSystemDateAndTime: %v", err)
 	}
-	if info.DateTimeType != "Manual" {
+	if info.DateTimeType != dateTimeTypeManual {
 		t.Fatalf("expected Manual DateTimeType, got %q", info.DateTimeType)
 	}
 }
