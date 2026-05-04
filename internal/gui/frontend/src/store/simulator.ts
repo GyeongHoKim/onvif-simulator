@@ -54,10 +54,15 @@ export const useSim = create<SimState>((set, get) => ({
 
   bootstrap: async () => {
     await Promise.all([get().refreshStatus(), get().refreshConfig(), get().refreshUsers()])
-    const recent = await App.RecentLogs()
-    for (const r of recent) {
-      get().appendLog(r)
+    try {
+      const recent = await App.RecentLogs()
+      for (const r of recent) {
+        get().appendLog(r)
+      }
+    } catch (err) {
+      console.error("simulator bootstrap: RecentLogs failed", err)
     }
+    wruntime.EventsOff("event:new", "mutation:new", "log:new")
     wruntime.EventsOn("event:new", (rec: EventRecord) => get().appendEvent(rec))
     wruntime.EventsOn("mutation:new", (rec) => get().appendMutation(rec))
     wruntime.EventsOn("log:new", (rec: guiNs.LogRecord) => get().appendLog(rec))

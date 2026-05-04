@@ -193,7 +193,7 @@ func (emptyServicesProvider) Services(context.Context, bool) ([]ServiceDescripto
 
 func TestServeHTTP_GetCapabilities(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetCapabilities", `<Category>All</Category>`)))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opGetCapabilities, `<Category>All</Category>`)))
 	rec := httptest.NewRecorder()
 
 	svc.ServeHTTP(rec, req)
@@ -211,7 +211,7 @@ func TestServeHTTP_GetCapabilities(t *testing.T) {
 
 func TestServeHTTP_GetServices(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetServices", `<IncludeCapability>false</IncludeCapability>`)))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opGetServices, `<IncludeCapability>false</IncludeCapability>`)))
 	rec := httptest.NewRecorder()
 
 	svc.ServeHTTP(rec, req)
@@ -226,7 +226,7 @@ func TestServeHTTP_GetServices(t *testing.T) {
 
 func TestServeHTTP_GetDeviceInformation(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetDeviceInformation", "")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opGetDeviceInformation, "")))
 	rec := httptest.NewRecorder()
 
 	svc.ServeHTTP(rec, req)
@@ -337,7 +337,7 @@ func TestServeHTTP_EmptyBodyFault(t *testing.T) {
 
 func TestServeHTTP_GetServiceCapabilities(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetServiceCapabilities", "")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opGetServiceCapabilities, "")))
 	rec := httptest.NewRecorder()
 
 	svc.ServeHTTP(rec, req)
@@ -373,10 +373,10 @@ func TestServeHTTP_ProviderErrors(t *testing.T) {
 		op    string
 		inner string
 	}{
-		{"GetDeviceInformation", ""},
-		{"GetServices", "<IncludeCapability>false</IncludeCapability>"},
-		{"GetServiceCapabilities", ""},
-		{"GetCapabilities", "<Category>All</Category>"},
+		{opGetDeviceInformation, ""},
+		{opGetServices, "<IncludeCapability>false</IncludeCapability>"},
+		{opGetServiceCapabilities, ""},
+		{opGetCapabilities, "<Category>All</Category>"},
 		{opGetWsdlURL, ""},
 	}
 	for _, tc := range cases {
@@ -402,7 +402,7 @@ func TestServeHTTP_ProviderErrors(t *testing.T) {
 
 func TestServeHTTP_GetServicesNoServices(t *testing.T) {
 	svc := NewHandler(emptyServicesProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetServices", "<IncludeCapability>false</IncludeCapability>")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opGetServices, "<IncludeCapability>false</IncludeCapability>")))
 	rec := httptest.NewRecorder()
 
 	svc.ServeHTTP(rec, req)
@@ -417,7 +417,7 @@ func TestServeHTTP_GetServicesNoServices(t *testing.T) {
 
 func TestServeHTTP_GetServicesInvalidPayload(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetServices", "<IncludeCapability>notabool</IncludeCapability>")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opGetServices, "<IncludeCapability>notabool</IncludeCapability>")))
 	rec := httptest.NewRecorder()
 
 	svc.ServeHTTP(rec, req)
@@ -514,7 +514,7 @@ func soapRequest(op, inner string) string {
 
 func TestServeHTTP_GetDiscoveryMode(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetDiscoveryMode", "")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opGetDiscoveryMode, "")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -527,7 +527,7 @@ func TestServeHTTP_GetDiscoveryMode(t *testing.T) {
 
 func TestServeHTTP_SetDiscoveryMode(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetDiscoveryMode", "<DiscoveryMode>NonDiscoverable</DiscoveryMode>")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opSetDiscoveryMode, "<DiscoveryMode>NonDiscoverable</DiscoveryMode>")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -540,7 +540,7 @@ func TestServeHTTP_SetDiscoveryMode(t *testing.T) {
 
 func TestServeHTTP_SetDiscoveryModeInvalidPayload(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetDiscoveryMode", "<DiscoveryMode><bad</DiscoveryMode>")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opSetDiscoveryMode, "<DiscoveryMode><bad</DiscoveryMode>")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -550,7 +550,7 @@ func TestServeHTTP_SetDiscoveryModeInvalidPayload(t *testing.T) {
 
 func TestServeHTTP_GetScopes(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetScopes", "")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opGetScopes, "")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -563,7 +563,7 @@ func TestServeHTTP_GetScopes(t *testing.T) {
 
 func TestServeHTTP_SetScopes(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetScopes", "<Scopes>onvif://www.onvif.org/type/video_encoder</Scopes>")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opSetScopes, "<Scopes>onvif://www.onvif.org/type/video_encoder</Scopes>")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -576,7 +576,7 @@ func TestServeHTTP_SetScopes(t *testing.T) {
 
 func TestServeHTTP_AddScopes(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("AddScopes", "<ScopeItem>onvif://www.onvif.org/type/ptz</ScopeItem>")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opAddScopes, "<ScopeItem>onvif://www.onvif.org/type/ptz</ScopeItem>")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -589,7 +589,7 @@ func TestServeHTTP_AddScopes(t *testing.T) {
 
 func TestServeHTTP_RemoveScopes(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("RemoveScopes", "<ScopeItem>onvif://www.onvif.org/type/ptz</ScopeItem>")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opRemoveScopes, "<ScopeItem>onvif://www.onvif.org/type/ptz</ScopeItem>")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -604,7 +604,7 @@ func TestServeHTTP_RemoveScopes(t *testing.T) {
 
 func TestServeHTTP_GetHostname(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetHostname", "")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opGetHostname, "")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -617,7 +617,7 @@ func TestServeHTTP_GetHostname(t *testing.T) {
 
 func TestServeHTTP_SetHostname(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetHostname", "<Name>mycamera</Name>")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opSetHostname, "<Name>mycamera</Name>")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -630,7 +630,7 @@ func TestServeHTTP_SetHostname(t *testing.T) {
 
 func TestServeHTTP_GetDNS(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetDNS", "")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opGetDNS, "")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -644,7 +644,7 @@ func TestServeHTTP_GetDNS(t *testing.T) {
 func TestServeHTTP_SetDNS(t *testing.T) {
 	svc := NewHandler(stubProvider{})
 	inner := `<FromDHCP>false</FromDHCP><DNSManual><IPv4Address>8.8.8.8</IPv4Address></DNSManual>`
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetDNS", inner)))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opSetDNS, inner)))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -657,7 +657,7 @@ func TestServeHTTP_SetDNS(t *testing.T) {
 
 func TestServeHTTP_GetNetworkInterfaces(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetNetworkInterfaces", "")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opGetNetworkInterfaces, "")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -675,7 +675,7 @@ func TestServeHTTP_SetNetworkInterfaces(t *testing.T) {
 		`<IPv4><Enabled>true</Enabled><Config><DHCP>false</DHCP>` +
 		`<Manual><Address>192.168.1.10</Address><PrefixLength>24</PrefixLength></Manual>` +
 		`</Config></IPv4></NetworkInterface>`
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetNetworkInterfaces", inner)))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opSetNetworkInterfaces, inner)))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -692,7 +692,7 @@ func TestServeHTTP_SetNetworkInterfaces(t *testing.T) {
 
 func TestServeHTTP_SetNetworkInterfacesBadPayload(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetNetworkInterfaces", "<bad><xml")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opSetNetworkInterfaces, "<bad><xml")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -702,7 +702,7 @@ func TestServeHTTP_SetNetworkInterfacesBadPayload(t *testing.T) {
 
 func TestServeHTTP_GetNetworkProtocols(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetNetworkProtocols", "")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opGetNetworkProtocols, "")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -716,7 +716,7 @@ func TestServeHTTP_GetNetworkProtocols(t *testing.T) {
 func TestServeHTTP_SetNetworkProtocols(t *testing.T) {
 	svc := NewHandler(stubProvider{})
 	inner := `<NetworkProtocols><Name>HTTP</Name><Enabled>true</Enabled><Port>80</Port></NetworkProtocols>`
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetNetworkProtocols", inner)))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opSetNetworkProtocols, inner)))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -729,7 +729,7 @@ func TestServeHTTP_SetNetworkProtocols(t *testing.T) {
 
 func TestServeHTTP_GetNetworkDefaultGateway(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetNetworkDefaultGateway", "")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opGetNetworkDefaultGateway, "")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -743,7 +743,7 @@ func TestServeHTTP_GetNetworkDefaultGateway(t *testing.T) {
 func TestServeHTTP_SetNetworkDefaultGateway(t *testing.T) {
 	svc := NewHandler(stubProvider{})
 	inner := `<IPv4Address>192.168.1.1</IPv4Address>`
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetNetworkDefaultGateway", inner)))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opSetNetworkDefaultGateway, inner)))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -758,7 +758,7 @@ func TestServeHTTP_SetNetworkDefaultGateway(t *testing.T) {
 
 func TestServeHTTP_GetSystemDateAndTime(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetSystemDateAndTime", "")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opGetSystemDateAndTime, "")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -775,7 +775,7 @@ func TestServeHTTP_SetSystemDateAndTime(t *testing.T) {
 		`<TimeZone><TZ>UTC</TZ></TimeZone>` +
 		`<UTCDateTime><Date><Year>2026</Year><Month>4</Month><Day>24</Day></Date>` +
 		`<Time><Hour>12</Hour><Minute>0</Minute><Second>0</Second></Time></UTCDateTime>`
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetSystemDateAndTime", inner)))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opSetSystemDateAndTime, inner)))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -788,7 +788,7 @@ func TestServeHTTP_SetSystemDateAndTime(t *testing.T) {
 
 func TestServeHTTP_SetSystemFactoryDefault(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetSystemFactoryDefault", "<FactoryDefault>Soft</FactoryDefault>")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opSetSystemFactoryDefault, "<FactoryDefault>Soft</FactoryDefault>")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -801,7 +801,7 @@ func TestServeHTTP_SetSystemFactoryDefault(t *testing.T) {
 
 func TestServeHTTP_SystemReboot(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SystemReboot", "")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opSystemReboot, "")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -816,7 +816,7 @@ func TestServeHTTP_SystemReboot(t *testing.T) {
 
 func TestServeHTTP_GetUsers(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetUsers", "")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opGetUsers, "")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -830,7 +830,7 @@ func TestServeHTTP_GetUsers(t *testing.T) {
 func TestServeHTTP_CreateUsers(t *testing.T) {
 	svc := NewHandler(stubProvider{})
 	inner := `<User><Username>operator</Username><Password>pass</Password><UserLevel>Operator</UserLevel></User>`
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("CreateUsers", inner)))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opCreateUsers, inner)))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -844,7 +844,7 @@ func TestServeHTTP_CreateUsers(t *testing.T) {
 func TestServeHTTP_SetUser(t *testing.T) {
 	svc := NewHandler(stubProvider{})
 	inner := `<User><Username>admin</Username><Password>newpass</Password><UserLevel>Administrator</UserLevel></User>`
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetUser", inner)))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opSetUser, inner)))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -857,7 +857,7 @@ func TestServeHTTP_SetUser(t *testing.T) {
 
 func TestServeHTTP_DeleteUsers(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("DeleteUsers", "<Username>admin</Username>")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opDeleteUsers, "<Username>admin</Username>")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -875,29 +875,29 @@ func TestServeHTTP_ProviderErrors_NewOps(t *testing.T) {
 		op    string
 		inner string
 	}{
-		{"GetDiscoveryMode", ""},
-		{"SetDiscoveryMode", "<DiscoveryMode>Discoverable</DiscoveryMode>"},
-		{"GetScopes", ""},
-		{"SetScopes", "<Scopes>onvif://www.onvif.org/type/video_encoder</Scopes>"},
-		{"AddScopes", "<ScopeItem>onvif://www.onvif.org/type/ptz</ScopeItem>"},
-		{"RemoveScopes", "<ScopeItem>onvif://www.onvif.org/type/ptz</ScopeItem>"},
-		{"GetHostname", ""},
-		{"SetHostname", "<Name>host</Name>"},
-		{"GetDNS", ""},
-		{"SetDNS", "<FromDHCP>false</FromDHCP>"},
-		{"GetNetworkInterfaces", ""},
-		{"SetNetworkInterfaces", `<InterfaceToken>eth0</InterfaceToken><NetworkInterface><Enabled>true</Enabled></NetworkInterface>`},
-		{"GetNetworkProtocols", ""},
-		{"SetNetworkProtocols", "<NetworkProtocols><Name>HTTP</Name><Enabled>true</Enabled></NetworkProtocols>"},
-		{"GetNetworkDefaultGateway", ""},
-		{"SetNetworkDefaultGateway", "<IPv4Address>192.168.1.1</IPv4Address>"},
-		{"GetSystemDateAndTime", ""},
-		{"SetSystemFactoryDefault", "<FactoryDefault>Soft</FactoryDefault>"},
-		{"SystemReboot", ""},
-		{"GetUsers", ""},
-		{"CreateUsers", "<User><Username>u</Username><Password>p</Password><UserLevel>User</UserLevel></User>"},
-		{"SetUser", "<User><Username>u</Username><Password>p</Password><UserLevel>User</UserLevel></User>"},
-		{"DeleteUsers", "<Username>u</Username>"},
+		{opGetDiscoveryMode, ""},
+		{opSetDiscoveryMode, "<DiscoveryMode>Discoverable</DiscoveryMode>"},
+		{opGetScopes, ""},
+		{opSetScopes, "<Scopes>onvif://www.onvif.org/type/video_encoder</Scopes>"},
+		{opAddScopes, "<ScopeItem>onvif://www.onvif.org/type/ptz</ScopeItem>"},
+		{opRemoveScopes, "<ScopeItem>onvif://www.onvif.org/type/ptz</ScopeItem>"},
+		{opGetHostname, ""},
+		{opSetHostname, "<Name>host</Name>"},
+		{opGetDNS, ""},
+		{opSetDNS, "<FromDHCP>false</FromDHCP>"},
+		{opGetNetworkInterfaces, ""},
+		{opSetNetworkInterfaces, `<InterfaceToken>eth0</InterfaceToken><NetworkInterface><Enabled>true</Enabled></NetworkInterface>`},
+		{opGetNetworkProtocols, ""},
+		{opSetNetworkProtocols, "<NetworkProtocols><Name>HTTP</Name><Enabled>true</Enabled></NetworkProtocols>"},
+		{opGetNetworkDefaultGateway, ""},
+		{opSetNetworkDefaultGateway, "<IPv4Address>192.168.1.1</IPv4Address>"},
+		{opGetSystemDateAndTime, ""},
+		{opSetSystemFactoryDefault, "<FactoryDefault>Soft</FactoryDefault>"},
+		{opSystemReboot, ""},
+		{opGetUsers, ""},
+		{opCreateUsers, "<User><Username>u</Username><Password>p</Password><UserLevel>User</UserLevel></User>"},
+		{opSetUser, "<User><Username>u</Username><Password>p</Password><UserLevel>User</UserLevel></User>"},
+		{opDeleteUsers, "<Username>u</Username>"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.op, func(t *testing.T) {
@@ -921,7 +921,7 @@ func TestServeHTTP_SetSystemDateAndTimeProviderError(t *testing.T) {
 		`<TimeZone><TZ>UTC</TZ></TimeZone>` +
 		`<UTCDateTime><Date><Year>2026</Year><Month>4</Month><Day>24</Day></Date>` +
 		`<Time><Hour>12</Hour><Minute>0</Minute><Second>0</Second></Time></UTCDateTime>`
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("SetSystemDateAndTime", inner)))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opSetSystemDateAndTime, inner)))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusInternalServerError {

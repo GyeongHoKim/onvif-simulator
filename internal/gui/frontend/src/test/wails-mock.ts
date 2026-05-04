@@ -93,7 +93,11 @@ export const runtimeMocks = {
     set.add(cb)
     return () => set?.delete(cb)
   }),
-  EventsOff: vi.fn(),
+  EventsOff: vi.fn((...eventNames: string[]) => {
+    for (const name of eventNames) {
+      eventListeners.delete(name)
+    }
+  }),
   EventsEmit: vi.fn(),
 }
 

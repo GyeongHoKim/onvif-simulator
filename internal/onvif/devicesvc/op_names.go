@@ -1,4 +1,34 @@
 package devicesvc
 
-// SOAP operation names repeated in handler and tests (goconst).
-const opGetWsdlURL = "GetWsdlUrl"
+// SOAP operation names for devicesvc dispatch and tests (goconst).
+const (
+	opAddScopes                = "AddScopes"
+	opCreateUsers              = "CreateUsers"
+	opDeleteUsers              = "DeleteUsers"
+	opGetCapabilities          = "GetCapabilities"
+	opGetDeviceInformation     = "GetDeviceInformation"
+	opGetDiscoveryMode         = "GetDiscoveryMode"
+	opGetDNS                   = "GetDNS"
+	opGetHostname              = "GetHostname"
+	opGetNetworkDefaultGateway = "GetNetworkDefaultGateway"
+	opGetNetworkInterfaces     = "GetNetworkInterfaces"
+	opGetNetworkProtocols      = "GetNetworkProtocols"
+	opGetScopes                = "GetScopes"
+	opGetServiceCapabilities   = "GetServiceCapabilities"
+	opGetServices              = "GetServices"
+	opGetSystemDateAndTime     = "GetSystemDateAndTime"
+	opGetUsers                 = "GetUsers"
+	opGetWsdlURL               = "GetWsdlUrl"
+	opRemoveScopes             = "RemoveScopes"
+	opSetDiscoveryMode         = "SetDiscoveryMode"
+	opSetDNS                   = "SetDNS"
+	opSetHostname              = "SetHostname"
+	opSetNetworkDefaultGateway = "SetNetworkDefaultGateway"
+	opSetNetworkInterfaces     = "SetNetworkInterfaces"
+	opSetNetworkProtocols      = "SetNetworkProtocols"
+	opSetScopes                = "SetScopes"
+	opSetSystemDateAndTime     = "SetSystemDateAndTime"
+	opSetSystemFactoryDefault  = "SetSystemFactoryDefault"
+	opSetUser                  = "SetUser"
+	opSystemReboot             = "SystemReboot"
+)
