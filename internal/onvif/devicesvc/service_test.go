@@ -264,12 +264,12 @@ func TestServeHTTP_UnsupportedOperationFault(t *testing.T) {
 }
 
 func TestParseOperation(t *testing.T) {
-	payload, op, err := parseOperation([]byte(soapRequest("GetWsdlUrl", "")))
+	payload, op, err := parseOperation([]byte(soapRequest(opGetWsdlURL, "")))
 	if err != nil {
 		t.Fatalf("parseOperation: %v", err)
 	}
-	if op != "GetWsdlUrl" {
-		t.Fatalf("operation = %q, want %q", op, "GetWsdlUrl")
+	if op != opGetWsdlURL {
+		t.Fatalf("operation = %q, want %q", op, opGetWsdlURL)
 	}
 	if len(payload) == 0 {
 		t.Fatal("payload must not be empty")
@@ -280,7 +280,7 @@ func TestServeHTTP_AuthHook(t *testing.T) {
 	svc := NewHandler(stubProvider{}, WithAuthHook(AuthFunc(func(context.Context, string, *http.Request) error {
 		return io.EOF
 	})))
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetWsdlUrl", "")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opGetWsdlURL, "")))
 	rec := httptest.NewRecorder()
 
 	svc.ServeHTTP(rec, req)
@@ -355,7 +355,7 @@ func TestServeHTTP_GetServiceCapabilities(t *testing.T) {
 
 func TestServeHTTP_GetWsdlUrl(t *testing.T) {
 	svc := NewHandler(stubProvider{})
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetWsdlUrl", "")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opGetWsdlURL, "")))
 	rec := httptest.NewRecorder()
 
 	svc.ServeHTTP(rec, req)
@@ -377,7 +377,7 @@ func TestServeHTTP_ProviderErrors(t *testing.T) {
 		{"GetServices", "<IncludeCapability>false</IncludeCapability>"},
 		{"GetServiceCapabilities", ""},
 		{"GetCapabilities", "<Category>All</Category>"},
-		{"GetWsdlUrl", ""},
+		{opGetWsdlURL, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.op, func(t *testing.T) {
@@ -459,7 +459,7 @@ func TestServeHTTP_AuthHookPreservesBody(t *testing.T) {
 		seen = body
 		return nil
 	})))
-	envelope := soapRequest("GetWsdlUrl", "")
+	envelope := soapRequest(opGetWsdlURL, "")
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(envelope))
 	rec := httptest.NewRecorder()
 
@@ -943,7 +943,7 @@ func TestServeHTTP_AuthFaultChallengeError(t *testing.T) {
 	svc := NewHandler(stubProvider{}, WithAuthHook(AuthFunc(func(context.Context, string, *http.Request) error {
 		return challenge
 	})))
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetWsdlUrl", "")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opGetWsdlURL, "")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
@@ -958,7 +958,7 @@ func TestServeHTTP_AuthFaultForbidden(t *testing.T) {
 	svc := NewHandler(stubProvider{}, WithAuthHook(AuthFunc(func(context.Context, string, *http.Request) error {
 		return auth.ErrForbidden
 	})))
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetWsdlUrl", "")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opGetWsdlURL, "")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
@@ -975,7 +975,7 @@ func TestServeHTTP_AuthFaultChallengeErrorCustomStatus(t *testing.T) {
 	svc := NewHandler(stubProvider{}, WithAuthHook(AuthFunc(func(context.Context, string, *http.Request) error {
 		return challenge
 	})))
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest("GetWsdlUrl", "")))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, DeviceServicePath, bytes.NewBufferString(soapRequest(opGetWsdlURL, "")))
 	rec := httptest.NewRecorder()
 	svc.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {

@@ -284,7 +284,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 				Imaging: serviceCapabilityEnvelope{XAddr: caps.Imaging.XAddr},
 			},
 		})
-	case "GetWsdlUrl":
+	case opGetWsdlURL:
 		wsdlURL, err := s.provider.WsdlURL(ctx)
 		if err != nil {
 			return nil, err
