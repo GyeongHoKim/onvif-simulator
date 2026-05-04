@@ -79,6 +79,19 @@ type Config struct {
 	Auth    AuthConfig    `json:"auth,omitempty"`
 	Events  EventsConfig  `json:"events,omitempty"`
 	Runtime RuntimeConfig `json:"runtime,omitempty"`
+	Logging LoggingConfig `json:"logging,omitempty"`
+}
+
+// LoggingConfig configures the simulator's structured logger. All fields are
+// optional; empty values fall back to internal defaults (info level, output
+// to the OS user-cache directory). The simulator's reload path applies new
+// values live, so editing this section does not require a restart.
+type LoggingConfig struct {
+	// Level is "debug", "info", "warn", or "error". Empty means "info".
+	Level string `json:"level,omitempty"`
+	// File is the absolute path to the JSON log file. Empty falls back to
+	// the OS user-cache directory (see internal/obs.DefaultLogPath).
+	File string `json:"file,omitempty"`
 }
 
 // DeviceConfig describes who this device is.
@@ -394,6 +407,10 @@ var (
 
 	// ErrEventsTopicNameDuplicate means two topic entries share the same name.
 	ErrEventsTopicNameDuplicate = errors.New("config: events.topics name must be unique")
+
+	// ErrLoggingLevelInvalid means logging.level is not a recognized name.
+	ErrLoggingLevelInvalid = errors.New(
+		"config: logging.level must be one of debug, info, warn, error")
 )
 
 var (
@@ -458,7 +475,26 @@ func Validate(c *Config) error {
 	if err := validateRuntime(&c.Runtime); err != nil {
 		return err
 	}
-	return validateEvents(&c.Events)
+	if err := validateEvents(&c.Events); err != nil {
+		return err
+	}
+	return validateLogging(&c.Logging)
+}
+
+var validLogLevels = map[string]bool{
+	"":      true,
+	"debug": true,
+	"info":  true,
+	"warn":  true,
+	"error": true,
+}
+
+func validateLogging(l *LoggingConfig) error {
+	level := strings.ToLower(strings.TrimSpace(l.Level))
+	if !validLogLevels[level] {
+		return fmt.Errorf("config: logging.level %q: %w", l.Level, ErrLoggingLevelInvalid)
+	}
+	return nil
 }
 
 func validateDevice(d *DeviceConfig) error {

@@ -144,6 +144,11 @@ func TestValidateRejects(t *testing.T) {
 			},
 			wantErr: config.ErrAuthJWTClockSkew,
 		},
+		{
+			name:    "logging level invalid",
+			mutate:  func(c *config.Config) { c.Logging.Level = "trace" },
+			wantErr: config.ErrLoggingLevelInvalid,
+		},
 	}
 
 	for _, tc := range cases {

@@ -86,5 +86,9 @@
       {"name": "tns1:VideoSource/ImageTooBright",        "enabled": true},
       {"name": "tns1:Device/Trigger/DigitalInput",       "enabled": true}
     ]
+  },
+  "logging": {
+    "level": "info",
+    "file": ""
   }
 }
