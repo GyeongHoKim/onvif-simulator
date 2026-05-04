@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
-	"sync"
 )
 
 const (
@@ -47,9 +47,6 @@ type State struct {
 	// base records the Extras list installed at Build time so Apply can
 	// preserve them across reloads without callers re-supplying.
 	base Config
-
-	mu      sync.Mutex
-	closers []io.Closer
 }
 
 // Build constructs a *slog.Logger that writes JSON to the configured file
@@ -116,15 +113,13 @@ func (s *State) applyInternal(cfg Config) error {
 
 	// Commit level and sinks only after paths open and handlers build — avoid
 	// mutating levelVar if DefaultLogPath or openLogFile fails.
+	next := &sinkGeneration{
+		handler: combined,
+		closers: newClosers,
+	}
 	s.levelVar.Set(lvl)
-	s.proxy.swap(combined)
-
-	s.mu.Lock()
-	prev := s.closers
-	s.closers = newClosers
-	s.mu.Unlock()
-
-	return closeAll(prev)
+	s.proxy.swapGen(next)
+	return nil
 }
 
 // SetLevel updates the live log level without rebuilding the sink stack.
@@ -140,11 +135,18 @@ func (s *State) Level() slog.Level {
 // Close releases any resources owned by the active sinks (open log file).
 // Safe to call multiple times.
 func (s *State) Close() error {
-	s.mu.Lock()
-	cs := s.closers
-	s.closers = nil
-	s.mu.Unlock()
-	return closeAll(cs)
+	disc := &sinkGeneration{handler: slog.DiscardHandler}
+	old := s.proxy.gen.Swap(disc)
+	if old == nil {
+		return nil
+	}
+	if old.refs.Load() == 0 {
+		return old.closeOnce()
+	}
+	for old.refs.Load() > 0 {
+		runtime.Gosched()
+	}
+	return nil
 }
 
 // ParseLevel maps a textual level name to slog.Level, returning slog.LevelInfo

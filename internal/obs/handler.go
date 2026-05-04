@@ -2,9 +2,35 @@ package obs
 
 import (
 	"context"
+	"io"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 )
+
+// sinkGeneration is one installed handler stack plus its file descriptors.
+// Ref counting ensures Apply does not close previous sinks while another
+// goroutine is still inside Handle on the retired handler snapshot.
+type sinkGeneration struct {
+	handler slog.Handler
+	closers []io.Closer
+	refs    atomic.Int64
+
+	closeMu sync.Mutex
+	closed  bool
+}
+
+func (g *sinkGeneration) closeOnce() error {
+	g.closeMu.Lock()
+	defer g.closeMu.Unlock()
+	if g.closed {
+		return nil
+	}
+	g.closed = true
+	err := closeAll(g.closers)
+	g.closers = nil
+	return err
+}
 
 // atomicHandler indirects to a swappable underlying handler so a *slog.Logger
 // returned by Build can outlive any individual sink configuration. WithAttrs
@@ -14,7 +40,7 @@ import (
 // Enabled checks the State's LevelVar so all sinks (file + Extras) honor a
 // single source-of-truth level — Extras handlers don't get to bypass it.
 type atomicHandler struct {
-	target   *atomic.Pointer[slog.Handler]
+	gen      *atomic.Pointer[sinkGeneration]
 	levelVar *slog.LevelVar
 	stages   []handlerStage
 }
@@ -25,28 +51,20 @@ type handlerStage struct {
 }
 
 func newAtomicHandler(levelVar *slog.LevelVar) *atomicHandler {
-	p := &atomic.Pointer[slog.Handler]{}
-	initial := slog.DiscardHandler
-	p.Store(&initial)
-	return &atomicHandler{target: p, levelVar: levelVar}
+	var gen atomic.Pointer[sinkGeneration]
+	boot := &sinkGeneration{handler: slog.DiscardHandler}
+	gen.Store(boot)
+	return &atomicHandler{gen: &gen, levelVar: levelVar}
 }
 
-func (a *atomicHandler) swap(h slog.Handler) {
-	a.target.Store(&h)
-}
-
-func (a *atomicHandler) currentForRecord() slog.Handler {
-	h := *a.target.Load()
-	for _, st := range a.stages {
-		if st.group != "" {
-			h = h.WithGroup(st.group)
-			continue
-		}
-		if len(st.attrs) > 0 {
-			h = h.WithAttrs(st.attrs)
-		}
+func (a *atomicHandler) swapGen(next *sinkGeneration) {
+	old := a.gen.Swap(next)
+	if old == nil {
+		return
 	}
-	return h
+	if old.refs.Load() == 0 {
+		_ = old.closeOnce() //nolint:errcheck // best-effort close of retired idle generation
+	}
 }
 
 // Enabled checks the live LevelVar so the level filter applies to every sink,
@@ -61,7 +79,31 @@ func (a *atomicHandler) Enabled(_ context.Context, level slog.Level) bool {
 //
 //nolint:gocritic // slog.Handler interface mandates value receiver for the record
 func (a *atomicHandler) Handle(ctx context.Context, r slog.Record) error {
-	return a.currentForRecord().Handle(ctx, r)
+	g := a.gen.Load()
+	if g == nil {
+		return nil
+	}
+	g.refs.Add(1)
+	defer func() {
+		if g.refs.Add(-1) != 0 {
+			return
+		}
+		if a.gen.Load() != g {
+			_ = g.closeOnce() //nolint:errcheck // best-effort close when last ref drops
+		}
+	}()
+
+	h := g.handler
+	for _, st := range a.stages {
+		if st.group != "" {
+			h = h.WithGroup(st.group)
+			continue
+		}
+		if len(st.attrs) > 0 {
+			h = h.WithAttrs(st.attrs)
+		}
+	}
+	return h.Handle(ctx, r)
 }
 
 func (a *atomicHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
@@ -71,7 +113,7 @@ func (a *atomicHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	stages := make([]handlerStage, len(a.stages)+1)
 	copy(stages, a.stages)
 	stages[len(a.stages)] = handlerStage{attrs: append([]slog.Attr(nil), attrs...)}
-	return &atomicHandler{target: a.target, levelVar: a.levelVar, stages: stages}
+	return &atomicHandler{gen: a.gen, levelVar: a.levelVar, stages: stages}
 }
 
 func (a *atomicHandler) WithGroup(name string) slog.Handler {
@@ -81,7 +123,7 @@ func (a *atomicHandler) WithGroup(name string) slog.Handler {
 	stages := make([]handlerStage, len(a.stages)+1)
 	copy(stages, a.stages)
 	stages[len(a.stages)] = handlerStage{group: name}
-	return &atomicHandler{target: a.target, levelVar: a.levelVar, stages: stages}
+	return &atomicHandler{gen: a.gen, levelVar: a.levelVar, stages: stages}
 }
 
 // multiHandler fans every record out to multiple sinks. Used when more than

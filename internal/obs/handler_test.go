@@ -24,7 +24,7 @@ func TestAtomicHandlerSwapAndDispatch(t *testing.T) {
 
 	var buf bytes.Buffer
 	target := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
-	a.swap(target)
+	a.swapGen(&sinkGeneration{handler: target})
 
 	logger := slog.New(a)
 	logger.Info("hello")
@@ -37,7 +37,7 @@ func TestAtomicHandlerWithAttrsAndGroups(t *testing.T) {
 	t.Parallel()
 	a := newAtomicHandler(testLevelVar(slog.LevelDebug))
 	var buf bytes.Buffer
-	a.swap(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	a.swapGen(&sinkGeneration{handler: slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})})
 
 	logger := slog.New(a).With("component", "test").WithGroup("scope").With("k", "v")
 	logger.Info("payload")
@@ -54,12 +54,12 @@ func TestAtomicHandlerSurvivesSwap(t *testing.T) {
 	t.Parallel()
 	a := newAtomicHandler(testLevelVar(slog.LevelDebug))
 	var first, second bytes.Buffer
-	a.swap(slog.NewTextHandler(&first, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	a.swapGen(&sinkGeneration{handler: slog.NewTextHandler(&first, &slog.HandlerOptions{Level: slog.LevelDebug})})
 
 	logger := slog.New(a).With("component", "x")
 	logger.Info("before")
 
-	a.swap(slog.NewTextHandler(&second, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	a.swapGen(&sinkGeneration{handler: slog.NewTextHandler(&second, &slog.HandlerOptions{Level: slog.LevelDebug})})
 	logger.Info("after")
 
 	if !strings.Contains(first.String(), "before") {
