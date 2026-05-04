@@ -69,7 +69,7 @@ func TestBroker_PublishLogsOnDisabledTopic(t *testing.T) {
 
 	b.Publish("tns1:Device/Trigger/DigitalInput", `<tt:Message/>`) // disabled topic
 	out := buf.String()
-	if !strings.Contains(out, "drop publish") && !strings.Contains(out, "DigitalInput") {
+	if !strings.Contains(out, "drop publish") || !strings.Contains(out, "DigitalInput") {
 		t.Errorf("disabled-topic drop not logged: %q", out)
 	}
 }
