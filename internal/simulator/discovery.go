@@ -43,7 +43,9 @@ func (s *Simulator) sendHelloMulticast() {
 	if err != nil {
 		return
 	}
-	_ = wsdiscovery.SendMulticast(payload) //nolint:errcheck // best-effort multicast Hello.
+	if sendErr := wsdiscovery.SendMulticast(payload); sendErr != nil {
+		s.rootLogger.Debug("discovery: multicast hello failed", "err", sendErr)
+	}
 }
 
 // sendByeMulticast emits a Bye datagram if discovery is enabled. No-op
@@ -64,7 +66,9 @@ func (s *Simulator) sendByeMulticast() {
 	if err != nil {
 		return
 	}
-	_ = wsdiscovery.SendMulticast(payload) //nolint:errcheck // best-effort multicast Bye.
+	if sendErr := wsdiscovery.SendMulticast(payload); sendErr != nil {
+		s.rootLogger.Debug("discovery: multicast bye failed", "err", sendErr)
+	}
 }
 
 func (s *Simulator) discoveryEnabled() bool {
@@ -135,7 +139,9 @@ func (s *Simulator) handleDiscoveryDatagram(from *net.UDPAddr, buf []byte, host 
 	if marshalErr != nil {
 		return
 	}
-	_ = wsdiscovery.SendUDP(from, payload) //nolint:errcheck // best-effort unicast reply.
+	if sendErr := wsdiscovery.SendUDP(from, payload); sendErr != nil {
+		s.rootLogger.Debug("discovery: unicast probe match failed", "err", sendErr)
+	}
 }
 
 func replyToOrAnonymous(replyTo string) string {
