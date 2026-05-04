@@ -658,7 +658,7 @@ func veConfigToEnvelope(cfg *VideoEncoderConfiguration) videoEncoderConfiguratio
 			BitrateLimit:     cfg.RateControl.BitrateLimit,
 		}
 	}
-	if cfg.Encoding == "H264" {
+	if cfg.Encoding == encodingH264 {
 		if cfg.H264.GOVLength != 0 || cfg.H264.H264Profile != "" {
 			env.H264 = &h264ConfigurationEnvelope{
 				GovLength:   cfg.H264.GOVLength,
