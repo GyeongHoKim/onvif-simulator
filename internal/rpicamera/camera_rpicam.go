@@ -199,9 +199,12 @@ func (c *Camera) runReader() error {
 		if err != nil {
 			return err
 		}
+		if len(buf) == 0 {
+			return fmt.Errorf("rpicamera: empty control frame during init")
+		}
 		switch buf[0] {
 		case 'e':
-			return fmt.Errorf("rpicamera: helper error: %s", string(buf[1:]))
+			return fmt.Errorf("rpicamera: helper error: %s", helperErrorMessage(buf))
 		case 'r':
 			goto streaming
 		default:
@@ -215,11 +218,17 @@ streaming:
 		if err != nil {
 			return err
 		}
+		if len(buf) == 0 {
+			return fmt.Errorf("rpicamera: empty control frame")
+		}
 		switch buf[0] {
 		case 'e':
-			return fmt.Errorf("rpicamera: helper error: %s", string(buf[1:]))
+			return fmt.Errorf("rpicamera: helper error: %s", helperErrorMessage(buf))
 
 		case 'd':
+			if len(buf) < 9 {
+				return fmt.Errorf("rpicamera: short data frame (%d bytes)", len(buf))
+			}
 			dts := int64(buf[8])<<56 | int64(buf[7])<<48 | int64(buf[6])<<40 | int64(buf[5])<<32 |
 				int64(buf[4])<<24 | int64(buf[3])<<16 | int64(buf[2])<<8 | int64(buf[1])
 
@@ -246,6 +255,15 @@ streaming:
 			return fmt.Errorf("rpicamera: unexpected control byte 0x%.2x", buf[0])
 		}
 	}
+}
+
+// helperErrorMessage extracts the message payload that follows an 'e' control
+// byte, returning a placeholder when the helper sent only the byte itself.
+func helperErrorMessage(buf []byte) string {
+	if len(buf) < 2 {
+		return "<empty>"
+	}
+	return string(buf[1:])
 }
 
 func ntpTime() syscall.Timespec {
