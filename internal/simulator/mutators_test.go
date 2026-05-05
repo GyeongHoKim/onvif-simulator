@@ -119,16 +119,7 @@ func TestSetProfileKindAndRPICam(t *testing.T) {
 	}
 
 	snap := sim.ConfigSnapshot()
-	var got *config.ProfileConfig
-	for i := range snap.Media.Profiles {
-		if snap.Media.Profiles[i].Token == "rpi_tok" {
-			got = &snap.Media.Profiles[i]
-			break
-		}
-	}
-	if got == nil {
-		t.Fatal("rpi_tok not in snapshot")
-	}
+	got := findProfile(t, &snap, "rpi_tok")
 	if got.Kind != config.ProfileKindRPICam {
 		t.Fatalf("kind = %q, want rpicam", got.Kind)
 	}
@@ -140,18 +131,26 @@ func TestSetProfileKindAndRPICam(t *testing.T) {
 	if err := sim.SetProfileKind("rpi_tok", config.ProfileKindFile); err != nil {
 		t.Fatalf("SetProfileKind file: %v", err)
 	}
-	snap = sim.ConfigSnapshot()
-	for i := range snap.Media.Profiles {
-		if snap.Media.Profiles[i].Token == "rpi_tok" {
-			if snap.Media.Profiles[i].RPICam != nil {
-				t.Fatalf("rpicam should be cleared after kind=file: %+v", snap.Media.Profiles[i].RPICam)
-			}
-		}
+	snap2 := sim.ConfigSnapshot()
+	after := findProfile(t, &snap2, "rpi_tok")
+	if after.RPICam != nil {
+		t.Fatalf("rpicam should be cleared after kind=file: %+v", after.RPICam)
 	}
 
 	if !contains(seen, "SetProfileRPICam") || !contains(seen, "SetProfileKind") {
 		t.Fatalf("missing mutation records: %v", seen)
 	}
+}
+
+func findProfile(t *testing.T, snap *config.Config, token string) config.ProfileConfig {
+	t.Helper()
+	for i := range snap.Media.Profiles {
+		if snap.Media.Profiles[i].Token == token {
+			return snap.Media.Profiles[i]
+		}
+	}
+	t.Fatalf("profile %q not in snapshot", token)
+	return config.ProfileConfig{}
 }
 
 func contains(haystack []string, needle string) bool {

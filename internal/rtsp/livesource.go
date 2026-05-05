@@ -47,6 +47,9 @@ type LiveSource struct {
 
 	in chan AccessUnit
 
+	closeMu sync.Mutex
+	closed  bool
+
 	readyOnce sync.Once
 	ready     chan struct{}
 }
@@ -69,8 +72,14 @@ func NewLiveSource(probe *ProbeResult, logger *slog.Logger) *LiveSource {
 // Push delivers an access unit to the source. The call drops the AU
 // non-blockingly when the buffer is full so a slow consumer does not stall
 // the producer; in production the producer itself is rate-limited by the
-// camera FPS.
+// camera FPS. Push is safe to call concurrently with Close — pushes after
+// Close are dropped.
 func (l *LiveSource) Push(au AccessUnit) {
+	l.closeMu.Lock()
+	defer l.closeMu.Unlock()
+	if l.closed {
+		return
+	}
 	select {
 	case l.in <- au:
 	default:
@@ -78,8 +87,17 @@ func (l *LiveSource) Push(au AccessUnit) {
 	}
 }
 
-// Close releases the AU channel. Producers must not Push afterwards.
-func (l *LiveSource) Close() { close(l.in) }
+// Close releases the AU channel. Idempotent and safe to call concurrently
+// with Push.
+func (l *LiveSource) Close() {
+	l.closeMu.Lock()
+	defer l.closeMu.Unlock()
+	if l.closed {
+		return
+	}
+	l.closed = true
+	close(l.in)
+}
 
 // Describe satisfies Source.
 func (l *LiveSource) Describe() *ProbeResult { return l.probe }

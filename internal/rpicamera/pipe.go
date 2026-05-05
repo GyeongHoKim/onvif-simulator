@@ -2,7 +2,10 @@
 
 package rpicamera
 
-import "syscall"
+import (
+	"io"
+	"syscall"
+)
 
 // pipe is a length-prefixed message pipe over a syscall.Pipe(2) pair. The
 // 4-byte little-endian header lets the reader recover frame boundaries
@@ -40,26 +43,34 @@ func (p *pipe) read() ([]byte, error) {
 
 func (p *pipe) write(byts []byte) error {
 	le := len(byts)
-	hdr := []byte{byte(le), byte(le >> 8), byte(le >> 16), byte(le >> 24)}
-	if _, err := syscall.Write(p.writeFD, hdr); err != nil {
-		return err
+	msg := make([]byte, 0, 4+le)
+	msg = append(msg, byte(le), byte(le>>8), byte(le>>16), byte(le>>24))
+	msg = append(msg, byts...)
+	for written := 0; written < len(msg); {
+		n, err := syscall.Write(p.writeFD, msg[written:])
+		if err != nil {
+			if err == syscall.EINTR {
+				continue
+			}
+			return err
+		}
+		written += n
 	}
-	_, err := syscall.Write(p.writeFD, byts)
-	return err
+	return nil
 }
 
 func syscallReadAll(fd int, buf []byte) error {
 	size := len(buf)
 	read := 0
-	for {
+	for read < size {
 		n, err := syscall.Read(fd, buf[read:size])
 		if err != nil {
 			return err
 		}
-		read += n
-		if read >= size {
-			break
+		if n == 0 {
+			return io.EOF
 		}
+		read += n
 	}
 	return nil
 }

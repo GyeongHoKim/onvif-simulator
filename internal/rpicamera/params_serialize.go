@@ -26,7 +26,7 @@ func (p upstreamParams) serialize() []byte {
 		case uint32:
 			entry += strconv.FormatUint(uint64(v), 10)
 		case float32:
-			entry += strconv.FormatFloat(float64(v), 'f', -1, 64)
+			entry += strconv.FormatFloat(float64(v), 'f', -1, 32)
 		case string:
 			entry += base64.StdEncoding.EncodeToString([]byte(v))
 		case bool:
