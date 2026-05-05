@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -188,7 +189,10 @@ func (m *mediaModel) appendVideoSources(b *strings.Builder) {
 const (
 	fldName int = iota
 	fldToken
+	fldKind
 	fldMediaFile
+	fldRPICamGeom // rpicam: width x height @ fps
+	fldRPICamCam  // rpicam: camera_id
 	fldSnapshot
 	fldVideoSource
 	fldCount
@@ -203,10 +207,23 @@ type profileFormModal struct {
 }
 
 func newProfileFormModal(sim SimulatorAPI, p *config.ProfileConfig, edit bool) *profileFormModal {
+	kind := p.Kind
+	if kind == "" {
+		kind = config.ProfileKindFile
+	}
+	rpiGeom := ""
+	rpiCam := ""
+	if p.RPICam != nil {
+		rpiGeom = fmt.Sprintf("%dx%d@%d", p.RPICam.Width, p.RPICam.Height, p.RPICam.FPS)
+		rpiCam = strconv.Itoa(p.RPICam.CameraID)
+	}
 	presets := []struct{ placeholder, val string }{
 		{"human-readable name", p.Name},
 		{"stable token (key)", p.Token},
+		{"file | rpicam", kind},
 		{"/absolute/path/to/video.mp4", p.MediaFilePath},
+		{"WIDTHxHEIGHT@FPS (rpicam only)", rpiGeom},
+		{"camera_id (rpicam only)", rpiCam},
 		{"http(s) snapshot URL (optional)", p.SnapshotURI},
 		{"video source token (optional)", p.VideoSourceToken},
 	}
@@ -223,8 +240,8 @@ func newProfileFormModal(sim SimulatorAPI, p *config.ProfileConfig, edit bool) *
 	if edit {
 		m.fields[fldName].SetValue(p.Name)
 		m.fields[fldToken].SetValue(p.Token)
-		m.focus = fldMediaFile
-		m.fields[fldMediaFile].Focus()
+		m.focus = fldKind
+		m.fields[fldKind].Focus()
 	} else {
 		m.fields[fldName].Focus()
 	}
@@ -265,7 +282,7 @@ func (p *profileFormModal) advanceFocus(delta int) {
 	step := (delta%fldCount + fldCount) % fldCount
 	p.focus = (p.focus + step) % fldCount
 	if p.edit && (p.focus == fldName || p.focus == fldToken || p.focus == fldVideoSource) {
-		p.focus = fldMediaFile
+		p.focus = fldKind
 		if delta < 0 {
 			p.focus = fldSnapshot
 		}
@@ -274,10 +291,17 @@ func (p *profileFormModal) advanceFocus(delta int) {
 }
 
 func (p *profileFormModal) save() tea.Cmd {
+	kindRaw := strings.TrimSpace(p.fields[fldKind].Value())
+	if kindRaw == "" {
+		kindRaw = config.ProfileKindFile
+	}
 	v := profileFormValues{
 		name:      strings.TrimSpace(p.fields[fldName].Value()),
 		token:     strings.TrimSpace(p.fields[fldToken].Value()),
+		kind:      kindRaw,
 		mediaFile: strings.TrimSpace(p.fields[fldMediaFile].Value()),
+		rpiGeom:   strings.TrimSpace(p.fields[fldRPICamGeom].Value()),
+		rpiCam:    strings.TrimSpace(p.fields[fldRPICamCam].Value()),
 		snap:      strings.TrimSpace(p.fields[fldSnapshot].Value()),
 		src:       strings.TrimSpace(p.fields[fldVideoSource].Value()),
 	}
@@ -288,21 +312,45 @@ func (p *profileFormModal) save() tea.Cmd {
 	profile := config.ProfileConfig{
 		Name:             v.name,
 		Token:            v.token,
-		MediaFilePath:    v.mediaFile,
+		Kind:             v.kind,
 		SnapshotURI:      v.snap,
 		VideoSourceToken: v.src,
+	}
+	switch v.kind {
+	case config.ProfileKindRPICam:
+		rp, err := parseRPICamGeom(v.rpiGeom, v.rpiCam)
+		if err != nil {
+			return flashCmd("rpicam params: " + err.Error())
+		}
+		profile.RPICam = rp
+	default:
+		profile.MediaFilePath = v.mediaFile
 	}
 	return addProfileCmd(sim, &profile)
 }
 
 type profileFormValues struct {
-	name, token, mediaFile, snap, src string
+	name, token, kind, mediaFile, rpiGeom, rpiCam, snap, src string
 }
 
 func editProfileCmd(sim SimulatorAPI, v *profileFormValues) tea.Cmd {
 	return func() tea.Msg {
-		if err := sim.SetProfileMediaFilePath(v.token, v.mediaFile); err != nil {
-			return flashMsg{text: "media file: " + err.Error(), kind: flashErr}
+		if err := sim.SetProfileKind(v.token, v.kind); err != nil {
+			return flashMsg{text: "kind: " + err.Error(), kind: flashErr}
+		}
+		switch v.kind {
+		case config.ProfileKindRPICam:
+			rp, err := parseRPICamGeom(v.rpiGeom, v.rpiCam)
+			if err != nil {
+				return flashMsg{text: "rpicam params: " + err.Error(), kind: flashErr}
+			}
+			if err := sim.SetProfileRPICam(v.token, rp); err != nil {
+				return flashMsg{text: "rpicam: " + err.Error(), kind: flashErr}
+			}
+		default:
+			if err := sim.SetProfileMediaFilePath(v.token, v.mediaFile); err != nil {
+				return flashMsg{text: "media file: " + err.Error(), kind: flashErr}
+			}
 		}
 		if err := sim.SetProfileSnapshotURI(v.token, v.snap); err != nil {
 			return flashMsg{text: "snapshot: " + err.Error(), kind: flashErr}
@@ -321,6 +369,34 @@ func addProfileCmd(sim SimulatorAPI, profile *config.ProfileConfig) tea.Cmd {
 	}
 }
 
+func flashCmd(text string) tea.Cmd {
+	return func() tea.Msg { return flashMsg{text: text, kind: flashErr} }
+}
+
+// parseRPICamGeom turns the "WIDTHxHEIGHT@FPS" + camera_id strings into a
+// validated RPICamConfig. Empty geom/cam mean defaults at the config layer
+// fill in (validateRPICam allows zero except for negative values).
+func parseRPICamGeom(geom, camID string) (*config.RPICamConfig, error) {
+	rp := &config.RPICamConfig{}
+	if camID != "" {
+		var id int
+		if _, err := fmt.Sscanf(camID, "%d", &id); err != nil {
+			return nil, fmt.Errorf("camera_id %q: %w", camID, err)
+		}
+		rp.CameraID = id
+	}
+	if geom != "" {
+		var w, h, fps int
+		if _, err := fmt.Sscanf(geom, "%dx%d@%d", &w, &h, &fps); err != nil {
+			return nil, fmt.Errorf("geometry %q: expected WxH@FPS: %w", geom, err)
+		}
+		rp.Width = w
+		rp.Height = h
+		rp.FPS = fps
+	}
+	return rp, nil
+}
+
 func (*profileFormModal) View() string { return "" }
 
 func (p *profileFormModal) Modal(_, _ int) string {
@@ -329,7 +405,7 @@ func (p *profileFormModal) Modal(_, _ int) string {
 		title = "Edit profile"
 	}
 	labels := []string{
-		"Name", "Token", "Media file", "Snapshot URI", "Video source",
+		"Name", "Token", "Kind", "Media file", "RPiCam geom", "RPiCam id", "Snapshot URI", "Video source",
 	}
 	var body strings.Builder
 	body.WriteString(stylePanelTitle.Render(title))

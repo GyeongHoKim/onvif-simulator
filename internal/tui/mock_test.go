@@ -182,6 +182,40 @@ func (m *mockSim) SetProfileSnapshotURI(_, _ string) error {
 	m.record("SetProfileSnapshotURI")
 	return nil
 }
+func (m *mockSim) SetProfileKind(token, kind string) error {
+	m.record("SetProfileKind")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.snapshot.Media.Profiles {
+		if m.snapshot.Media.Profiles[i].Token == token {
+			m.snapshot.Media.Profiles[i].Kind = kind
+			switch kind {
+			case config.ProfileKindFile:
+				m.snapshot.Media.Profiles[i].RPICam = nil
+			case config.ProfileKindRPICam:
+				m.snapshot.Media.Profiles[i].MediaFilePath = ""
+			}
+			return nil
+		}
+	}
+	return nil
+}
+func (m *mockSim) SetProfileRPICam(token string, rpicam *config.RPICamConfig) error {
+	m.record("SetProfileRPICam")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.snapshot.Media.Profiles {
+		if m.snapshot.Media.Profiles[i].Token == token {
+			m.snapshot.Media.Profiles[i].RPICam = rpicam
+			if rpicam != nil {
+				m.snapshot.Media.Profiles[i].Kind = config.ProfileKindRPICam
+				m.snapshot.Media.Profiles[i].MediaFilePath = ""
+			}
+			return nil
+		}
+	}
+	return nil
+}
 
 func (m *mockSim) SetTopicEnabled(name string, enabled bool) error {
 	m.record("SetTopicEnabled")

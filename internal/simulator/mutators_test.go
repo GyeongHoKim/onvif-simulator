@@ -100,3 +100,65 @@ func TestSetTopicEnabledMissingErrors(t *testing.T) {
 		t.Fatal("expected ErrTopicNotFound")
 	}
 }
+
+func TestSetProfileKindAndRPICam(t *testing.T) {
+	sim, cleanup := newTestSimulator(t)
+	defer cleanup()
+
+	var seen []string
+	sim.opts.OnMutation = func(m MutationRecord) { seen = append(seen, m.Kind) }
+
+	if err := sim.AddProfile(config.ProfileConfig{
+		Name: "rpi", Token: "rpi_tok",
+	}); err != nil {
+		t.Fatalf("AddProfile: %v", err)
+	}
+	rp := &config.RPICamConfig{CameraID: 0, Width: 1920, Height: 1080, FPS: 30}
+	if err := sim.SetProfileRPICam("rpi_tok", rp); err != nil {
+		t.Fatalf("SetProfileRPICam: %v", err)
+	}
+
+	snap := sim.ConfigSnapshot()
+	var got *config.ProfileConfig
+	for i := range snap.Media.Profiles {
+		if snap.Media.Profiles[i].Token == "rpi_tok" {
+			got = &snap.Media.Profiles[i]
+			break
+		}
+	}
+	if got == nil {
+		t.Fatal("rpi_tok not in snapshot")
+	}
+	if got.Kind != config.ProfileKindRPICam {
+		t.Fatalf("kind = %q, want rpicam", got.Kind)
+	}
+	if got.RPICam == nil || got.RPICam.Width != 1920 {
+		t.Fatalf("rpicam params not persisted: %+v", got.RPICam)
+	}
+
+	// Flipping to file via SetProfileKind clears the rpicam params.
+	if err := sim.SetProfileKind("rpi_tok", config.ProfileKindFile); err != nil {
+		t.Fatalf("SetProfileKind file: %v", err)
+	}
+	snap = sim.ConfigSnapshot()
+	for i := range snap.Media.Profiles {
+		if snap.Media.Profiles[i].Token == "rpi_tok" {
+			if snap.Media.Profiles[i].RPICam != nil {
+				t.Fatalf("rpicam should be cleared after kind=file: %+v", snap.Media.Profiles[i].RPICam)
+			}
+		}
+	}
+
+	if !contains(seen, "SetProfileRPICam") || !contains(seen, "SetProfileKind") {
+		t.Fatalf("missing mutation records: %v", seen)
+	}
+}
+
+func contains(haystack []string, needle string) bool {
+	for _, h := range haystack {
+		if h == needle {
+			return true
+		}
+	}
+	return false
+}

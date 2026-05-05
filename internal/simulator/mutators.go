@@ -71,6 +71,37 @@ func (s *Simulator) SetProfileMediaFilePath(token, path string) error {
 	return nil
 }
 
+// SetProfileKind switches the profile between the file-loop and rpicam
+// source kinds. The change applies on the next simulator Stop/Start cycle;
+// kind=rpicam additionally requires the rpicam-tagged build channel.
+func (s *Simulator) SetProfileKind(token, kind string) error {
+	if err := config.SetProfileKind(token, kind); err != nil {
+		return err
+	}
+	if err := s.reloadFromDisk(); err != nil {
+		return err
+	}
+	s.recordMutation("SetProfileKind", token, kind)
+	return nil
+}
+
+// SetProfileRPICam replaces the rpicam capture parameters of a profile and
+// flips the kind to "rpicam" (clearing media_file_path).
+func (s *Simulator) SetProfileRPICam(token string, rpicam *config.RPICamConfig) error {
+	if err := config.SetProfileRPICam(token, rpicam); err != nil {
+		return err
+	}
+	if err := s.reloadFromDisk(); err != nil {
+		return err
+	}
+	detail := "cleared"
+	if rpicam != nil {
+		detail = fmt.Sprintf("camera_id=%d %dx%d@%d", rpicam.CameraID, rpicam.Width, rpicam.Height, rpicam.FPS)
+	}
+	s.recordMutation("SetProfileRPICam", token, detail)
+	return nil
+}
+
 // SetProfileSnapshotURI replaces the snapshot pass-through URI of a profile.
 func (s *Simulator) SetProfileSnapshotURI(token, uri string) error {
 	if err := config.SetProfileSnapshotURI(token, uri); err != nil {
