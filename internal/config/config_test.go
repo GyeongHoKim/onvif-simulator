@@ -542,34 +542,60 @@ func TestLoadMissingFile(t *testing.T) {
 }
 
 func TestExampleJSONLoads(t *testing.T) {
-	// Copy the repo example into a temp cwd and ensure it validates.
-	src, err := os.Open(filepath.Join("..", "..", "onvif-simulator.example.json"))
-	if err != nil {
-		t.Fatalf("open example: %v", err)
+	// Each shipped example file must load and validate cleanly. Catches
+	// schema drift that would otherwise reach users only after they cp the
+	// file into the active config path.
+	cases := []struct {
+		name           string
+		file           string
+		wantProfileKnd string
+	}{
+		{"default channel", "onvif-simulator.example.json", config.ProfileKindFile},
+		{"rpi channel", "onvif-simulator.example.rpi.json", config.ProfileKindRPICam},
 	}
-	defer func() {
-		if cerr := src.Close(); cerr != nil {
-			t.Logf("close src: %v", cerr)
-		}
-	}()
-	dir := t.TempDir()
-	t.Chdir(dir)
-	dst, err := os.Create(filepath.Join(dir, config.FileName))
-	if err != nil {
-		t.Fatalf("create dst: %v", err)
-	}
-	if _, cpErr := io.Copy(dst, src); cpErr != nil {
-		t.Fatalf("copy: %v", cpErr)
-	}
-	if cErr := dst.Close(); cErr != nil {
-		t.Fatalf("close dst: %v", cErr)
-	}
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatalf("Load example: %v", err)
-	}
-	if !cfg.Auth.Enabled || len(cfg.Auth.Users) == 0 {
-		t.Fatalf("example should have auth enabled with users")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src, err := os.Open(filepath.Join("..", "..", tc.file))
+			if err != nil {
+				t.Fatalf("open example: %v", err)
+			}
+			defer func() {
+				if cerr := src.Close(); cerr != nil {
+					t.Logf("close src: %v", cerr)
+				}
+			}()
+			dir := t.TempDir()
+			t.Chdir(dir)
+			dst, err := os.Create(filepath.Join(dir, config.FileName))
+			if err != nil {
+				t.Fatalf("create dst: %v", err)
+			}
+			if _, cpErr := io.Copy(dst, src); cpErr != nil {
+				t.Fatalf("copy: %v", cpErr)
+			}
+			if cErr := dst.Close(); cErr != nil {
+				t.Fatalf("close dst: %v", cErr)
+			}
+			cfg, err := config.Load()
+			if err != nil {
+				t.Fatalf("Load example: %v", err)
+			}
+			if !cfg.Auth.Enabled || len(cfg.Auth.Users) == 0 {
+				t.Fatalf("example should have auth enabled with users")
+			}
+			if len(cfg.Media.Profiles) == 0 {
+				t.Fatalf("example must have at least one media profile")
+			}
+			for i, p := range cfg.Media.Profiles {
+				kind := p.Kind
+				if kind == "" {
+					kind = config.ProfileKindFile
+				}
+				if kind != tc.wantProfileKnd {
+					t.Fatalf("profile[%d].kind = %q, want %q", i, kind, tc.wantProfileKnd)
+				}
+			}
+		})
 	}
 }
 

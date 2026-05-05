@@ -100,3 +100,5 @@ release:
   extra_files:
     - glob: ./scripts/install.sh
     - glob: ./scripts/install.ps1
+    - glob: ./onvif-simulator.example.json
+    - glob: ./onvif-simulator.example.rpi.json

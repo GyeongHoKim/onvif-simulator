@@ -55,13 +55,21 @@ The Raspberry Pi build channel embeds the `mtxrpicam` capture helper from
 Module can drive an ONVIF device on Raspberry Pi OS without any extra setup.
 The build is CLI/TUI only — there is no Pi GUI binary.
 
-| Pi model            | OS arch    | Release artifact              |
-|---------------------|------------|-------------------------------|
-| Pi Zero / 2 / 3     | 32-bit     | `onvif-simulator-rpi-arm`     |
-| Pi 3 / 4 / 5 (64)   | 64-bit     | `onvif-simulator-rpi-arm64`   |
+| Pi model            | OS arch    | Release archive                                          |
+|---------------------|------------|----------------------------------------------------------|
+| Pi Zero / 2 / 3     | 32-bit     | `onvif-simulator-rpi_<version>_linux_arm.tar.gz`         |
+| Pi 3 / 4 / 5 (64)   | 64-bit     | `onvif-simulator-rpi_<version>_linux_arm64.tar.gz`       |
 
-Download the matching binary from the [Releases](https://github.com/GyeongHoKim/onvif-simulator/releases)
-page and configure a profile with `"kind": "rpicam"`:
+Each archive contains a single `onvif-simulator-rpi` binary.
+
+The `install.sh` one-liner above auto-detects Raspberry Pi via
+`/proc/device-tree/model` and pulls the matching rpi archive — running it on a
+Pi installs the rpi build as `onvif-simulator` with no extra flags. Set
+`ONVIF_SIMULATOR_CHANNEL=default` (or `=rpi`) to override detection.
+
+To install manually, download the matching archive from the
+[Releases](https://github.com/GyeongHoKim/onvif-simulator/releases) page and
+configure a profile with `"kind": "rpicam"`:
 
 ```jsonc
 {
@@ -138,7 +146,12 @@ The config file is named `onvif-simulator.json` and is auto-created on first run
 
 To override the path for a single run, pass `-config /path/to/onvif-simulator.json` to the CLI. As a fallback for ad-hoc use and tests, `Load` also accepts `./onvif-simulator.json` in the working directory when no path has been set.
 
-To start from the bundled example, create the user config directory if it does not exist, then copy the example file to the path for your OS (see the table above) or into the working directory:
+Two example files ship in every release:
+
+- `onvif-simulator.example.json` — default channel (file-backed profiles).
+- `onvif-simulator.example.rpi.json` — Raspberry Pi channel (rpicam profile). Use this on a Pi.
+
+To start from the bundled example, create the user config directory if it does not exist, then copy the example file to the path for your OS (see the table above) or into the working directory. **Both examples must be renamed to `onvif-simulator.json` at the destination** — that is the only filename the simulator reads.
 
 ```bash
 # Linux: respects XDG_CONFIG_HOME when set, otherwise ~/.config
@@ -152,6 +165,14 @@ cp onvif-simulator.example.json "$HOME/Library/Application Support/onvif-simulat
 
 # Or keep it in the working directory for quick experiments (no extra directory needed)
 cp onvif-simulator.example.json onvif-simulator.json
+```
+
+**Raspberry Pi** — recommended on the rpi build channel. Substitute the rpi example file:
+
+```bash
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/onvif-simulator"
+mkdir -p "$CONFIG_DIR"
+cp onvif-simulator.example.rpi.json "$CONFIG_DIR/onvif-simulator.json"
 ```
 
 **Windows (PowerShell)** — `%AppData%` expands to your roaming profile directory (see table above):
