@@ -41,7 +41,7 @@ builds:
       - "7"
     hooks:
       pre:
-        - cmd: ./scripts/fetch-mtxrpicam.sh {{ if eq .Arch "arm" }}32{{ else }}64{{ end }} v1.13.1 internal/rpicamera/mtxrpicam_{{ if eq .Arch "arm" }}32{{ else }}64{{ end }}
+        - cmd: ./scripts/fetch-mtxrpicam.sh {{ if eq .Arch "arm" }}32{{ else }}64{{ end }} v2.4.3 internal/rpicamera/mtxrpicam_{{ if eq .Arch "arm" }}32{{ else }}64{{ end }}
     ldflags:
       - -s -w
       - -X github.com/GyeongHoKim/onvif-simulator/internal/version.Version={{.Version}}

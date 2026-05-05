@@ -1,17 +1,16 @@
-# SHA-256 checksums for the embedded mtxrpicam binaries, pinned to the
-# version in Makefile's MTXRPICAM_VERSION. Each line maps a directory name
-# to the SHA-256 of its mtxrpicam executable.
+# SHA-256 checksums for the mediamtx-rpicamera tarballs, pinned to the
+# version in Makefile's MTXRPICAM_VERSION. Each line maps a tarball name to
+# the SHA-256 of its .tar.gz blob — same unit the upstream verifier uses
+# (mediamtx's internal/staticsources/rpicamera/mtxrpicamdownloader/HASH_*).
 #
 # Bumping the version requires updating this file in lockstep:
-#   1. update MTXRPICAM_VERSION in Makefile
-#   2. run `make rpicam-fetch` to download the new artifacts
-#   3. record the resulting SHA-256 of internal/rpicamera/mtxrpicam_{32,64}/mtxrpicam
-#      below (replacing the placeholder hashes)
-#   4. commit Makefile + this file together
+#   1. update MTXRPICAM_VERSION in Makefile and .goreleaser.yml
+#   2. cross-check the new hashes against
+#        - the mediamtx-rpicamera release's checksums.sha256
+#        - mediamtx's own HASH_MTXRPICAM_*_TAR_GZ at the matching release
+#      so the two independent sources agree before recording them here
+#   3. commit Makefile + .goreleaser.yml + this file together
 #
-# The placeholder zeroes below DO NOT match a real binary; they exist so the
-# fetch script's "compare-or-redownload" path is always taken on a fresh
-# clone. Until a maintainer fills in real values, `make rpicam-fetch` will
-# error with "checksum mismatch" — a deliberate forcing function.
-0000000000000000000000000000000000000000000000000000000000000000  mtxrpicam_32
-0000000000000000000000000000000000000000000000000000000000000000  mtxrpicam_64
+# Pinned to mediamtx-rpicamera v2.4.3 (matches mediamtx v1.13.1).
+db9310fe114fa09d8427e93331fe6aec9ff3ba4aa486c7e7edbcbab9eae043cf  mtxrpicam_32.tar.gz
+f6073cad9fd6c8570141f08aed72237ec062d28883b8ab62a37dbce190409f0d  mtxrpicam_64.tar.gz
