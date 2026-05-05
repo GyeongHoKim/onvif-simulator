@@ -230,6 +230,56 @@ func TestSetProfileMediaFilePath(t *testing.T) {
 	}
 }
 
+func TestSetProfileKindAndRPICam(t *testing.T) {
+	seed(t)
+
+	// Configure rpicam parameters and flip kind in one call.
+	rp := &config.RPICamConfig{CameraID: 0, Width: 1920, Height: 1080, FPS: 30, Bitrate: 4_000_000}
+	if err := config.SetProfileRPICam("profile_main", rp); err != nil {
+		t.Fatalf("SetProfileRPICam: %v", err)
+	}
+	got := loadOrFail(t)
+	if got.Media.Profiles[0].Kind != config.ProfileKindRPICam {
+		t.Fatalf("kind not flipped: %q", got.Media.Profiles[0].Kind)
+	}
+	if got.Media.Profiles[0].RPICam == nil || got.Media.Profiles[0].RPICam.Width != 1920 {
+		t.Fatalf("rpicam not persisted: %+v", got.Media.Profiles[0].RPICam)
+	}
+	if got.Media.Profiles[0].MediaFilePath != "" {
+		t.Fatalf("media_file_path should have been cleared: %q", got.Media.Profiles[0].MediaFilePath)
+	}
+
+	// Flipping back to "file" clears rpicam.
+	if err := config.SetProfileKind("profile_main", config.ProfileKindFile); err != nil {
+		t.Fatalf("SetProfileKind file: %v", err)
+	}
+	got = loadOrFail(t)
+	if got.Media.Profiles[0].Kind != config.ProfileKindFile {
+		t.Fatalf("kind not switched back: %q", got.Media.Profiles[0].Kind)
+	}
+	if got.Media.Profiles[0].RPICam != nil {
+		t.Fatalf("rpicam should be cleared: %+v", got.Media.Profiles[0].RPICam)
+	}
+
+	// Unknown kind is rejected by validation.
+	if err := config.SetProfileKind("profile_main", "v4l2"); !errors.Is(err, config.ErrProfileKindInvalid) {
+		t.Fatalf("expected ErrProfileKindInvalid, got %v", err)
+	}
+
+	// Unknown profile token surfaces ErrProfileNotFound.
+	if err := config.SetProfileRPICam("ghost", rp); !errors.Is(err, config.ErrProfileNotFound) {
+		t.Fatalf("expected ErrProfileNotFound, got %v", err)
+	}
+
+	// Clearing rpicam keeps Kind unchanged so the caller can stage a flip.
+	if err := config.SetProfileRPICam("profile_main", rp); err != nil {
+		t.Fatalf("re-set rpicam: %v", err)
+	}
+	if err := config.SetProfileRPICam("profile_main", nil); err == nil {
+		t.Fatal("expected validation error when clearing rpicam while kind=rpicam")
+	}
+}
+
 func TestSetProfileSnapshotURI(t *testing.T) {
 	seed(t)
 

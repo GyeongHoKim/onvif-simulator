@@ -176,6 +176,41 @@ func SetProfileMediaFilePath(token, path string) error {
 	return mutateProfile(token, func(p *ProfileConfig) { p.MediaFilePath = path })
 }
 
+// SetProfileKind switches the profile between source variants. Setting
+// ProfileKindFile clears the rpicam parameters; setting ProfileKindRPICam
+// clears the media file path. The actual rpicam parameters are configured
+// separately via SetProfileRPICam.
+func SetProfileKind(token, kind string) error {
+	return mutateProfile(token, func(p *ProfileConfig) {
+		p.Kind = kind
+		switch kind {
+		case "", ProfileKindFile:
+			p.RPICam = nil
+		case ProfileKindRPICam:
+			p.MediaFilePath = ""
+		}
+	})
+}
+
+// SetProfileRPICam replaces the rpicam capture parameters of one profile and
+// flips Kind to ProfileKindRPICam. Pass nil to clear the parameters; the
+// caller is then expected to flip Kind back via SetProfileKind.
+func SetProfileRPICam(token string, rpicam *RPICamConfig) error {
+	return mutateProfile(token, func(p *ProfileConfig) {
+		if rpicam == nil {
+			p.RPICam = nil
+			return
+		}
+		clone := *rpicam
+		if len(rpicam.ExtraArgs) > 0 {
+			clone.ExtraArgs = append([]string(nil), rpicam.ExtraArgs...)
+		}
+		p.RPICam = &clone
+		p.Kind = ProfileKindRPICam
+		p.MediaFilePath = ""
+	})
+}
+
 // SetProfileSnapshotURI replaces the snapshot pass-through URI of one profile.
 // Pass "" to clear.
 func SetProfileSnapshotURI(token, uri string) error {

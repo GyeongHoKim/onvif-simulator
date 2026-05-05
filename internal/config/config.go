@@ -248,20 +248,41 @@ type MetadataConfig struct {
 	Events bool `json:"events,omitempty"`
 }
 
+// ProfileKind values accepted on ProfileConfig.Kind. An empty Kind defaults
+// to ProfileKindFile so configs written before the field existed remain valid.
+const (
+	ProfileKindFile   = "file"
+	ProfileKindRPICam = "rpicam"
+)
+
 // ProfileConfig describes a single ONVIF media profile.
 //
-// MediaFilePath is the path to a local mp4 file that the embedded RTSP
-// server loops to produce this profile's stream. SnapshotURI is still
-// pass-through (the simulator does not synthesize snapshots yet).
+// Kind selects the source variant: "file" (default) loops the local mp4 at
+// MediaFilePath through the embedded RTSP server; "rpicam" captures live
+// H.264 from a Raspberry Pi camera via the embedded mtxrpicam binary and is
+// only available on simulator binaries built with the rpicam build tag (the
+// dedicated Raspberry Pi build channel). When Kind is "rpicam" the RPICam
+// field configures the capture parameters; MediaFilePath must be empty.
 //
-// Encoding, Width, Height, and FPS are probed from the mp4 when MediaFilePath
-// is set and overwritten in memory at simulator startup; Bitrate and GOPLength
-// are not derived from the file. Persisted JSON still carries the last-known
-// values so a stopped simulator and the GUI read-only fields have fallback data.
+// SnapshotURI is pass-through for both kinds (the simulator does not
+// synthesize snapshots yet).
+//
+// For Kind="file" Encoding, Width, Height, and FPS are probed from the mp4
+// when MediaFilePath is set and overwritten in memory at simulator startup;
+// Bitrate and GOPLength are not derived from the file. Persisted JSON still
+// carries the last-known values so a stopped simulator and the GUI read-only
+// fields have fallback data.
 type ProfileConfig struct {
-	Name          string `json:"name"`
-	Token         string `json:"token"`
+	Name  string `json:"name"`
+	Token string `json:"token"`
+	// Kind is "file" (default, MediaFilePath looper) or "rpicam"
+	// (live capture). Empty maps to "file" for back-compat with configs
+	// written before this field existed.
+	Kind          string `json:"kind,omitempty"`
 	MediaFilePath string `json:"media_file_path,omitempty"`
+	// RPICam configures the live Raspberry Pi camera capture. Required when
+	// Kind == "rpicam"; must be omitted otherwise.
+	RPICam *RPICamConfig `json:"rpicam,omitempty"`
 
 	Encoding  string `json:"encoding,omitempty"`
 	Width     int    `json:"width,omitempty"`
@@ -272,6 +293,45 @@ type ProfileConfig struct {
 
 	SnapshotURI      string `json:"snapshot_uri,omitempty"`
 	VideoSourceToken string `json:"video_source_token,omitempty"`
+}
+
+// RPICamConfig configures live capture from a Raspberry Pi camera via the
+// embedded mtxrpicam helper. Field names mirror the corresponding mediamtx
+// configuration keys so upstream documentation is directly applicable.
+//
+// Only the subset most operators tune is exposed today; ExtraArgs is a
+// forward-compat passthrough for parameters not yet wrapped here.
+type RPICamConfig struct {
+	CameraID   int     `json:"camera_id,omitempty"`
+	Width      int     `json:"width,omitempty"`
+	Height     int     `json:"height,omitempty"`
+	FPS        int     `json:"fps,omitempty"`
+	Bitrate    int     `json:"bitrate,omitempty"`
+	IDRPeriod  int     `json:"idr_period,omitempty"`
+	HFlip      bool    `json:"hflip,omitempty"`
+	VFlip      bool    `json:"vflip,omitempty"`
+	Brightness float32 `json:"brightness,omitempty"`
+	Contrast   float32 `json:"contrast,omitempty"`
+	Saturation float32 `json:"saturation,omitempty"`
+	Sharpness  float32 `json:"sharpness,omitempty"`
+	// ExtraArgs is reserved for future passthrough to mtxrpicam; the
+	// simulator currently rejects non-empty values to keep the validation
+	// surface small until specific keys are wired through.
+	ExtraArgs []string `json:"extra_args,omitempty"`
+}
+
+// HasSource reports whether the profile is configured to drive an RTSP track.
+// A "file" profile needs a non-empty MediaFilePath; an "rpicam" profile needs
+// a non-nil RPICam (its required-fields check is enforced by Validate).
+func (p *ProfileConfig) HasSource() bool {
+	switch p.Kind {
+	case "", ProfileKindFile:
+		return strings.TrimSpace(p.MediaFilePath) != ""
+	case ProfileKindRPICam:
+		return p.RPICam != nil
+	default:
+		return false
+	}
 }
 
 // DefaultVideoSourceToken is used when a ProfileConfig does not specify a
@@ -350,6 +410,22 @@ var (
 
 	// ErrProfileEncodingInvalid means profile.encoding is not a supported value.
 	ErrProfileEncodingInvalid = errors.New("config: profile.encoding must be one of H264, H265, MJPEG")
+
+	// ErrProfileKindInvalid means profile.kind is set to a value other than "file" or "rpicam".
+	ErrProfileKindInvalid = errors.New("config: profile.kind must be \"file\" or \"rpicam\"")
+	// ErrProfileKindFileWithRPICam means profile.kind=="file" but profile.rpicam was provided.
+	ErrProfileKindFileWithRPICam = errors.New("config: profile.rpicam must be omitted when kind is \"file\"")
+	// ErrProfileKindRPICamWithFile means profile.kind=="rpicam" but profile.media_file_path was set.
+	ErrProfileKindRPICamWithFile = errors.New("config: profile.media_file_path must be empty when kind is \"rpicam\"")
+	// ErrProfileRPICamRequired means profile.kind=="rpicam" but profile.rpicam was not provided.
+	ErrProfileRPICamRequired = errors.New("config: profile.rpicam is required when kind is \"rpicam\"")
+	// ErrProfileRPICamFieldRange means an RPICam parameter is out of its accepted range.
+	ErrProfileRPICamFieldRange = errors.New("config: profile.rpicam parameter is out of range")
+	// ErrProfileRPICamExtraArgs means profile.rpicam.extra_args is reserved and must be empty for now.
+	ErrProfileRPICamExtraArgs = errors.New("config: profile.rpicam.extra_args is reserved and must be empty")
+	// ErrProfileRPICamDuplicateCameraID means two profiles target the same Raspberry Pi camera.
+	ErrProfileRPICamDuplicateCameraID = errors.New(
+		"config: profile.rpicam.camera_id must be unique across rpicam profiles")
 
 	// ErrAuthUsersRequired means auth.enabled=true but auth.users is empty.
 	ErrAuthUsersRequired = errors.New("config: auth.users must contain at least one user when auth.enabled is true")
@@ -543,9 +619,20 @@ func validateMedia(m *MediaConfig) error {
 	// or by editing the JSON directly. The simulator's Start path warns
 	// when no profile has a media_file_path configured.
 	seenProfileTokens := make(map[string]bool, len(m.Profiles))
+	seenRPICamIDs := make(map[int]string, len(m.Profiles))
 	for i := range m.Profiles {
 		if err := validateProfile(i, &m.Profiles[i], seenProfileTokens); err != nil {
 			return err
+		}
+		if effectiveProfileKind(&m.Profiles[i]) == ProfileKindRPICam && m.Profiles[i].RPICam != nil {
+			id := m.Profiles[i].RPICam.CameraID
+			if existing, dup := seenRPICamIDs[id]; dup {
+				return fmt.Errorf(
+					"config: media.profiles[%d].rpicam.camera_id %d also used by profile %q: %w",
+					i, id, existing, ErrProfileRPICamDuplicateCameraID,
+				)
+			}
+			seenRPICamIDs[id] = m.Profiles[i].Token
 		}
 	}
 	seenMetadataTokens := make(map[string]bool, len(m.MetadataConfigurations))
@@ -555,6 +642,15 @@ func validateMedia(m *MediaConfig) error {
 		}
 	}
 	return nil
+}
+
+// effectiveProfileKind returns p.Kind, mapping the empty string to
+// ProfileKindFile so the rest of the package can rely on a non-empty value.
+func effectiveProfileKind(p *ProfileConfig) string {
+	if p.Kind == "" {
+		return ProfileKindFile
+	}
+	return p.Kind
 }
 
 func validateMetadataConfig(i int, m *MetadataConfig, seen map[string]bool) error {
@@ -583,7 +679,7 @@ func validateProfile(i int, p *ProfileConfig, seenProfileTokens map[string]bool)
 		return fmt.Errorf("config: %s.token %q: %w", prefix, p.Token, errProfileTokenDuplicate)
 	}
 	seenProfileTokens[p.Token] = true
-	if err := validateMediaFilePath(prefix+".media_file_path", p.MediaFilePath); err != nil {
+	if err := validateProfileSource(prefix, p); err != nil {
 		return err
 	}
 	if p.Bitrate < 0 {
@@ -596,6 +692,56 @@ func validateProfile(i int, p *ProfileConfig, seenProfileTokens map[string]bool)
 		return err
 	}
 	return validateVideoSourceToken(prefix+".video_source_token", p.VideoSourceToken)
+}
+
+// validateProfileSource enforces the kind/media_file_path/rpicam invariant
+// and delegates to the per-kind validator for the populated branch.
+func validateProfileSource(prefix string, p *ProfileConfig) error {
+	switch p.Kind {
+	case "", ProfileKindFile:
+		if p.RPICam != nil {
+			return fmt.Errorf("config: %s: %w", prefix, ErrProfileKindFileWithRPICam)
+		}
+		return validateMediaFilePath(prefix+".media_file_path", p.MediaFilePath)
+	case ProfileKindRPICam:
+		if p.MediaFilePath != "" {
+			return fmt.Errorf("config: %s: %w", prefix, ErrProfileKindRPICamWithFile)
+		}
+		if p.RPICam == nil {
+			return fmt.Errorf("config: %s: %w", prefix, ErrProfileRPICamRequired)
+		}
+		return validateRPICam(prefix+".rpicam", p.RPICam)
+	default:
+		return fmt.Errorf("config: %s.kind %q: %w", prefix, p.Kind, ErrProfileKindInvalid)
+	}
+}
+
+// validateRPICam range-checks the rpicam capture parameters. Bounds match
+// what mtxrpicam will accept on real Pi hardware so we fail fast at config
+// load time rather than after spawning the helper.
+func validateRPICam(prefix string, r *RPICamConfig) error {
+	if r.CameraID < 0 {
+		return fmt.Errorf("config: %s.camera_id: %w", prefix, ErrProfileRPICamFieldRange)
+	}
+	if r.Width < 0 || r.Width > 4096 {
+		return fmt.Errorf("config: %s.width: %w", prefix, ErrProfileRPICamFieldRange)
+	}
+	if r.Height < 0 || r.Height > 4096 {
+		return fmt.Errorf("config: %s.height: %w", prefix, ErrProfileRPICamFieldRange)
+	}
+	if r.FPS < 0 || r.FPS > 120 {
+		return fmt.Errorf("config: %s.fps: %w", prefix, ErrProfileRPICamFieldRange)
+	}
+	if r.Bitrate < 0 {
+		return fmt.Errorf("config: %s.bitrate: %w", prefix, ErrProfileRPICamFieldRange)
+	}
+	if r.IDRPeriod < 0 {
+		return fmt.Errorf("config: %s.idr_period: %w", prefix, ErrProfileRPICamFieldRange)
+	}
+	if len(r.ExtraArgs) > 0 {
+		return fmt.Errorf("config: %s.extra_args: %w", prefix, ErrProfileRPICamExtraArgs)
+	}
+	return nil
 }
 
 // validateMediaFilePath rejects whitespace-only paths. An empty string is

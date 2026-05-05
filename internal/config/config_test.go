@@ -255,6 +255,180 @@ func TestValidateRejectsMediaFilePathWhitespace(t *testing.T) {
 	}
 }
 
+func TestValidateProfileSourceKind(t *testing.T) {
+	t.Parallel()
+
+	rpicamOK := func() *config.RPICamConfig {
+		return &config.RPICamConfig{Width: 1920, Height: 1080, FPS: 30}
+	}
+
+	cases := []struct {
+		name    string
+		profile config.ProfileConfig
+		wantErr error
+	}{
+		{
+			name:    "default kind back-compat (file path set)",
+			profile: config.ProfileConfig{Name: "n", Token: "t", MediaFilePath: "/x.mp4"},
+			wantErr: nil,
+		},
+		{
+			name:    "explicit kind=file",
+			profile: config.ProfileConfig{Name: "n", Token: "t", Kind: config.ProfileKindFile, MediaFilePath: "/x.mp4"},
+			wantErr: nil,
+		},
+		{
+			name:    "kind=rpicam with rpicam set",
+			profile: config.ProfileConfig{Name: "n", Token: "t", Kind: config.ProfileKindRPICam, RPICam: rpicamOK()},
+			wantErr: nil,
+		},
+		{
+			name:    "kind unknown rejected",
+			profile: config.ProfileConfig{Name: "n", Token: "t", Kind: "v4l2"},
+			wantErr: config.ErrProfileKindInvalid,
+		},
+		{
+			name: "kind=file with rpicam rejected",
+			profile: config.ProfileConfig{
+				Name: "n", Token: "t", Kind: config.ProfileKindFile,
+				MediaFilePath: "/x.mp4", RPICam: rpicamOK(),
+			},
+			wantErr: config.ErrProfileKindFileWithRPICam,
+		},
+		{
+			name: "kind=rpicam with media_file_path rejected",
+			profile: config.ProfileConfig{
+				Name: "n", Token: "t", Kind: config.ProfileKindRPICam,
+				MediaFilePath: "/x.mp4", RPICam: rpicamOK(),
+			},
+			wantErr: config.ErrProfileKindRPICamWithFile,
+		},
+		{
+			name:    "kind=rpicam without rpicam rejected",
+			profile: config.ProfileConfig{Name: "n", Token: "t", Kind: config.ProfileKindRPICam},
+			wantErr: config.ErrProfileRPICamRequired,
+		},
+		{
+			name: "rpicam camera_id negative rejected",
+			profile: config.ProfileConfig{
+				Name: "n", Token: "t", Kind: config.ProfileKindRPICam,
+				RPICam: &config.RPICamConfig{CameraID: -1, Width: 640, Height: 480, FPS: 30},
+			},
+			wantErr: config.ErrProfileRPICamFieldRange,
+		},
+		{
+			name: "rpicam width too large rejected",
+			profile: config.ProfileConfig{
+				Name: "n", Token: "t", Kind: config.ProfileKindRPICam,
+				RPICam: &config.RPICamConfig{Width: 8192, Height: 1080, FPS: 30},
+			},
+			wantErr: config.ErrProfileRPICamFieldRange,
+		},
+		{
+			name: "rpicam fps too high rejected",
+			profile: config.ProfileConfig{
+				Name: "n", Token: "t", Kind: config.ProfileKindRPICam,
+				RPICam: &config.RPICamConfig{Width: 640, Height: 480, FPS: 240},
+			},
+			wantErr: config.ErrProfileRPICamFieldRange,
+		},
+		{
+			name: "rpicam extra_args reserved",
+			profile: config.ProfileConfig{
+				Name: "n", Token: "t", Kind: config.ProfileKindRPICam,
+				RPICam: &config.RPICamConfig{Width: 640, Height: 480, FPS: 30, ExtraArgs: []string{"--foo"}},
+			},
+			wantErr: config.ErrProfileRPICamExtraArgs,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := validConfig
+			c.Media.Profiles = []config.ProfileConfig{tc.profile}
+			err := config.Validate(&c)
+			if tc.wantErr == nil {
+				if err != nil {
+					t.Fatalf("expected pass, got %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("expected %v, got %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestValidateRejectsDuplicateRPICamCameraID(t *testing.T) {
+	t.Parallel()
+	c := validConfig
+	c.Media.Profiles = []config.ProfileConfig{
+		{
+			Name: "main", Token: "p1", Kind: config.ProfileKindRPICam,
+			RPICam: &config.RPICamConfig{CameraID: 0, Width: 1920, Height: 1080, FPS: 30},
+		},
+		{
+			Name: "sub", Token: "p2", Kind: config.ProfileKindRPICam,
+			RPICam: &config.RPICamConfig{CameraID: 0, Width: 640, Height: 480, FPS: 15},
+		},
+	}
+	err := config.Validate(&c)
+	if !errors.Is(err, config.ErrProfileRPICamDuplicateCameraID) {
+		t.Fatalf("expected ErrProfileRPICamDuplicateCameraID, got %v", err)
+	}
+}
+
+func TestProfileConfigHasSource(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		p    config.ProfileConfig
+		want bool
+	}{
+		{"empty", config.ProfileConfig{}, false},
+		{"file with path", config.ProfileConfig{MediaFilePath: "/x.mp4"}, true},
+		{"file kind no path", config.ProfileConfig{Kind: config.ProfileKindFile}, false},
+		{"file kind whitespace path", config.ProfileConfig{Kind: config.ProfileKindFile, MediaFilePath: "  "}, false},
+		{"rpicam kind with config", config.ProfileConfig{Kind: config.ProfileKindRPICam, RPICam: &config.RPICamConfig{}}, true},
+		{"rpicam kind without config", config.ProfileConfig{Kind: config.ProfileKindRPICam}, false},
+		{"unknown kind", config.ProfileConfig{Kind: "v4l2"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tc.p.HasSource(); got != tc.want {
+				t.Fatalf("HasSource() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRPICamProfileJSONRoundTrip(t *testing.T) {
+	t.Parallel()
+	c := validConfig
+	c.Media.Profiles = []config.ProfileConfig{{
+		Name: "main", Token: "profile_main",
+		Kind: config.ProfileKindRPICam,
+		RPICam: &config.RPICamConfig{
+			CameraID: 0, Width: 1920, Height: 1080, FPS: 30,
+			Bitrate: 4_000_000, IDRPeriod: 60, HFlip: true,
+		},
+	}}
+	raw, err := json.Marshal(&c)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got config.Config
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !reflect.DeepEqual(got, c) {
+		t.Fatalf("round-trip mismatch:\nraw=%s\ngot=%+v\nwant=%+v", string(raw), got, c)
+	}
+}
+
 func TestValidateNetworkRTSPPort(t *testing.T) {
 	t.Parallel()
 
