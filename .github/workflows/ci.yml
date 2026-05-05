@@ -81,12 +81,16 @@ jobs:
           gr=$(grep -oE 'fetch-mtxrpicam\.sh.*v[0-9.]+' .goreleaser.yml \
                 | grep -oE 'v[0-9.]+' | sort -u)
           sh=$(sed -n 's/.*mediamtx-rpicamera \(v[0-9.]*\).*/\1/p' scripts/mtxrpicam.sha256 \
-                | head -n1)
+                | sort -u)
           echo "Makefile=$mk goreleaser=$gr sha256=$sh"
           [ -n "$mk" ] && [ -n "$gr" ] && [ -n "$sh" ] || {
             echo "could not extract a version from one or more files" >&2; exit 1; }
           [ "$(echo "$gr" | wc -l)" = "1" ] || {
             echo ".goreleaser.yml pre-hook references multiple versions" >&2; exit 1; }
+          [ "$(echo "$sh" | wc -l)" = "1" ] || {
+            echo "scripts/mtxrpicam.sha256 references multiple versions:" >&2
+            echo "$sh" >&2
+            exit 1; }
           [ "$mk" = "$gr" ] && [ "$mk" = "$sh" ] || {
             echo "MTXRPICAM version drift between Makefile, .goreleaser.yml, and scripts/mtxrpicam.sha256" >&2
             exit 1; }
