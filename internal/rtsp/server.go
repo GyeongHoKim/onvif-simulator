@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/bluenviron/gortsplib/v5"
 	"github.com/bluenviron/gortsplib/v5/pkg/base"
@@ -31,6 +32,13 @@ var ErrServerNotStarted = errors.New("rtsp: server not started")
 // H265 (we currently only packetize those two).
 var ErrUnsupportedCodec = errors.New("rtsp: unsupported codec")
 
+// ErrNilSource is returned by AddSource when the caller passes a nil Source.
+var ErrNilSource = errors.New("rtsp: nil source")
+
+// ErrSourceDescribeNil is returned by AddSource when Source.Describe yields a
+// nil ProbeResult — a programming error in the Source implementation.
+var ErrSourceDescribeNil = errors.New("rtsp: source.Describe returned nil")
+
 // Server is an embedded RTSP server that maps each registered source to a
 // distinct URL path. One gortsplib.Server is shared across all sources; each
 // source has its own ServerStream and a goroutine that loops the source's mp4.
@@ -48,7 +56,7 @@ type source struct {
 	token   string
 	stream  *gortsplib.ServerStream
 	media   *description.Media
-	looper  *looper
+	src     Source
 	probe   *ProbeResult
 	cancel  context.CancelFunc
 	stopped chan struct{}
@@ -131,13 +139,17 @@ func (s *Server) Stop() {
 	s.mu.Unlock()
 }
 
-// AddSource registers an mp4 file under the URL path /<token>. Probe is
-// re-run inside AddSource so the caller does not need to pre-populate
-// ProbeResult. The looper goroutine starts immediately.
-func (s *Server) AddSource(token, filePath string) (*ProbeResult, error) {
-	probe, err := Probe(filePath)
-	if err != nil {
-		return nil, err
+// AddSource registers a Source under the URL path /<token>. The Source's
+// Describe() drives SDP construction; AttachStream binds it to the gortsplib
+// stream; Run starts in its own goroutine. Use NewFileSource to wrap a local
+// mp4 file (the most common case).
+func (s *Server) AddSource(token string, src Source) (*ProbeResult, error) {
+	if src == nil {
+		return nil, fmt.Errorf("%w: token=%q", ErrNilSource, token)
+	}
+	probe := src.Describe()
+	if probe == nil {
+		return nil, fmt.Errorf("%w: token=%q", ErrSourceDescribeNil, token)
 	}
 
 	media, err := buildMedia(probe)
@@ -160,23 +172,26 @@ func (s *Server) AddSource(token, filePath string) (*ProbeResult, error) {
 		return nil, fmt.Errorf("rtsp: initialize stream %s: %w", token, initErr)
 	}
 
+	src.AttachStream(stream, media)
+
 	// cancel is invoked from RemoveSource/Stop and also deferred in the
-	// looper goroutine so gosec G118 sees a definite call site; calling
-	// cancel twice is safe per context semantics.
+	// goroutine so gosec G118 sees a definite call site; calling cancel
+	// twice is safe per context semantics.
 	ctx, cancel := context.WithCancel(context.Background())
 	stopped := make(chan struct{})
-	lp := newLooper(filePath, stream, media, probe)
 	go func() {
 		defer cancel()
 		defer close(stopped)
-		lp.run(ctx)
+		if runErr := src.Run(ctx); runErr != nil && !errors.Is(runErr, context.Canceled) {
+			s.logger.Warn("rtsp: source run terminated", "token", token, "err", runErr)
+		}
 	}()
 
 	s.sources[token] = &source{
 		token:   token,
 		stream:  stream,
 		media:   media,
-		looper:  lp,
+		src:     src,
 		probe:   probe,
 		cancel:  cancel,
 		stopped: stopped,
@@ -212,6 +227,25 @@ func (s *Server) streamFor(path string) *gortsplib.ServerStream {
 	}
 	return nil
 }
+
+// streamAndSourceFor returns both the gortsplib stream and the underlying
+// Source for an URL path. OnDescribe uses the Source to wait for readiness
+// before responding.
+func (s *Server) streamAndSourceFor(path string) (*gortsplib.ServerStream, Source) {
+	token := pathToken(path)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if src, ok := s.sources[token]; ok {
+		return src.stream, src.src
+	}
+	return nil, nil
+}
+
+// describeReadyTimeout caps how long OnDescribe waits for a live source to
+// produce its first IDR. File sources return immediately so the timeout is
+// effectively only for live capture. Tuned for libcamera startup which
+// commonly takes 1–3 seconds before the first keyframe.
+const describeReadyTimeout = 8 * time.Second
 
 // pathToken strips a leading slash and any trailing query/control segments
 // from the URL path so /foo, foo, and /foo/trackID=0 all resolve to "foo".
@@ -267,9 +301,18 @@ func (*serverHandler) OnSessionClose(*gortsplib.ServerHandlerOnSessionCloseCtx) 
 func (h *serverHandler) OnDescribe(
 	ctx *gortsplib.ServerHandlerOnDescribeCtx,
 ) (*base.Response, *gortsplib.ServerStream, error) {
-	stream := h.owner.streamFor(ctx.Path)
+	stream, src := h.owner.streamAndSourceFor(ctx.Path)
 	if stream == nil {
 		return &base.Response{StatusCode: base.StatusNotFound}, nil, nil
+	}
+	if src != nil {
+		readyCtx, cancel := context.WithTimeout(context.Background(), describeReadyTimeout)
+		defer cancel()
+		if err := src.Ready(readyCtx); err != nil {
+			h.owner.logger.Warn("rtsp: describe waited for source readiness",
+				"path", ctx.Path, "err", err)
+			return &base.Response{StatusCode: base.StatusServiceUnavailable}, nil, nil
+		}
 	}
 	return &base.Response{StatusCode: base.StatusOK}, stream, nil
 }

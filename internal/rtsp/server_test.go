@@ -140,8 +140,11 @@ func TestServerStartStopIdempotent(t *testing.T) {
 func TestServerAddSourceBeforeStart(t *testing.T) {
 	s := New(freePort(t))
 	defer s.Stop()
-	_, err := s.AddSource("main", filepath.Join("testdata", "short_h264.mp4"))
-	if err == nil {
+	src, err := NewFileSource(filepath.Join("testdata", "short_h264.mp4"))
+	if err != nil {
+		t.Fatalf("NewFileSource: %v", err)
+	}
+	if _, err := s.AddSource("main", src); err == nil {
 		t.Fatal("expected error when adding source before Start")
 	}
 }
@@ -154,24 +157,36 @@ func TestServerAddSourceDuplicate(t *testing.T) {
 	defer s.Stop()
 
 	path := filepath.Join("testdata", "short_h264.mp4")
-	if _, err := s.AddSource("main", path); err != nil {
-		t.Fatalf("AddSource: %v", err)
+	src1, err := NewFileSource(path)
+	if err != nil {
+		t.Fatalf("NewFileSource: %v", err)
 	}
-	_, err := s.AddSource("main", path)
-	if !errors.Is(err, ErrSourceExists) {
-		t.Errorf("expected ErrSourceExists, got %v", err)
+	if _, addErr := s.AddSource("main", src1); addErr != nil {
+		t.Fatalf("AddSource: %v", addErr)
+	}
+	src2, err := NewFileSource(path)
+	if err != nil {
+		t.Fatalf("NewFileSource (2nd): %v", err)
+	}
+	if _, addErr := s.AddSource("main", src2); !errors.Is(addErr, ErrSourceExists) {
+		t.Errorf("expected ErrSourceExists, got %v", addErr)
 	}
 }
 
-func TestServerAddSourceMissingFile(t *testing.T) {
+func TestServerAddSourceNil(t *testing.T) {
 	s := New(freePort(t))
 	if err := s.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	defer s.Stop()
 
-	_, err := s.AddSource("main", filepath.Join("testdata", "missing.mp4"))
-	if err == nil {
+	if _, err := s.AddSource("main", nil); err == nil {
+		t.Fatal("expected error for nil source")
+	}
+}
+
+func TestServerAddSourceMissingFile(t *testing.T) {
+	if _, err := NewFileSource(filepath.Join("testdata", "missing.mp4")); err == nil {
 		t.Fatal("expected error for missing file")
 	}
 }
@@ -197,7 +212,11 @@ func TestServerStreamH264(t *testing.T) {
 	}
 	defer s.Stop()
 
-	probe, err := s.AddSource("main", filepath.Join("testdata", "short_h264.mp4"))
+	src, err := NewFileSource(filepath.Join("testdata", "short_h264.mp4"))
+	if err != nil {
+		t.Fatalf("NewFileSource: %v", err)
+	}
+	probe, err := s.AddSource("main", src)
 	if err != nil {
 		t.Fatalf("AddSource: %v", err)
 	}
@@ -222,7 +241,11 @@ func TestServerStreamH265(t *testing.T) {
 	}
 	defer s.Stop()
 
-	if _, err := s.AddSource("sub", filepath.Join("testdata", "short_h265.mp4")); err != nil {
+	src, err := NewFileSource(filepath.Join("testdata", "short_h265.mp4"))
+	if err != nil {
+		t.Fatalf("NewFileSource: %v", err)
+	}
+	if _, err := s.AddSource("sub", src); err != nil {
 		t.Fatalf("AddSource: %v", err)
 	}
 
