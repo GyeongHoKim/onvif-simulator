@@ -5,6 +5,7 @@ package rpicamera
 import (
 	"debug/elf"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -96,8 +97,11 @@ func Open(p Params, logger *slog.Logger, onData OnDataFunc) (*Camera, error) {
 	}
 
 	c.cmd = exec.Command(filepath.Join(dumpPath, executableName)) //nolint:gosec
-	c.cmd.Stdout = os.Stdout
-	c.cmd.Stderr = os.Stderr
+	// Discard helper output so it does not leak into the simulator's stdout
+	// (reserved for user-facing CLI output) or stderr. Helper-side errors
+	// reach us via the 'e' control byte on the read pipe.
+	c.cmd.Stdout = io.Discard
+	c.cmd.Stderr = io.Discard
 	c.cmd.Env = env
 	c.cmd.Dir = dumpPath
 	// Detach the subprocess from the parent's process group so SIGINT/SIGTERM
@@ -362,6 +366,10 @@ func dumpComponent() error {
 	if err != nil {
 		_ = os.RemoveAll(dumpPath)
 		return err
+	}
+	if len(files) == 0 {
+		_ = os.RemoveAll(dumpPath)
+		return fmt.Errorf("rpicamera: embedded mtxrpicam FS is empty")
 	}
 
 	if err := dumpEmbedFSRecursive(files[0].Name(), dumpPath); err != nil {
