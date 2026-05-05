@@ -21,6 +21,7 @@
       {
         "name": "main",
         "token": "profile_main",
+        "kind": "file",
         "media_file_path": "/absolute/path/to/main.mp4",
         "snapshot_uri": "http://127.0.0.1:8080/snapshot/main.jpg",
         "video_source_token": "VS_MAIN"
@@ -28,9 +29,28 @@
       {
         "name": "sub",
         "token": "profile_sub",
+        "kind": "file",
         "media_file_path": "/absolute/path/to/sub.mp4"
       }
     ]
+  },
+  "_rpicam_example_profile": {
+    "_comment": "Drop this object into media.profiles on a Raspberry Pi build (cli-rpi-arm or cli-rpi-arm64) to drive the device from a real Pi camera. The default build channel will reject kind=rpicam at startup.",
+    "name": "rpi",
+    "token": "profile_rpi",
+    "kind": "rpicam",
+    "rpicam": {
+      "camera_id": 0,
+      "width": 1920,
+      "height": 1080,
+      "fps": 30,
+      "bitrate": 4000000,
+      "idr_period": 60,
+      "hflip": false,
+      "vflip": false
+    },
+    "snapshot_uri": "http://127.0.0.1:8080/snapshot/rpi.jpg",
+    "video_source_token": "VS_RPI"
   },
   "auth": {
     "enabled": true,

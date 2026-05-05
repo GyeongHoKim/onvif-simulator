@@ -48,6 +48,44 @@ Download the installer for your platform from the [Releases](https://github.com/
 
 Run the installer and follow the on-screen instructions.
 
+### Raspberry Pi (live camera)
+
+The Raspberry Pi build channel embeds the `mtxrpicam` capture helper from
+[bluenviron/mediamtx](https://github.com/bluenviron/mediamtx) so a Pi Camera
+Module can drive an ONVIF device on Raspberry Pi OS without any extra setup.
+The build is CLI/TUI only — there is no Pi GUI binary.
+
+| Pi model            | OS arch    | Release artifact              |
+|---------------------|------------|-------------------------------|
+| Pi Zero / 2 / 3     | 32-bit     | `onvif-simulator-rpi-arm`     |
+| Pi 3 / 4 / 5 (64)   | 64-bit     | `onvif-simulator-rpi-arm64`   |
+
+Download the matching binary from the [Releases](https://github.com/GyeongHoKim/onvif-simulator/releases)
+page and configure a profile with `"kind": "rpicam"`:
+
+```jsonc
+{
+  "name": "main",
+  "token": "profile_main",
+  "kind": "rpicam",
+  "rpicam": {
+    "camera_id": 0,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "bitrate": 4000000,
+    "idr_period": 60
+  }
+}
+```
+
+See `onvif-simulator.example.json` for a worked example. The default build
+channel (Linux/macOS/Windows × amd64/arm64) does not carry `mtxrpicam` and
+rejects `kind=rpicam` profiles at startup with a clear error message.
+
+Third-party software notice for the Raspberry Pi channel: see
+[`NOTICE`](NOTICE).
+
 ## Usage
 
 ### CLI Mode
