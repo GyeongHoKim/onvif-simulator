@@ -58,6 +58,8 @@ type Camera struct {
 
 	terminate chan struct{}
 	done      chan struct{}
+
+	closeOnce sync.Once
 }
 
 // Open extracts and starts the embedded mtxrpicam helper, returning a
@@ -129,11 +131,15 @@ func Open(p Params, logger *slog.Logger, onData OnDataFunc) (*Camera, error) {
 	return c, nil
 }
 
-// Close signals the helper to exit and waits for it.
+// Close signals the helper to exit and waits for it. Idempotent: subsequent
+// calls block until the first one finishes shutdown but do not re-close the
+// terminate channel or re-decrement the dump refcount.
 func (c *Camera) Close() {
-	close(c.terminate)
-	<-c.done
-	freeComponent()
+	c.closeOnce.Do(func() {
+		close(c.terminate)
+		<-c.done
+		freeComponent()
+	})
 }
 
 // Wait blocks until the camera exits and returns its terminal error.
