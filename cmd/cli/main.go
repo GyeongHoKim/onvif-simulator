@@ -31,6 +31,7 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
 	"github.com/GyeongHoKim/onvif-simulator/internal/simulator"
 	"github.com/GyeongHoKim/onvif-simulator/internal/tui"
+	"github.com/GyeongHoKim/onvif-simulator/internal/version"
 )
 
 const (
@@ -76,6 +77,9 @@ func run(args []string) error {
 		return runConfig(args[1:])
 	case "event":
 		return runEvent(args[1:])
+	case "version", "--version", "-v":
+		printVersion(os.Stdout)
+		return nil
 	case "-h", "--help", "help":
 		printUsage(os.Stdout)
 		return nil
@@ -93,6 +97,7 @@ func printUsage(w io.Writer) {
 		"  tui                            run the terminal UI",
 		"  config show                    print the loaded config JSON",
 		"  config validate                validate the config file and exit",
+		"  version                        print version, commit, build channel",
 		"  event motion <token> on|off",
 		"  event digital-input <token> on|off",
 		"  event image-too-blurry <token> on|off",
@@ -101,6 +106,20 @@ func printUsage(w io.Writer) {
 		"  event sync <topic> <source-item-name> <source-token> <data-item-name> <state>",
 	}
 	_, _ = io.WriteString(w, strings.Join(lines, "\n")+"\n") //nolint:errcheck // usage output is best-effort.
+}
+
+func printVersion(w io.Writer) {
+	rpicam := "disabled"
+	if version.RPICam {
+		rpicam = "enabled"
+	}
+	lines := []string{
+		"onvif-simulator " + version.Version,
+		"  commit: " + version.Commit,
+		"  built:  " + version.Date,
+		"  rpicam: " + rpicam,
+	}
+	_, _ = io.WriteString(w, strings.Join(lines, "\n")+"\n") //nolint:errcheck // version output is best-effort.
 }
 
 // ---------- serve ---------------------------------------------------------------

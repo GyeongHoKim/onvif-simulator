@@ -54,9 +54,30 @@ func TestPrintUsageWritesAllCommands(t *testing.T) {
 	var buf bytes.Buffer
 	printUsage(&buf)
 	out := buf.String()
-	for _, want := range []string{"serve", "tui", "config show", "config validate", "event motion", "event sync"} {
+	for _, want := range []string{"serve", "tui", "config show", "config validate", "version", "event motion", "event sync"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("usage missing %q. Got:\n%s", want, out)
+		}
+	}
+}
+
+func TestPrintVersionMentionsRPICam(t *testing.T) {
+	var buf bytes.Buffer
+	printVersion(&buf)
+	out := buf.String()
+	if !strings.Contains(out, "rpicam:") {
+		t.Fatalf("version output missing rpicam line: %s", out)
+	}
+	// Default build is not rpicam-tagged; the line must say "disabled".
+	if !strings.Contains(out, "rpicam: disabled") {
+		t.Fatalf("expected rpicam: disabled on default build, got: %s", out)
+	}
+}
+
+func TestRunVersionAlias(t *testing.T) {
+	for _, alias := range []string{"version", "--version", "-v"} {
+		if err := run([]string{alias}); err != nil {
+			t.Fatalf("run(%s): %v", alias, err)
 		}
 	}
 }
