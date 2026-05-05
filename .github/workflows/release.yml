@@ -22,6 +22,16 @@ jobs:
           go-version-file: .go-version
           cache: true
 
+      # Cache the fetched mtxrpicam binaries across releases. Keyed on the
+      # SHA-256 file so a version bump invalidates the cache automatically.
+      - name: Cache mtxrpicam binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            internal/rpicamera/mtxrpicam_32
+            internal/rpicamera/mtxrpicam_64
+          key: mtxrpicam-${{ hashFiles('scripts/mtxrpicam.sha256') }}
+
       - uses: goreleaser/goreleaser-action@v7.0.0
         with:
           version: v2.15.3

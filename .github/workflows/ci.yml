@@ -63,3 +63,39 @@ jobs:
 
       - name: Run tests
         run: make test
+
+  rpicam-build-check:
+    name: RPi build check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: actions/setup-go@v6.4.0
+        with:
+          go-version-file: .go-version
+          cache: true
+
+      - uses: actions/setup-node@v6.3.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: internal/gui/frontend/package-lock.json
+
+      # rpicam-build-check cross-compiles ./..., which includes internal/gui;
+      # that package's //go:embed all:frontend/dist requires the dist tree to
+      # exist at compile time even though the rpi channel itself never ships
+      # the GUI binary.
+      - name: Install frontend dependencies
+        working-directory: internal/gui/frontend
+        run: npm ci
+
+      - name: Build frontend (populate internal/gui/frontend/dist for go:embed)
+        working-directory: internal/gui/frontend
+        run: npm run build
+
+      # Cross-compile the rpicam-tagged code for both Pi targets against the
+      # placeholder mtxrpicam blob (no network fetch). This catches type drift
+      # in internal/rpicamera/camera_rpicam.go that the disabled stub would
+      # otherwise hide on the default linux/amd64 build.
+      - name: Cross-compile rpicam-tagged code
+        run: make rpicam-build-check

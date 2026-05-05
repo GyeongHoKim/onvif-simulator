@@ -18,7 +18,15 @@ endif
 
 FRONTEND_DIST := internal/gui/frontend/dist
 
-.PHONY: build cli gui gui-windows gui-darwin gui-linux format lint test test-go test-frontend coverage e2e clean setup manual
+# Pinned mtxrpicam release. Bumped together with scripts/mtxrpicam.sha256 so
+# the Pi build channel ships a reviewable, reproducible binary blob.
+MTXRPICAM_VERSION ?= v1.13.1
+RPICAM_DIR_32     := internal/rpicamera/mtxrpicam_32
+RPICAM_DIR_64     := internal/rpicamera/mtxrpicam_64
+
+.PHONY: build cli gui gui-windows gui-darwin gui-linux \
+        cli-rpi cli-rpi-arm cli-rpi-arm64 rpicam-fetch rpicam-build-check \
+        format lint test test-go test-frontend coverage e2e clean setup manual
 
 build: cli gui
 
@@ -36,6 +44,38 @@ gui-darwin: $(FRONTEND_DIST)
 
 gui-linux: $(FRONTEND_DIST)
 	cd cmd/gui && wails build -platform linux/amd64 -tags webkit2_41
+
+# Raspberry Pi build channel. Embeds mtxrpicam_{32,64} into the simulator
+# binary so a Pi user gets a single self-contained artifact. The fetch step
+# is idempotent: it skips the download when the on-disk blob already matches
+# the checksum pinned in scripts/mtxrpicam.sha256.
+rpicam-fetch: $(RPICAM_DIR_32)/mtxrpicam $(RPICAM_DIR_64)/mtxrpicam
+
+$(RPICAM_DIR_32)/mtxrpicam:
+	./scripts/fetch-mtxrpicam.sh 32 $(MTXRPICAM_VERSION) $(RPICAM_DIR_32)
+
+$(RPICAM_DIR_64)/mtxrpicam:
+	./scripts/fetch-mtxrpicam.sh 64 $(MTXRPICAM_VERSION) $(RPICAM_DIR_64)
+
+cli-rpi: cli-rpi-arm cli-rpi-arm64
+
+cli-rpi-arm: rpicam-fetch
+	GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 \
+	  $(GO) build -tags rpicam -o bin/$(BINARY)-rpi-arm ./cmd/cli
+
+cli-rpi-arm64: rpicam-fetch
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
+	  $(GO) build -tags rpicam -o bin/$(BINARY)-rpi-arm64 ./cmd/cli
+
+# rpicam-build-check verifies that the rpicam-tagged code paths still compile
+# without spending time downloading the upstream binary. PR CI calls this; it
+# relies on the placeholder file checked into mtxrpicam_{32,64}/ to satisfy
+# //go:embed and cross-compiles for both Pi targets.
+rpicam-build-check:
+	GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 \
+	  $(GO) build -tags rpicam ./...
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
+	  $(GO) build -tags rpicam ./...
 
 format:
 	golangci-lint fmt ./...

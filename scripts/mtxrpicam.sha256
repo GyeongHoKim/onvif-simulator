@@ -1,0 +1,17 @@
+# SHA-256 checksums for the embedded mtxrpicam binaries, pinned to the
+# version in Makefile's MTXRPICAM_VERSION. Each line maps a directory name
+# to the SHA-256 of its mtxrpicam executable.
+#
+# Bumping the version requires updating this file in lockstep:
+#   1. update MTXRPICAM_VERSION in Makefile
+#   2. run `make rpicam-fetch` to download the new artifacts
+#   3. record the resulting SHA-256 of internal/rpicamera/mtxrpicam_{32,64}/mtxrpicam
+#      below (replacing the placeholder hashes)
+#   4. commit Makefile + this file together
+#
+# The placeholder zeroes below DO NOT match a real binary; they exist so the
+# fetch script's "compare-or-redownload" path is always taken on a fresh
+# clone. Until a maintainer fills in real values, `make rpicam-fetch` will
+# error with "checksum mismatch" — a deliberate forcing function.
+0000000000000000000000000000000000000000000000000000000000000000  mtxrpicam_32
+0000000000000000000000000000000000000000000000000000000000000000  mtxrpicam_64

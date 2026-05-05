@@ -25,3 +25,12 @@ coverage/
 
 node_modules
 internal/gui/frontend/package.json.md5
+
+# Raspberry Pi build channel — the real mtxrpicam binaries are fetched at
+# release time and verified against scripts/mtxrpicam.sha256. The directories
+# themselves stay in git with a `placeholder` file checked in so //go:embed
+# stays satisfied during PR CI.
+internal/rpicamera/mtxrpicam_32/*
+!internal/rpicamera/mtxrpicam_32/placeholder
+internal/rpicamera/mtxrpicam_64/*
+!internal/rpicamera/mtxrpicam_64/placeholder
