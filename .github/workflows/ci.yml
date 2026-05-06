@@ -63,3 +63,70 @@ jobs:
 
       - name: Run tests
         run: make test
+
+  mtxrpicam-version-pin:
+    name: MTXRPICAM version pin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      # Catch drift between the three places that pin mediamtx-rpicamera:
+      # Makefile's MTXRPICAM_VERSION, the .goreleaser.yml pre-hook, and the
+      # header comment in scripts/mtxrpicam.sha256. They are bumped together
+      # by hand, so a missed file should fail PR CI loudly.
+      - name: Verify MTXRPICAM version pin is consistent
+        run: |
+          set -euo pipefail
+          mk=$(sed -n 's/^MTXRPICAM_VERSION[[:space:]]*?=[[:space:]]*\(v[0-9.]*\).*/\1/p' Makefile)
+          gr=$(grep -oE 'fetch-mtxrpicam\.sh.*v[0-9.]+' .goreleaser.yml \
+                | grep -oE 'v[0-9.]+' | sort -u)
+          sh=$(sed -n 's/.*mediamtx-rpicamera \(v[0-9.]*\).*/\1/p' scripts/mtxrpicam.sha256 \
+                | sort -u)
+          echo "Makefile=$mk goreleaser=$gr sha256=$sh"
+          [ -n "$mk" ] && [ -n "$gr" ] && [ -n "$sh" ] || {
+            echo "could not extract a version from one or more files" >&2; exit 1; }
+          [ "$(echo "$gr" | wc -l)" = "1" ] || {
+            echo ".goreleaser.yml pre-hook references multiple versions" >&2; exit 1; }
+          [ "$(echo "$sh" | wc -l)" = "1" ] || {
+            echo "scripts/mtxrpicam.sha256 references multiple versions:" >&2
+            echo "$sh" >&2
+            exit 1; }
+          [ "$mk" = "$gr" ] && [ "$mk" = "$sh" ] || {
+            echo "MTXRPICAM version drift between Makefile, .goreleaser.yml, and scripts/mtxrpicam.sha256" >&2
+            exit 1; }
+
+  rpicam-build-check:
+    name: RPi build check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: actions/setup-go@v6.4.0
+        with:
+          go-version-file: .go-version
+          cache: true
+
+      - uses: actions/setup-node@v6.3.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: internal/gui/frontend/package-lock.json
+
+      # rpicam-build-check cross-compiles ./..., which includes internal/gui;
+      # that package's //go:embed all:frontend/dist requires the dist tree to
+      # exist at compile time even though the rpi channel itself never ships
+      # the GUI binary.
+      - name: Install frontend dependencies
+        working-directory: internal/gui/frontend
+        run: npm ci
+
+      - name: Build frontend (populate internal/gui/frontend/dist for go:embed)
+        working-directory: internal/gui/frontend
+        run: npm run build
+
+      # Cross-compile the rpicam-tagged code for both Pi targets against the
+      # placeholder mtxrpicam blob (no network fetch). This catches type drift
+      # in internal/rpicamera/camera_rpicam.go that the disabled stub would
+      # otherwise hide on the default linux/amd64 build.
+      - name: Cross-compile rpicam-tagged code
+        run: make rpicam-build-check

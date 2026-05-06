@@ -21,6 +21,33 @@ builds:
       - -X github.com/GyeongHoKim/onvif-simulator/internal/version.Commit={{.Commit}}
       - -X github.com/GyeongHoKim/onvif-simulator/internal/version.Date={{.Date}}
 
+  # Raspberry Pi build channel. Embeds mtxrpicam (32+64) so the artifact runs
+  # standalone on Raspberry Pi OS with libcamera. The pre hook fetches the
+  # binary blob from the pinned mediamtx release; the rpicam build tag selects
+  # the rpicamera runtime in internal/rpicamera.
+  - id: cli-rpi
+    main: ./cmd/cli
+    binary: onvif-simulator-rpi
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -tags=rpicam
+    goos:
+      - linux
+    goarch:
+      - arm
+      - arm64
+    goarm:
+      - "7"
+    hooks:
+      pre:
+        - cmd: ./scripts/fetch-mtxrpicam.sh {{ if eq .Arch "arm" }}32{{ else }}64{{ end }} v2.4.3 internal/rpicamera/mtxrpicam_{{ if eq .Arch "arm" }}32{{ else }}64{{ end }}
+    ldflags:
+      - -s -w
+      - -X github.com/GyeongHoKim/onvif-simulator/internal/version.Version={{.Version}}
+      - -X github.com/GyeongHoKim/onvif-simulator/internal/version.Commit={{.Commit}}
+      - -X github.com/GyeongHoKim/onvif-simulator/internal/version.Date={{.Date}}
+
 archives:
   - id: cli
     ids:
@@ -32,6 +59,13 @@ archives:
         formats:
           - zip
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+  - id: cli-rpi
+    ids:
+      - cli-rpi
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}-rpi_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
   name_template: "checksums.txt"
@@ -66,3 +100,5 @@ release:
   extra_files:
     - glob: ./scripts/install.sh
     - glob: ./scripts/install.ps1
+    - glob: ./onvif-simulator.example.json
+    - glob: ./onvif-simulator.example.rpi.json

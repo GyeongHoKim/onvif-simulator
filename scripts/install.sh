@@ -29,11 +29,63 @@ Darwin) OS=darwin ;;
   ;;
 esac
 
-case "$ARCH" in
-x86_64 | amd64) ARCH=amd64 ;;
-aarch64 | arm64) ARCH=arm64 ;;
+# Channel selection: default channel (linux/darwin × amd64/arm64) vs rpi channel
+# (linux/arm + linux/arm64, embeds mtxrpicam for Pi camera support).
+#
+# ONVIF_SIMULATOR_CHANNEL allowed values: "rpi" forces the Pi build, "default"
+# forces the generic build, "auto" (or unset) auto-detects via
+# /proc/device-tree/model. Any other value is rejected by the validation block
+# below and causes the script to exit.
+CHANNEL="${ONVIF_SIMULATOR_CHANNEL:-auto}"
+
+is_raspberry_pi() {
+  [ "$OS" = linux ] || return 1
+  [ -r /proc/device-tree/model ] || return 1
+  case "$(tr -d '\0' </proc/device-tree/model)" in
+  "Raspberry Pi"*) return 0 ;;
+  *) return 1 ;;
+  esac
+}
+
+if [ "$CHANNEL" = auto ]; then
+  if is_raspberry_pi; then
+    CHANNEL=rpi
+  else
+    CHANNEL=default
+  fi
+fi
+
+case "$CHANNEL" in
+default)
+  case "$ARCH" in
+  x86_64 | amd64) ARCH=amd64 ;;
+  aarch64 | arm64) ARCH=arm64 ;;
+  *)
+    echo "install.sh: unsupported architecture for default channel: $ARCH" >&2
+    exit 1
+    ;;
+  esac
+  ARCHIVE_PREFIX="onvif-simulator"
+  BIN_NAME="onvif-simulator"
+  ;;
+rpi)
+  if [ "$OS" != linux ]; then
+    echo "install.sh: rpi channel requires Linux, got $OS" >&2
+    exit 1
+  fi
+  case "$ARCH" in
+  aarch64 | arm64) ARCH=arm64 ;;
+  armv7l | armv6l | arm) ARCH=arm ;;
+  *)
+    echo "install.sh: unsupported architecture for rpi channel: $ARCH" >&2
+    exit 1
+    ;;
+  esac
+  ARCHIVE_PREFIX="onvif-simulator-rpi"
+  BIN_NAME="onvif-simulator-rpi"
+  ;;
 *)
-  echo "install.sh: unsupported architecture: $ARCH" >&2
+  echo "install.sh: unknown channel: $CHANNEL (expected 'rpi', 'default', or 'auto')" >&2
   exit 1
   ;;
 esac
@@ -46,8 +98,10 @@ else
 fi
 
 VERSION="${TAG#v}"
-ARCHIVE="onvif-simulator_${VERSION}_${OS}_${ARCH}.tar.gz"
+ARCHIVE="${ARCHIVE_PREFIX}_${VERSION}_${OS}_${ARCH}.tar.gz"
 URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${TAG}/${ARCHIVE}"
+
+echo "Channel: ${CHANNEL} (${OS}/${ARCH})"
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
@@ -61,14 +115,16 @@ fi
 
 tar -xzf "$TMP/archive.tar.gz" -C "$TMP"
 
-BIN="$TMP/onvif-simulator"
+BIN="$TMP/${BIN_NAME}"
 if [ ! -f "$BIN" ]; then
-  echo "install.sh: could not find onvif-simulator binary inside archive" >&2
+  echo "install.sh: could not find ${BIN_NAME} binary inside archive" >&2
   exit 1
 fi
 
 chmod +x "$BIN"
 
+# Both channels install as "onvif-simulator" so usage docs (`onvif-simulator …`)
+# work identically. A host won't carry both channels at once.
 if [ -w "/usr/local/bin" ] 2>/dev/null; then
   DEST="/usr/local/bin/onvif-simulator"
   mv "$BIN" "$DEST"

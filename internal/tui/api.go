@@ -35,6 +35,8 @@ type SimulatorAPI interface {
 	RemoveProfile(token string) error
 	SetProfileMediaFilePath(token, path string) error
 	SetProfileSnapshotURI(token, uri string) error
+	SetProfileKind(token, kind string) error
+	SetProfileRPICam(token string, rpicam *config.RPICamConfig) error
 
 	SetTopicEnabled(name string, enabled bool) error
 

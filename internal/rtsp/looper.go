@@ -41,7 +41,7 @@ type codecEncoder interface {
 // looper reads access units from an mp4 file, paces playback against
 // wall-clock time, and writes RTP packets to a ServerStream. When the file
 // ends the looper rewinds and continues with monotonically-increasing RTP
-// timestamps so clients see one continuous stream.
+// timestamps so clients see one continuous stream. It implements Source.
 type looper struct {
 	path  string
 	probe *ProbeResult
@@ -50,47 +50,51 @@ type looper struct {
 	media  *description.Media
 }
 
-func newLooper(
-	path string,
-	stream *gortsplib.ServerStream,
-	media *description.Media,
-	probe *ProbeResult,
-) *looper {
-	return &looper{
-		path:   path,
-		probe:  probe,
-		stream: stream,
-		media:  media,
-	}
+// Describe satisfies Source. The probe is filled in by NewFileSource so
+// callers can reach codec/SPS/PPS without spawning the goroutine.
+func (l *looper) Describe() *ProbeResult { return l.probe }
+
+// AttachStream binds the looper to the gortsplib stream/media Server built
+// from Describe() and is called before Run.
+func (l *looper) AttachStream(stream *gortsplib.ServerStream, media *description.Media) {
+	l.stream = stream
+	l.media = media
 }
 
-func (l *looper) run(ctx context.Context) {
+// Ready returns immediately because the SDP for a file-backed source is
+// fully synthesized from the upfront probe — there is no IDR to wait for.
+func (*looper) Ready(_ context.Context) error { return nil }
+
+// Run drives the playback loop until ctx is canceled or a terminal error
+// occurs. ctx-driven shutdown returns nil; any other terminal condition
+// returns the underlying error.
+func (l *looper) Run(ctx context.Context) error {
 	enc, err := l.createEncoder()
 	if err != nil {
-		return
+		return err
 	}
 
 	startTS, err := randomUint32()
 	if err != nil {
-		return
+		return err
 	}
 
 	// rtpOffset accumulates across loop iterations so the timestamp stays
 	// monotonic when the file rewinds.
 	rtpOffset := startTS
 	for {
-		if ctx.Err() != nil {
-			return
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			// Surface ctx.Err so the caller can filter context.Canceled
+			// without us pretending no shutdown happened.
+			return ctxErr
 		}
-		nextOffset, err := l.playOnce(ctx, enc, rtpOffset)
-		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				return
-			}
-			// Any other error during a single loop iteration ends the
-			// goroutine — clients will get connection-closed and can
-			// reconnect once the source is reconfigured.
-			return
+		nextOffset, playErr := l.playOnce(ctx, enc, rtpOffset)
+		if playErr != nil {
+			// Any error during a single loop iteration ends the goroutine.
+			// Clients will get connection-closed and can reconnect once
+			// the source is reconfigured. Server.AddSource filters
+			// context.Canceled out of its terminal-error log line.
+			return playErr
 		}
 		rtpOffset = nextOffset
 	}

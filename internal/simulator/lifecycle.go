@@ -15,6 +15,7 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/devicesvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/eventsvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/mediasvc"
+	"github.com/GyeongHoKim/onvif-simulator/internal/rpicamera"
 	"github.com/GyeongHoKim/onvif-simulator/internal/rtsp"
 )
 
@@ -120,23 +121,28 @@ func serveAndIgnoreClosed(server *http.Server, listener net.Listener) {
 	}
 }
 
+// errUnknownSourceKind is the wrapped sentinel for buildRTSPSource's default
+// branch — guards against future Kind values added without a constructor.
+var errUnknownSourceKind = errors.New("simulator: unknown source kind")
+
 // startRTSPServer boots the embedded RTSP server (if at least one profile
-// has a media file path configured) and returns the probed profiles whose
-// encoder fields the lifecycle should publish back into Simulator.cfg.
+// declares a usable source) and returns the probed profiles whose encoder
+// fields the lifecycle should publish back into Simulator.cfg.
 //
-// When no profile has MediaFilePath set, the returned server is nil and the
-// simulator falls back to passing through the legacy ProfileConfig.RTSP
-// field via media_provider.StreamURI. This keeps existing tests/configs
-// working until callers migrate to the new field.
+// A profile is "usable" when ProfileConfig.HasSource reports true: kind=file
+// with a non-empty media_file_path, or kind=rpicam with rpicam params. When
+// no profile is usable the returned server is nil and StreamURI continues to
+// emit the conventional rtsp://host:port/<token> URL even without an active
+// listener, so clients can detect the absence as "no media on that path".
 func startRTSPServer(cfg *config.Config, logger *slog.Logger) (*rtsp.Server, []config.ProfileConfig, error) {
-	hasFilePath := false
+	hasSource := false
 	for i := range cfg.Media.Profiles {
-		if cfg.Media.Profiles[i].MediaFilePath != "" {
-			hasFilePath = true
+		if cfg.Media.Profiles[i].HasSource() {
+			hasSource = true
 			break
 		}
 	}
-	if !hasFilePath {
+	if !hasSource {
 		return nil, nil, nil
 	}
 
@@ -149,26 +155,70 @@ func startRTSPServer(cfg *config.Config, logger *slog.Logger) (*rtsp.Server, []c
 	copy(probed, cfg.Media.Profiles)
 	for i := range probed {
 		p := &probed[i]
-		if p.MediaFilePath == "" {
+		if !p.HasSource() {
 			continue
 		}
-		probe, err := srv.AddSource(p.Token, p.MediaFilePath)
+		src, err := buildRTSPSource(p, logger)
 		if err != nil {
 			srv.Stop()
 			return nil, nil, fmt.Errorf(
-				"simulator: register rtsp source %q (%s): %w",
-				p.Token, p.MediaFilePath, err,
+				"simulator: register rtsp source %q: %w",
+				p.Token, err,
 			)
 		}
-		// Auto-fill in-memory encoder metadata from the file. Persisted
-		// values (if any) are still written to disk as-is by the config
-		// helpers; this overwrite affects only the live ConfigSnapshot.
+		probe, err := srv.AddSource(p.Token, src)
+		if err != nil {
+			srv.Stop()
+			return nil, nil, fmt.Errorf(
+				"simulator: register rtsp source %q: %w",
+				p.Token, err,
+			)
+		}
+		// Auto-fill in-memory encoder metadata from the source (probe for
+		// file kind; configured params for rpicam). Persisted values (if
+		// any) are still written to disk as-is by the config helpers; this
+		// overwrite affects only the live ConfigSnapshot.
 		p.Encoding = probe.Codec
 		p.Width = probe.Width
 		p.Height = probe.Height
 		p.FPS = probe.FPS
 	}
 	return srv, probed, nil
+}
+
+// buildRTSPSource maps a ProfileConfig source kind to the matching
+// rtsp.Source. The kind=rpicam branch returns rpicamera.ErrUnsupported on
+// builds without the rpicam tag.
+func buildRTSPSource(p *config.ProfileConfig, logger *slog.Logger) (rtsp.Source, error) {
+	switch effectiveKind := p.Kind; effectiveKind {
+	case "", config.ProfileKindFile:
+		return rtsp.NewFileSource(p.MediaFilePath)
+	case config.ProfileKindRPICam:
+		// Conversions are bounded by validateRPICam (CameraID >= 0, Width/
+		// Height in [0,4096], FPS in [0,120], Bitrate/IDRPeriod >= 0), so
+		// the int → uint32/float32 narrowing here cannot overflow.
+		params := rpicamera.Params{
+			CameraID:   uint32(p.RPICam.CameraID), //nolint:gosec // bounded by validateRPICam
+			Width:      uint32(p.RPICam.Width),    //nolint:gosec // bounded by validateRPICam
+			Height:     uint32(p.RPICam.Height),   //nolint:gosec // bounded by validateRPICam
+			FPS:        float32(p.RPICam.FPS),
+			Bitrate:    uint32(p.RPICam.Bitrate),   //nolint:gosec // bounded by validateRPICam
+			IDRPeriod:  uint32(p.RPICam.IDRPeriod), //nolint:gosec // bounded by validateRPICam
+			HFlip:      p.RPICam.HFlip,
+			VFlip:      p.RPICam.VFlip,
+			Brightness: p.RPICam.Brightness,
+			Contrast:   p.RPICam.Contrast,
+			Saturation: p.RPICam.Saturation,
+			Sharpness:  p.RPICam.Sharpness,
+		}
+		return rtsp.NewRPICamSource(
+			params,
+			p.RPICam.Width, p.RPICam.Height, p.RPICam.FPS,
+			logger.With("profile", p.Token),
+		)
+	default:
+		return nil, fmt.Errorf("%w: %q", errUnknownSourceKind, p.Kind)
+	}
 }
 
 // Stop gracefully shuts down. Idempotent.

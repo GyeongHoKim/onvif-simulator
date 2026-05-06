@@ -82,6 +82,12 @@ func (a *simulatorAdapter) SetProfileMediaFilePath(token, path string) error {
 func (a *simulatorAdapter) SetProfileSnapshotURI(token, uri string) error {
 	return a.sim.SetProfileSnapshotURI(token, uri)
 }
+func (a *simulatorAdapter) SetProfileKind(token, kind string) error {
+	return a.sim.SetProfileKind(token, kind)
+}
+func (a *simulatorAdapter) SetProfileRPICam(token string, rpicam *config.RPICamConfig) error {
+	return a.sim.SetProfileRPICam(token, rpicam)
+}
 
 func (a *simulatorAdapter) SetTopicEnabled(name string, enabled bool) error {
 	return a.sim.SetTopicEnabled(name, enabled)

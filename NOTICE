@@ -1,0 +1,36 @@
+onvif-simulator
+Copyright (c) 2025 GyeongHo Kim and contributors
+
+Licensed under the MIT License (see LICENSE).
+
+================================================================================
+Third-party software embedded in this distribution
+================================================================================
+
+The Raspberry Pi build channel (binaries with the rpicam build tag, named
+onvif-simulator-rpi-arm and onvif-simulator-rpi-arm64) embeds the mtxrpicam
+capture helper from the mediamtx project:
+
+  Project: mediamtx
+  URL:     https://github.com/bluenviron/mediamtx
+  License: MIT
+
+The mtxrpicam helper dynamically links against libcamera at runtime:
+
+  Project: libcamera
+  URL:     https://libcamera.org
+  License: LGPL-2.1-or-later
+
+End-user replacement of libcamera is possible through the standard library-
+replacement provisions of the LGPL by replacing the libcamera*.so files on the
+target Raspberry Pi OS image. mediamtx and libcamera license texts apply
+unchanged when distributed inside the Raspberry Pi build channel artifacts.
+
+The default build channel (linux/darwin/windows × amd64/arm64) does NOT embed
+mtxrpicam; this notice is shipped in every archive for legal hygiene.
+
+The Go-language portions of internal/rpicamera/ are adapted from
+github.com/bluenviron/mediamtx/internal/staticsources/rpicamera (MIT). The
+adaptation strips mediamtx-internal types and replaces them with simulator-
+local equivalents but keeps the wire protocol with mtxrpicam unchanged so the
+upstream-released binary stays compatible.

@@ -22,6 +22,8 @@ Use `make` targets rather than calling `go`, `golangci-lint`, or `wails` directl
 | --- | --- |
 | Build CLI/TUI binary | `make cli` |
 | Build GUI binary (requires Wails CLI) | `make gui` |
+| Build CLI for Raspberry Pi (arm + arm64) | `make cli-rpi` |
+| Cross-compile rpicam-tagged code (no fetch) | `make rpicam-build-check` |
 | Format | `make format` |
 | Lint | `make lint` |
 | Unit tests (race detector) | `make test` |
@@ -38,7 +40,16 @@ Run a single Go test: `go test -race -run TestName ./internal/<pkg>/...`.
 
 Toolchain versions are pinned in `mise.toml`. Run `mise install` after cloning.
 
-GUI frontend lives in `frontend/` (React + Vite + Tailwind, shadcn registry) and is hosted by Wails. `wails dev` starts the dev harness; Wails invokes the frontend build for production. The TUI is a Bubble Tea program and has no web assets.
+GUI frontend lives in `internal/gui/frontend/` (React + Vite + Tailwind, shadcn registry), is built by npm into `internal/gui/frontend/dist`, and is hosted by Wails from `cmd/gui`. Run `wails dev` inside `cmd/gui` for the dev harness; Wails invokes the frontend build for production. The TUI is a Bubble Tea program in `internal/tui` with no web assets; launch it with `onvif-simulator tui` (same binary as the CLI).
+
+## Build channels
+
+The repo ships two Go binary build channels:
+
+- **default** — built with `make cli` and goreleaser build id `cli`. Runs on linux/darwin/windows × amd64/arm64. No platform-specific embedded assets. Produces `onvif-simulator`.
+- **rpi** — built with `make cli-rpi` and goreleaser build id `cli-rpi`. Runs on linux/arm (Pi Zero/2/3 32-bit) and linux/arm64 (Pi 3/4/5 64-bit). The build pipeline fetches `mtxrpicam_32.tar.gz` and `mtxrpicam_64.tar.gz` from the pinned mediamtx-rpicamera release (a separate repo from mediamtx itself) into `internal/rpicamera/mtxrpicam_{32,64}/` and `go build -tags rpicam` embeds them via `//go:embed`. Produces `onvif-simulator-rpi-arm` / `onvif-simulator-rpi-arm64`. The default channel never carries this asset and `kind=rpicam` profiles fail fast with `rpicamera.ErrUnsupported` on non-rpi builds.
+
+The `rpicam` build tag controls every rpicam runtime path. PR CI does not download the binary — it cross-compiles `-tags rpicam` against a 1-byte placeholder file checked into each `mtxrpicam_*` directory (`make rpicam-build-check`). The pinned mediamtx-rpicamera version lives in `Makefile`'s `MTXRPICAM_VERSION`; tarball checksums in `scripts/mtxrpicam.sha256` are bumped in lockstep so the fetch step (`scripts/fetch-mtxrpicam.sh`) refuses unverified blobs. Those hashes are cross-checkable against mediamtx's own `internal/staticsources/rpicamera/mtxrpicamdownloader/HASH_MTXRPICAM_*_TAR_GZ`, giving an out-of-band verification source independent of the release page itself. GUI is intentionally CLI/TUI-only on the rpi channel — there is no `make gui-rpi` and there will not be one.
 
 ## Architecture
 
@@ -46,8 +57,8 @@ Responsibilities are split into tightly separated layers. Folder names are inten
 
 - **Configuration** — owns the on-disk configuration schema (`onvif-simulator.json`). The root `Config` struct contains:
   - `DeviceConfig` — static device identity (UUID, manufacturer, model, serial, scopes).
-  - `NetworkConfig` — HTTP port and WS-Discovery XAddr list.
-  - `MediaConfig` — list of pass-through media profiles (RTSP/snapshot URIs, codec, resolution).
+  - `NetworkConfig` — HTTP port, **RTSP port** for the embedded RTSP listener (0 means use the default 8554 via `RTSPPortOrDefault`), optional bind `interface`, and WS-Discovery XAddr list.
+  - `MediaConfig` — ONVIF media **profiles**. Each profile declares a **`kind`** (default `"file"`, also `"rpicam"`). For `kind=file`, **`media_file_path`** points at a local **H.264/H.265 MP4** the simulator loops; width, height, FPS, and encoding are **probed from the file at startup** and published in the live config snapshot (persisted JSON may still carry prior values for those fields). For `kind=rpicam`, **`rpicam`** carries capture parameters (camera_id, width, height, fps, bitrate, idr_period, hflip/vflip, sharpness/contrast/brightness/saturation) and the simulator captures live H.264 from a Raspberry Pi camera through the embedded `mtxrpicam` helper; this kind is only available on binaries built with the `rpicam` tag (the dedicated Pi build channel — see *Build channels* below). Optional **`snapshot_uri`** (HTTP(S) URL returned by `GetSnapshotUri`; the process does not render snapshots itself), optional **metadata** configuration entries, and **`MaxVideoEncoderInstances`** are profile-level fields shared by both kinds.
   - `AuthConfig` — authentication switch, user credentials, Digest and JWT tuning.
   - `RuntimeConfig` — device state that ONVIF Device Management Set* operations mutate at runtime (discovery mode, hostname, DNS, default gateway, network protocols, system date/time). Persisted so the simulator retains the last applied values across restarts.
   - `EventsConfig` — event service parameters (max pull points, default subscription timeout, topic list). Each `TopicConfig` entry has an `Enabled` flag; disabled topics are hidden from `GetEventProperties` but still routable by the broker.
@@ -70,7 +81,11 @@ Responsibilities are split into tightly separated layers. Folder names are inten
 
 - **WS-Discovery** — message encoding/decoding (Hello, Bye, Probe/ProbeMatch, Resolve/ResolveMatch), scope matching, and UDP multicast transport. Discovery Proxy is out of scope.
 
-- **Simulator lifecycle + front-ends** — the composition root that assembles the layers above into a runnable simulator, plus the GUI, TUI, and CLI surfaces. These exist as stubs today and will be wired up later.
+- **Embedded RTSP** (`internal/rtsp`) — in-process RTSP server (gortsplib) on **`NetworkConfig`'s RTSP port**. It starts when **at least one** profile has a usable source — `kind=file` with non-empty `media_file_path`, **or** `kind=rpicam` with `rpicam` configured. Each such profile is served at **`rtsp://<advertised-host>:<port>/<profile-token>`**. **`GetStreamUri`** always returns that form of URI for this device even when no source is registered (clients then see no media on that path). Sources implement the small `rtsp.Source` interface (`Describe`/`AttachStream`/`Ready`/`Run`); file-backed sources loop the MP4 (`looper`), live sources push access units through `LiveSource`. `Ready` lets the live path hold `DESCRIBE` until the first IDR so clients never see a pre-keyframe SDP. Video tracks are limited to **H.264 and H.265** packetization today.
+
+- **Raspberry Pi camera** (`internal/rpicamera`) — vendored and adapted from mediamtx's [rpicamera static source](https://github.com/bluenviron/mediamtx/tree/main/internal/staticsources/rpicamera). On a binary built with the `rpicam` tag (linux/arm or linux/arm64), `rpicamera.Open` extracts the embedded `mtxrpicam` helper into `/dev/shm`, fork+execs it, and surfaces H.264 access units through an `OnData` callback. On every other build the package compiles to a disabled stub whose `Open` returns `rpicamera.ErrUnsupported` so the simulator can fail with a clear "this build does not support the Raspberry Pi camera" message. Capture parameters live in `rpicamera.Params`; the upstream wire-format struct stays internal so the public surface tracks only what the simulator's `MediaConfig.RPICam` exposes.
+
+- **Simulator lifecycle + front-ends** — `internal/simulator` is the composition root: it starts the HTTP server (ONVIF SOAP), optional embedded RTSP, WS-Discovery, and the event broker. **CLI** entrypoint is **`cmd/cli`** (`serve` by default, plus `tui`, `config`, `event`). **GUI** entrypoint is **`cmd/gui`** (Wails app in **`internal/gui`**). **TUI** is **`internal/tui`**, driven from the CLI **`tui`** subcommand.
 
 - **Observability** — every long-lived component (auth, event broker, ONVIF service handlers, RTSP server, WS-Discovery listener, simulator lifecycle) accepts a `*slog.Logger` via a `WithLogger` functional option. Nil falls back to a discard logger so unit tests can construct components without any wiring. The composition root creates a single root logger and derives child loggers via `.With("component", "<name>")`. SOAP HTTP endpoints are wrapped in a request middleware that attaches a request id, a request-scoped logger, and emits one summary log line per request (level scaled by HTTP status). The logger is **owned by the simulator**, not the front-ends: when constructed without an explicit logger, the simulator reads `LoggingConfig` from the on-disk config and builds a single **file-only JSON sink** (defaulting to a path under `os.UserCacheDir`) plus an internal hot-reload State that the reload path mutates whenever `LoggingConfig` changes. Front-ends only forward optional flag/env overrides through `Options.LogLevel` / `Options.LogFile` and stay otherwise oblivious. There is no stderr/stdout sink: stdout is reserved for user-facing CLI program output, and stderr is only ever written by pre-logger fatal paths. Tests that need to capture records inject an `slog.Handler` via `Options.LogExtras`.
 

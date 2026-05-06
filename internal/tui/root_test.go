@@ -115,6 +115,7 @@ func TestMedia_EditProfileCallsMediaFilePath(t *testing.T) {
 	sim := newMockSim()
 	p := config.ProfileConfig{Name: "main", Token: "profile_main"}
 	form := newProfileFormModal(sim, &p, true)
+	form.fields[fldKind].SetValue(config.ProfileKindFile)
 	form.fields[fldMediaFile].SetValue("/tmp/loop.mp4")
 	cmd := form.save()
 	if cmd == nil {
@@ -135,6 +136,77 @@ func TestMedia_EditProfileCallsMediaFilePath(t *testing.T) {
 	calls := sim.callsCopy()
 	if !slices.Contains(calls, "SetProfileMediaFilePath") {
 		t.Fatalf("SetProfileMediaFilePath not called; calls=%v", calls)
+	}
+	if !slices.Contains(calls, "SetProfileKind") {
+		t.Fatalf("SetProfileKind not called; calls=%v", calls)
+	}
+}
+
+func TestMedia_EditProfileRPICamRoute(t *testing.T) {
+	sim := newMockSim()
+	p := config.ProfileConfig{Name: "main", Token: "profile_main"}
+	form := newProfileFormModal(sim, &p, true)
+	form.fields[fldKind].SetValue(config.ProfileKindRPICam)
+	form.fields[fldRPICamGeom].SetValue("1920x1080@30")
+	form.fields[fldRPICamCam].SetValue("0")
+	cmd := form.save()
+	if cmd == nil {
+		t.Fatal("form.save() returned nil cmd")
+	}
+	result := cmd()
+	flash, ok := result.(flashMsg)
+	if !ok {
+		t.Fatalf("expected flashMsg, got %T", result)
+	}
+	if flash.kind == flashErr {
+		t.Fatalf("save reported error: %s", flash.text)
+	}
+	calls := sim.callsCopy()
+	if !slices.Contains(calls, "SetProfileRPICam") {
+		t.Fatalf("SetProfileRPICam not called; calls=%v", calls)
+	}
+	if slices.Contains(calls, "SetProfileMediaFilePath") {
+		t.Fatalf("rpicam route should not call SetProfileMediaFilePath; calls=%v", calls)
+	}
+}
+
+func TestMedia_AddProfileRPICam(t *testing.T) {
+	sim := newMockSim()
+	p := config.ProfileConfig{}
+	form := newProfileFormModal(sim, &p, false)
+	form.fields[fldName].SetValue("rpi")
+	form.fields[fldToken].SetValue("rpi_main")
+	form.fields[fldKind].SetValue(config.ProfileKindRPICam)
+	form.fields[fldRPICamGeom].SetValue("1280x720@30")
+	form.fields[fldRPICamCam].SetValue("0")
+	cmd := form.save()
+	if cmd == nil {
+		t.Fatal("form.save() returned nil cmd")
+	}
+	result := cmd()
+	flash, ok := result.(flashMsg)
+	if !ok {
+		t.Fatalf("expected flashMsg, got %T", result)
+	}
+	if flash.kind == flashErr {
+		t.Fatalf("add reported error: %s", flash.text)
+	}
+	calls := sim.callsCopy()
+	if !slices.Contains(calls, "AddProfile") {
+		t.Fatalf("AddProfile not called; calls=%v", calls)
+	}
+}
+
+func TestParseRPICamGeomBadInput(t *testing.T) {
+	if _, err := parseRPICamGeom("notgeom", "0"); err == nil {
+		t.Fatal("expected geom parse error")
+	}
+	if _, err := parseRPICamGeom("1920x1080@30", "abc"); err == nil {
+		t.Fatal("expected camera_id parse error")
+	}
+	rp, err := parseRPICamGeom("", "")
+	if err != nil || rp == nil {
+		t.Fatalf("empty inputs should yield zero-valued struct, got %+v %v", rp, err)
 	}
 }
 
