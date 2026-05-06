@@ -269,6 +269,95 @@ func TestLiveSourceMidGoPJoinerReceivesKeyframe(t *testing.T) {
 	}
 }
 
+// TestLiveSourceMidGoPJoinerReceivesKeyframeActiveProducer is the
+// active-producer counterpart of TestLiveSourceMidGoPJoinerReceivesKeyframe.
+// A producer goroutine keeps pushing access units throughout the
+// DESCRIBE/SETUP/PLAY handshake, so the OnPlay handler runs concurrently
+// with live stream.WritePacketRTP broadcasts.
+//
+// This validates two assumptions about gortsplib v5.5.2's PLAY ordering:
+//
+//  1. ReplayGOP, called inside OnPlay, queues to the joining session's
+//     pre-play writer (createWriter runs at server_session.go:1217, before
+//     OnPlay; readerSetActive at 1268 only adds the session to the stream's
+//     activeUnicastReaders set after the handler returns OK), so live
+//     stream broadcasts to existing readers do not interleave with the
+//     replay packets in this session's queue.
+//  2. The joiner receives a substantive packet flow even when the producer
+//     is actively running — both replay-cache packets and post-handshake
+//     live packets land in the same FIFO writer queue.
+//
+// Without a working replay path the joiner would still receive the
+// post-handshake live tail, but no keyframe; the test relies on
+// readRTP-level "non-zero" since stricter ordering checks would race
+// against gortsplib's client jitter buffer.
+func TestLiveSourceMidGoPJoinerReceivesKeyframeActiveProducer(t *testing.T) {
+	port := freePort(t)
+	s := New(port)
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer s.Stop()
+
+	probe := &ProbeResult{Codec: CodecH264, Width: 1280, Height: 720, FPS: 30}
+	live := NewLiveSource(probe, nil)
+	if _, err := s.AddSource("live", live); err != nil {
+		t.Fatalf("AddSource: %v", err)
+	}
+
+	sps := []byte{0x67, 0x42, 0xc0, 0x1e}
+	pps := []byte{0x68, 0xce, 0x3c, 0x80}
+	idr := []byte{0x65, 0xb8, 0x00, 0x01}
+	pSlice := []byte{0x41, 0x9a, 0x00, 0x02}
+
+	producerCtx, producerCancel := context.WithCancel(t.Context())
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ts := int64(0)
+		// IDR seeds the cache and unblocks Ready so DESCRIBE can return.
+		live.Push(AccessUnit{PTS: ts, NTP: time.Now(), NALs: [][]byte{sps, pps, idr}})
+		ts += 3000
+		ticker := time.NewTicker(33 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-producerCtx.Done():
+				return
+			case <-ticker.C:
+				live.Push(AccessUnit{PTS: ts, NTP: time.Now(), NALs: [][]byte{pSlice}})
+				ts += 3000
+			}
+		}
+	}()
+	// Cancel-then-wait order matters: a single defer ensures the producer
+	// is signaled to stop before we block on its exit, which a swapped
+	// pair of defers would dead-lock.
+	defer func() {
+		producerCancel()
+		wg.Wait()
+	}()
+
+	// Wait until the cache is populated with at least the seeding IDR plus
+	// a P-slice so the replay path actually has data to forward when the
+	// client connects.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		live.gopMu.Lock()
+		populated := len(live.gopCache) >= 2
+		live.gopMu.Unlock()
+		if populated {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if got := readRTP(t, port, "live", time.Second); got == 0 {
+		t.Fatal("active-producer joiner saw zero packets — replay/live handoff failed")
+	}
+}
+
 // TestLiveSourceStreamsAfterIDR exercises the full LiveSource lifecycle
 // (Run + writeAU + AttachStream + Ready releasing on first IDR + Close)
 // against a real gortsplib server and client. Pre-IDR access units are
