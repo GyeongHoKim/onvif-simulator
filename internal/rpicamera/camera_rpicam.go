@@ -3,7 +3,9 @@
 package rpicamera
 
 import (
+	"bufio"
 	"debug/elf"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -22,6 +24,17 @@ import (
 
 	"github.com/GyeongHoKim/onvif-simulator/internal/obs"
 )
+
+// stderrTailLines bounds the post-mortem snapshot we keep of helper stderr.
+// libcamera prints a few dozen lines of init context plus any error detail;
+// 64 lines is enough to capture the tail that explains a STREAMON / IPA /
+// pipeline failure without unbounded memory if the helper goes haywire.
+const stderrTailLines = 64
+
+// errTerminated is the sentinel runInner returns on a graceful Close(). It
+// lets run() suppress the post-mortem stderr WARN on normal shutdown without
+// muddling string comparison.
+var errTerminated = errors.New("rpicamera: terminated")
 
 const (
 	libraryToCheckArchitecture = "libc.so.6"
@@ -51,10 +64,13 @@ type Camera struct {
 	logger *slog.Logger
 	onData OnDataFunc
 
-	cmd      *exec.Cmd
-	pipeOut  *pipe
-	pipeIn   *pipe
-	finalErr error
+	cmd        *exec.Cmd
+	pipeOut    *pipe
+	pipeIn     *pipe
+	stderrPipe io.ReadCloser
+	stderrDone chan struct{}
+	tail       *stderrTail
+	finalErr   error
 
 	terminate chan struct{}
 	done      chan struct{}
@@ -72,7 +88,7 @@ func Open(p Params, logger *slog.Logger, onData OnDataFunc) (*Camera, error) {
 		logger = obs.Discard()
 	}
 
-	c := &Camera{logger: logger, onData: onData}
+	c := &Camera{logger: logger, onData: onData, tail: newStderrTail(stderrTailLines)}
 
 	if err := dumpComponent(); err != nil {
 		return nil, err
@@ -99,11 +115,20 @@ func Open(p Params, logger *slog.Logger, onData OnDataFunc) (*Camera, error) {
 	}
 
 	c.cmd = exec.Command(filepath.Join(dumpPath, executableName)) //nolint:gosec
-	// Discard helper output so it does not leak into the simulator's stdout
-	// (reserved for user-facing CLI output) or stderr. Helper-side errors
-	// reach us via the 'e' control byte on the read pipe.
+	// Discard helper stdout so it never leaks into the simulator's user-facing
+	// stdout. Stderr is captured into a ring buffer (and forwarded to the
+	// simulator logger at DEBUG); on terminal failure we flush the tail at
+	// WARN so the operator can see libcamera/V4L2 detail behind the 'e'
+	// control byte (e.g. why VIDIOC_STREAMON failed).
 	c.cmd.Stdout = io.Discard
-	c.cmd.Stderr = io.Discard
+	stderrPipe, err := c.cmd.StderrPipe()
+	if err != nil {
+		c.pipeOut.close()
+		c.pipeIn.close()
+		freeComponent()
+		return nil, fmt.Errorf("rpicamera: stderr pipe: %w", err)
+	}
+	c.stderrPipe = stderrPipe
 	c.cmd.Env = env
 	c.cmd.Dir = dumpPath
 	// Detach the subprocess from the parent's process group so SIGINT/SIGTERM
@@ -112,11 +137,15 @@ func Open(p Params, logger *slog.Logger, onData OnDataFunc) (*Camera, error) {
 	c.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	if err := c.cmd.Start(); err != nil {
+		_ = c.stderrPipe.Close()
 		c.pipeOut.close()
 		c.pipeIn.close()
 		freeComponent()
 		return nil, err
 	}
+
+	c.stderrDone = make(chan struct{})
+	go c.drainStderr()
 
 	c.terminate = make(chan struct{})
 	c.done = make(chan struct{})
@@ -159,6 +188,9 @@ func (c *Camera) ReloadParams(p Params) error {
 func (c *Camera) run() {
 	defer close(c.done)
 	c.finalErr = c.runInner()
+	if c.finalErr != nil && !errors.Is(c.finalErr, errTerminated) {
+		c.flushStderrTail(c.finalErr)
+	}
 }
 
 func (c *Camera) runInner() error {
@@ -178,6 +210,7 @@ func (c *Camera) runInner() error {
 			c.pipeIn.close()
 			c.pipeOut.close()
 			<-readDone
+			<-c.stderrDone
 			return err
 
 		case err := <-readDone:
@@ -185,6 +218,7 @@ func (c *Camera) runInner() error {
 			<-cmdDone
 			c.pipeIn.close()
 			c.pipeOut.close()
+			<-c.stderrDone
 			return err
 
 		case <-c.terminate:
@@ -193,9 +227,52 @@ func (c *Camera) runInner() error {
 			c.pipeOut.close()
 			c.pipeIn.close()
 			<-readDone
-			return fmt.Errorf("rpicamera: terminated")
+			<-c.stderrDone
+			return errTerminated
 		}
 	}
+}
+
+// drainStderr reads helper stderr line-by-line, mirrors each into the
+// simulator log at DEBUG, and keeps the most recent lines in tail so a
+// terminal error can attach the relevant libcamera/V4L2 detail at WARN.
+//
+// A scanner failure (bufio.ErrTooLong on a >256 KiB line, or a read error
+// from the pipe) is itself diagnostic context — record it into the tail
+// and log it at WARN so the post-mortem flush carries the reason the
+// stderr stream stopped early.
+func (c *Camera) drainStderr() {
+	defer close(c.stderrDone)
+	scanner := bufio.NewScanner(c.stderrPipe)
+	// libcamera lines occasionally exceed the default 64 KiB token cap on
+	// verbose IPA banners. 256 KiB is overkill but cheap.
+	scanner.Buffer(make([]byte, 64*1024), 256*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		c.tail.push(line)
+		c.logger.Debug("rpicamera: helper stderr", "line", line)
+	}
+	if err := scanner.Err(); err != nil {
+		c.tail.push(fmt.Sprintf("<stderr scanner error: %s>", err))
+		c.logger.Warn("rpicamera: helper stderr scanner stopped", "err", err)
+	}
+}
+
+// flushStderrTail emits the captured stderr ring at WARN when the camera is
+// torn down with a non-nil error. Operator-visible: this is the load-bearing
+// diagnostic for "encoder_create()", "pipeline_handler" and similar helper
+// failures whose root cause libcamera prints to stderr but mtxrpicam relays
+// only as a short string over the 'e' control byte.
+func (c *Camera) flushStderrTail(cause error) {
+	lines := c.tail.snapshot()
+	if len(lines) == 0 {
+		return
+	}
+	c.logger.Warn(
+		"rpicamera: helper stderr tail",
+		"err", cause.Error(),
+		"lines", lines,
+	)
 }
 
 func (c *Camera) runReader() error {
