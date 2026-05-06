@@ -5,6 +5,7 @@ package rpicamera
 import (
 	"bufio"
 	"debug/elf"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -29,6 +30,11 @@ import (
 // 64 lines is enough to capture the tail that explains a STREAMON / IPA /
 // pipeline failure without unbounded memory if the helper goes haywire.
 const stderrTailLines = 64
+
+// errTerminated is the sentinel runInner returns on a graceful Close(). It
+// lets run() suppress the post-mortem stderr WARN on normal shutdown without
+// muddling string comparison.
+var errTerminated = errors.New("rpicamera: terminated")
 
 const (
 	libraryToCheckArchitecture = "libc.so.6"
@@ -182,7 +188,7 @@ func (c *Camera) ReloadParams(p Params) error {
 func (c *Camera) run() {
 	defer close(c.done)
 	c.finalErr = c.runInner()
-	if c.finalErr != nil {
+	if c.finalErr != nil && !errors.Is(c.finalErr, errTerminated) {
 		c.flushStderrTail(c.finalErr)
 	}
 }
@@ -222,7 +228,7 @@ func (c *Camera) runInner() error {
 			c.pipeIn.close()
 			<-readDone
 			<-c.stderrDone
-			return fmt.Errorf("rpicamera: terminated")
+			return errTerminated
 		}
 	}
 }
@@ -230,6 +236,11 @@ func (c *Camera) runInner() error {
 // drainStderr reads helper stderr line-by-line, mirrors each into the
 // simulator log at DEBUG, and keeps the most recent lines in tail so a
 // terminal error can attach the relevant libcamera/V4L2 detail at WARN.
+//
+// A scanner failure (bufio.ErrTooLong on a >256 KiB line, or a read error
+// from the pipe) is itself diagnostic context — record it into the tail
+// and log it at WARN so the post-mortem flush carries the reason the
+// stderr stream stopped early.
 func (c *Camera) drainStderr() {
 	defer close(c.stderrDone)
 	scanner := bufio.NewScanner(c.stderrPipe)
@@ -240,6 +251,10 @@ func (c *Camera) drainStderr() {
 		line := scanner.Text()
 		c.tail.push(line)
 		c.logger.Debug("rpicamera: helper stderr", "line", line)
+	}
+	if err := scanner.Err(); err != nil {
+		c.tail.push(fmt.Sprintf("<stderr scanner error: %s>", err))
+		c.logger.Warn("rpicamera: helper stderr scanner stopped", "err", err)
 	}
 }
 
