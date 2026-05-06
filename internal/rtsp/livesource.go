@@ -26,10 +26,13 @@ type AccessUnit struct {
 }
 
 // liveBufferSize bounds the AccessUnit channel so a slow client does not
-// stall the producer. mtxrpicam emits frames at the configured FPS; eight
-// AUs is roughly 250 ms at 30 fps which is enough headroom but bounded so
-// stuck clients do not balloon memory.
-const liveBufferSize = 8
+// stall the producer. mtxrpicam emits frames at the configured FPS; 32 AUs
+// is roughly 1 s of head-room at 30 fps, which absorbs short consumer
+// stalls (GC pause, momentary stream-write slowdown) without dropping
+// frames. The earlier 8-AU sizing was tight enough that producer-side
+// drops could silently halve the effective frame rate observed by
+// clients.
+const liveBufferSize = 32
 
 // H.264 NAL unit types used by parameter-set extraction (ITU-T H.264 §7.3.1).
 const (
