@@ -10,6 +10,7 @@ import (
 
 	"github.com/bluenviron/gortsplib/v5/pkg/description"
 	"github.com/bluenviron/gortsplib/v5/pkg/format"
+	"github.com/pion/rtp"
 )
 
 func TestHasH264IDR(t *testing.T) {
@@ -135,6 +136,225 @@ func TestLiveSourcePushDoesNotBlockWhenFull(t *testing.T) {
 	// silently so a slow consumer does not stall the producer.
 	for i := range liveBufferSize + 5 {
 		ls.Push(AccessUnit{PTS: int64(i), NTP: time.Now(), NALs: [][]byte{{0x41}}})
+	}
+}
+
+func TestLiveSourceUpdateGOPCacheReplacesOnIDR(t *testing.T) {
+	t.Parallel()
+	ls := NewLiveSource(&ProbeResult{Codec: CodecH264}, nil)
+
+	first := []*rtp.Packet{{Header: rtp.Header{SequenceNumber: 1}}, {Header: rtp.Header{SequenceNumber: 2}}}
+	ls.updateGOPCache(first, true)
+	if got := len(ls.gopCache); got != 2 {
+		t.Fatalf("after IDR seed, len=%d want 2", got)
+	}
+
+	// non-IDR appends
+	ls.updateGOPCache([]*rtp.Packet{{Header: rtp.Header{SequenceNumber: 3}}}, false)
+	if got := len(ls.gopCache); got != 3 {
+		t.Fatalf("after non-IDR append, len=%d want 3", got)
+	}
+
+	// next IDR replaces wholesale
+	second := []*rtp.Packet{{Header: rtp.Header{SequenceNumber: 100}}}
+	ls.updateGOPCache(second, true)
+	if got := len(ls.gopCache); got != 1 {
+		t.Fatalf("after second IDR, len=%d want 1", got)
+	}
+	if ls.gopCache[0].SequenceNumber != 100 {
+		t.Fatalf("after second IDR, head seq=%d want 100", ls.gopCache[0].SequenceNumber)
+	}
+}
+
+func TestLiveSourceUpdateGOPCacheIgnoresNonIDRBeforeIDR(t *testing.T) {
+	t.Parallel()
+	ls := NewLiveSource(&ProbeResult{Codec: CodecH264}, nil)
+
+	// non-IDR before any IDR has seeded the cache must be skipped — caching
+	// reference-less slices would only confuse a replaying decoder.
+	ls.updateGOPCache([]*rtp.Packet{{Header: rtp.Header{SequenceNumber: 1}}}, false)
+	if got := len(ls.gopCache); got != 0 {
+		t.Fatalf("non-IDR before IDR seeded cache: len=%d want 0", got)
+	}
+}
+
+func TestLiveSourceUpdateGOPCacheCapDropsAppend(t *testing.T) {
+	t.Parallel()
+	ls := NewLiveSource(&ProbeResult{Codec: CodecH264}, nil)
+
+	idr := make([]*rtp.Packet, maxGOPCachePackets)
+	for i := range idr {
+		idr[i] = &rtp.Packet{}
+	}
+	ls.updateGOPCache(idr, true)
+	if got := len(ls.gopCache); got != maxGOPCachePackets {
+		t.Fatalf("seeded cache len=%d want %d", got, maxGOPCachePackets)
+	}
+
+	// One more non-IDR packet would overflow → append must be dropped.
+	ls.updateGOPCache([]*rtp.Packet{{}}, false)
+	if got := len(ls.gopCache); got != maxGOPCachePackets {
+		t.Fatalf("after overflow append, len=%d want %d (drop, not grow)",
+			got, maxGOPCachePackets)
+	}
+
+	// Next IDR must still reset.
+	ls.updateGOPCache([]*rtp.Packet{{Header: rtp.Header{SequenceNumber: 1}}}, true)
+	if got := len(ls.gopCache); got != 1 {
+		t.Fatalf("post-cap reset len=%d want 1", got)
+	}
+}
+
+func TestLiveSourceReplayGOPNoOpWithoutMedia(t *testing.T) {
+	t.Parallel()
+	ls := NewLiveSource(&ProbeResult{Codec: CodecH264}, nil)
+	// Sanity: with l.media nil, ReplayGOP must not panic on a nil session
+	// either, because the media-nil guard short-circuits before the
+	// session is touched.
+	ls.ReplayGOP(nil)
+}
+
+// TestLiveSourceMidGoPJoinerReceivesKeyframe verifies that a client which
+// connects after the first IDR — and crucially while the producer is paused
+// (no fresh live frames between PLAY and the deadline) — still receives RTP
+// packets, because OnPlay replays the cached GOP into the session before the
+// stream broadcast resumes.
+//
+// Without the cache, this test would observe zero packets: the live source
+// would have nothing to broadcast until the next IDR, which never arrives
+// in the test window.
+func TestLiveSourceMidGoPJoinerReceivesKeyframe(t *testing.T) {
+	port := freePort(t)
+	s := New(port)
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer s.Stop()
+
+	probe := &ProbeResult{Codec: CodecH264, Width: 1280, Height: 720, FPS: 30}
+	live := NewLiveSource(probe, nil)
+	if _, err := s.AddSource("live", live); err != nil {
+		t.Fatalf("AddSource: %v", err)
+	}
+
+	sps := []byte{0x67, 0x42, 0xc0, 0x1e}
+	pps := []byte{0x68, 0xce, 0x3c, 0x80}
+	idr := []byte{0x65, 0xb8, 0x00, 0x01}
+	pSlice := []byte{0x41, 0x9a, 0x00, 0x02}
+
+	// IDR access unit (SPS+PPS+IDR together — the inline-IDR shape that
+	// fillH264ParameterSets relies on) seeds the cache, then a few P-slices
+	// extend it. After this Push burst the producer goes idle for the rest
+	// of the test, so any packets the client receives must come from the
+	// cache replay path, not the live broadcast.
+	live.Push(AccessUnit{PTS: 0, NTP: time.Now(), NALs: [][]byte{sps, pps, idr}})
+	live.Push(AccessUnit{PTS: 3000, NTP: time.Now(), NALs: [][]byte{pSlice}})
+	live.Push(AccessUnit{PTS: 6000, NTP: time.Now(), NALs: [][]byte{pSlice}})
+
+	// Give Run() time to drain the queue and populate the cache before the
+	// client connects.
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		live.gopMu.Lock()
+		populated := len(live.gopCache) > 0
+		live.gopMu.Unlock()
+		if populated {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if got := readRTP(t, port, "live", time.Second); got == 0 {
+		t.Fatal("mid-GoP joiner saw zero packets — GOP replay did not fire")
+	}
+}
+
+// TestLiveSourceMidGoPJoinerReceivesKeyframeActiveProducer is the
+// active-producer counterpart of TestLiveSourceMidGoPJoinerReceivesKeyframe.
+// A producer goroutine keeps pushing access units throughout the
+// DESCRIBE/SETUP/PLAY handshake, so the OnPlay handler runs concurrently
+// with live stream.WritePacketRTP broadcasts.
+//
+// This validates two assumptions about gortsplib v5.5.2's PLAY ordering:
+//
+//  1. ReplayGOP, called inside OnPlay, queues to the joining session's
+//     pre-play writer (createWriter runs at server_session.go:1217, before
+//     OnPlay; readerSetActive at 1268 only adds the session to the stream's
+//     activeUnicastReaders set after the handler returns OK), so live
+//     stream broadcasts to existing readers do not interleave with the
+//     replay packets in this session's queue.
+//  2. The joiner receives a substantive packet flow even when the producer
+//     is actively running — both replay-cache packets and post-handshake
+//     live packets land in the same FIFO writer queue.
+//
+// Without a working replay path the joiner would still receive the
+// post-handshake live tail, but no keyframe; the test relies on
+// readRTP-level "non-zero" since stricter ordering checks would race
+// against gortsplib's client jitter buffer.
+func TestLiveSourceMidGoPJoinerReceivesKeyframeActiveProducer(t *testing.T) {
+	port := freePort(t)
+	s := New(port)
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer s.Stop()
+
+	probe := &ProbeResult{Codec: CodecH264, Width: 1280, Height: 720, FPS: 30}
+	live := NewLiveSource(probe, nil)
+	if _, err := s.AddSource("live", live); err != nil {
+		t.Fatalf("AddSource: %v", err)
+	}
+
+	sps := []byte{0x67, 0x42, 0xc0, 0x1e}
+	pps := []byte{0x68, 0xce, 0x3c, 0x80}
+	idr := []byte{0x65, 0xb8, 0x00, 0x01}
+	pSlice := []byte{0x41, 0x9a, 0x00, 0x02}
+
+	producerCtx, producerCancel := context.WithCancel(t.Context())
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ts := int64(0)
+		// IDR seeds the cache and unblocks Ready so DESCRIBE can return.
+		live.Push(AccessUnit{PTS: ts, NTP: time.Now(), NALs: [][]byte{sps, pps, idr}})
+		ts += 3000
+		ticker := time.NewTicker(33 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-producerCtx.Done():
+				return
+			case <-ticker.C:
+				live.Push(AccessUnit{PTS: ts, NTP: time.Now(), NALs: [][]byte{pSlice}})
+				ts += 3000
+			}
+		}
+	}()
+	// Cancel-then-wait order matters: a single defer ensures the producer
+	// is signaled to stop before we block on its exit, which a swapped
+	// pair of defers would dead-lock.
+	defer func() {
+		producerCancel()
+		wg.Wait()
+	}()
+
+	// Wait until the cache is populated with at least the seeding IDR plus
+	// a P-slice so the replay path actually has data to forward when the
+	// client connects.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		live.gopMu.Lock()
+		populated := len(live.gopCache) >= 2
+		live.gopMu.Unlock()
+		if populated {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if got := readRTP(t, port, "live", time.Second); got == 0 {
+		t.Fatal("active-producer joiner saw zero packets — replay/live handoff failed")
 	}
 }
 

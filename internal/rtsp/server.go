@@ -327,6 +327,24 @@ func (h *serverHandler) OnSetup(
 	return &base.Response{StatusCode: base.StatusOK}, stream, nil
 }
 
-func (*serverHandler) OnPlay(*gortsplib.ServerHandlerOnPlayCtx) (*base.Response, error) {
+// gopReplayer is implemented by sources that cache the most recent GOP and
+// can replay it to a single session on PLAY. Live sources implement it so a
+// mid-GoP joiner receives the keyframe immediately instead of decoding
+// reference-less slices for up to one IDR period; file-backed sources do not
+// because they are deterministic from the loop's first frame.
+type gopReplayer interface {
+	ReplayGOP(*gortsplib.ServerSession)
+}
+
+func (h *serverHandler) OnPlay(ctx *gortsplib.ServerHandlerOnPlayCtx) (*base.Response, error) {
+	// Replay the cached GOP before returning OK so the writes hit the
+	// session's queue while it is still "pre-play". gortsplib's PLAY
+	// handler runs the readerSetActive transition only after this returns,
+	// so per-session replay packets do not also broadcast to existing
+	// readers.
+	_, src := h.owner.streamAndSourceFor(ctx.Path)
+	if r, ok := src.(gopReplayer); ok {
+		r.ReplayGOP(ctx.Session)
+	}
 	return &base.Response{StatusCode: base.StatusOK}, nil
 }
