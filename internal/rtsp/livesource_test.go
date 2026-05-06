@@ -143,26 +143,38 @@ func TestLiveSourceUpdateGOPCacheReplacesOnIDR(t *testing.T) {
 	t.Parallel()
 	ls := NewLiveSource(&ProbeResult{Codec: CodecH264}, nil)
 
+	idrNTP := time.Unix(1700000000, 0)
 	first := []*rtp.Packet{{Header: rtp.Header{SequenceNumber: 1}}, {Header: rtp.Header{SequenceNumber: 2}}}
-	ls.updateGOPCache(first, true)
+	ls.updateGOPCache(first, idrNTP, true)
 	if got := len(ls.gopCache); got != 2 {
 		t.Fatalf("after IDR seed, len=%d want 2", got)
 	}
+	if !ls.gopCache[0].ntp.Equal(idrNTP) {
+		t.Fatalf("after IDR seed, ntp=%v want %v", ls.gopCache[0].ntp, idrNTP)
+	}
 
-	// non-IDR appends
-	ls.updateGOPCache([]*rtp.Packet{{Header: rtp.Header{SequenceNumber: 3}}}, false)
+	// non-IDR appends and carries its own NTP forward
+	pSliceNTP := idrNTP.Add(33 * time.Millisecond)
+	ls.updateGOPCache([]*rtp.Packet{{Header: rtp.Header{SequenceNumber: 3}}}, pSliceNTP, false)
 	if got := len(ls.gopCache); got != 3 {
 		t.Fatalf("after non-IDR append, len=%d want 3", got)
 	}
+	if !ls.gopCache[2].ntp.Equal(pSliceNTP) {
+		t.Fatalf("non-IDR ntp=%v want %v", ls.gopCache[2].ntp, pSliceNTP)
+	}
 
 	// next IDR replaces wholesale
+	secondNTP := idrNTP.Add(2 * time.Second)
 	second := []*rtp.Packet{{Header: rtp.Header{SequenceNumber: 100}}}
-	ls.updateGOPCache(second, true)
+	ls.updateGOPCache(second, secondNTP, true)
 	if got := len(ls.gopCache); got != 1 {
 		t.Fatalf("after second IDR, len=%d want 1", got)
 	}
-	if ls.gopCache[0].SequenceNumber != 100 {
-		t.Fatalf("after second IDR, head seq=%d want 100", ls.gopCache[0].SequenceNumber)
+	if ls.gopCache[0].pkt.SequenceNumber != 100 {
+		t.Fatalf("after second IDR, head seq=%d want 100", ls.gopCache[0].pkt.SequenceNumber)
+	}
+	if !ls.gopCache[0].ntp.Equal(secondNTP) {
+		t.Fatalf("after second IDR, ntp=%v want %v", ls.gopCache[0].ntp, secondNTP)
 	}
 }
 
@@ -172,7 +184,7 @@ func TestLiveSourceUpdateGOPCacheIgnoresNonIDRBeforeIDR(t *testing.T) {
 
 	// non-IDR before any IDR has seeded the cache must be skipped — caching
 	// reference-less slices would only confuse a replaying decoder.
-	ls.updateGOPCache([]*rtp.Packet{{Header: rtp.Header{SequenceNumber: 1}}}, false)
+	ls.updateGOPCache([]*rtp.Packet{{Header: rtp.Header{SequenceNumber: 1}}}, time.Now(), false)
 	if got := len(ls.gopCache); got != 0 {
 		t.Fatalf("non-IDR before IDR seeded cache: len=%d want 0", got)
 	}
@@ -186,20 +198,20 @@ func TestLiveSourceUpdateGOPCacheCapDropsAppend(t *testing.T) {
 	for i := range idr {
 		idr[i] = &rtp.Packet{}
 	}
-	ls.updateGOPCache(idr, true)
+	ls.updateGOPCache(idr, time.Now(), true)
 	if got := len(ls.gopCache); got != maxGOPCachePackets {
 		t.Fatalf("seeded cache len=%d want %d", got, maxGOPCachePackets)
 	}
 
 	// One more non-IDR packet would overflow → append must be dropped.
-	ls.updateGOPCache([]*rtp.Packet{{}}, false)
+	ls.updateGOPCache([]*rtp.Packet{{}}, time.Now(), false)
 	if got := len(ls.gopCache); got != maxGOPCachePackets {
 		t.Fatalf("after overflow append, len=%d want %d (drop, not grow)",
 			got, maxGOPCachePackets)
 	}
 
 	// Next IDR must still reset.
-	ls.updateGOPCache([]*rtp.Packet{{Header: rtp.Header{SequenceNumber: 1}}}, true)
+	ls.updateGOPCache([]*rtp.Packet{{Header: rtp.Header{SequenceNumber: 1}}}, time.Now(), true)
 	if got := len(ls.gopCache); got != 1 {
 		t.Fatalf("post-cap reset len=%d want 1", got)
 	}
