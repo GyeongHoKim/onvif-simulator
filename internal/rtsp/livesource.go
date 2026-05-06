@@ -30,6 +30,12 @@ type AccessUnit struct {
 // stuck clients do not balloon memory.
 const liveBufferSize = 8
 
+// H.264 NAL unit types used by parameter-set extraction (ITU-T H.264 §7.3.1).
+const (
+	h264NALTypeSPS = 7
+	h264NALTypePPS = 8
+)
+
 // LiveSource is a Source backed by an external H.264 producer. The producer
 // (e.g. internal/rpicamera) pushes AccessUnit values onto Push; the source's
 // Run goroutine encodes them into RTP packets and writes them to the
@@ -55,8 +61,11 @@ type LiveSource struct {
 }
 
 // NewLiveSource builds a LiveSource for the codec described by probe. SPS
-// and PPS may be empty on the probe — clients learn them from in-band NAL
-// units once the stream starts. logger may be nil.
+// and PPS may be empty on the probe — they are extracted from the first
+// IDR access unit and written into the gortsplib H264 format before the
+// ready signal releases DESCRIBE, so the SDP carries sprop-parameter-sets
+// and clients are not stuck on "non-existing PPS referenced". logger may
+// be nil.
 func NewLiveSource(probe *ProbeResult, logger *slog.Logger) *LiveSource {
 	if logger == nil {
 		logger = obs.Discard()
@@ -140,6 +149,7 @@ func (l *LiveSource) Run(ctx context.Context) error {
 				return nil
 			}
 			if hasH264IDR(au.NALs) {
+				l.fillH264ParameterSets(au.NALs)
 				l.readyOnce.Do(func() { close(l.ready) })
 			}
 			select {
@@ -174,6 +184,44 @@ func (l *LiveSource) writeAU(enc *rtph264.Encoder, au AccessUnit) error {
 		}
 	}
 	return nil
+}
+
+// fillH264ParameterSets pulls SPS (NAL type 7) and PPS (NAL type 8) out of
+// the first IDR access unit and writes them into the attached gortsplib
+// format.H264 so DESCRIBE emits sprop-parameter-sets in the SDP.
+//
+// Without this, clients that subscribe between IDRs never see SPS/PPS in
+// either the SDP (empty) or in-band (already passed) and decode loops
+// indefinitely on "non-existing PPS referenced".
+func (l *LiveSource) fillH264ParameterSets(nals [][]byte) {
+	if l.media == nil || len(l.media.Formats) == 0 {
+		return
+	}
+	h, ok := l.media.Formats[0].(*format.H264)
+	if !ok {
+		return
+	}
+	if len(h.SPS) > 0 && len(h.PPS) > 0 {
+		return
+	}
+	var sps, pps []byte
+	for _, nal := range nals {
+		if len(nal) == 0 {
+			continue
+		}
+		switch nal[0] & 0x1F {
+		case h264NALTypeSPS:
+			sps = nal
+		case h264NALTypePPS:
+			pps = nal
+		}
+	}
+	if len(h.SPS) == 0 && len(sps) > 0 {
+		h.SPS = sps
+	}
+	if len(h.PPS) == 0 && len(pps) > 0 {
+		h.PPS = pps
+	}
 }
 
 // hasH264IDR scans access-unit NAL units for an IDR slice (NAL type 5).
