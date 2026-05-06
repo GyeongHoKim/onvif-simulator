@@ -94,6 +94,53 @@ rejects `kind=rpicam` profiles at startup with a clear error message.
 Third-party software notice for the Raspberry Pi channel: see
 [`NOTICE`](NOTICE).
 
+#### Run as a systemd service
+
+After `install.sh` has placed the binary at `/usr/local/bin/onvif-simulator`
+and you have copied the rpi example config into place (see
+[Configuration](#onvif-simulatorjson)), register the simulator as a system
+service so it starts at boot and restarts on failure.
+
+Create `/etc/systemd/system/onvif-simulator.service`:
+
+```ini
+[Unit]
+Description=ONVIF Simulator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+ExecStart=/usr/local/bin/onvif-simulator start
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then enable and start it:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now onvif-simulator.service
+systemctl status onvif-simulator.service
+journalctl -u onvif-simulator.service -f   # tail logs
+```
+
+Notes:
+
+- Replace `User=pi` with the account that owns the config file. The user
+  must be in the `video` group for `kind=rpicam` profiles to access the
+  camera (the default `pi` account on Raspberry Pi OS already is).
+- The simulator reads `onvif-simulator.json` from that user's XDG config
+  directory (`~/.config/onvif-simulator/onvif-simulator.json` on Linux).
+  To pin a different path, change `ExecStart` to
+  `/usr/local/bin/onvif-simulator start -config /etc/onvif-simulator.json`.
+- To apply config changes, edit the JSON and run
+  `sudo systemctl restart onvif-simulator.service`.
+
 ## Usage
 
 ### CLI Mode
