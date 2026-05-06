@@ -11,6 +11,9 @@
 #      so the two independent sources agree before recording them here
 #   3. commit Makefile + .goreleaser.yml + this file together
 #
-# Pinned to mediamtx-rpicamera v2.4.3 (matches mediamtx v1.13.1).
-db9310fe114fa09d8427e93331fe6aec9ff3ba4aa486c7e7edbcbab9eae043cf  mtxrpicam_32.tar.gz
-f6073cad9fd6c8570141f08aed72237ec062d28883b8ab62a37dbce190409f0d  mtxrpicam_64.tar.gz
+# Pinned to mediamtx-rpicamera v2.5.6 (matches mediamtx v1.18.1). v2.5.x adds
+# libcamera 0.7 support (#75/#77/#87) which v2.4.3 lacked, so older pins
+# crash on Pi OS images shipping libcamera v0.7.0+rpt2026* (encoder STREAMON
+# fails with "unable to activate output stream"); keep this in lockstep.
+306380abdba970296055e2cbca32ea968778157605d537892ae469bc639fafe9  mtxrpicam_32.tar.gz
+d12475fd4cb9b3f6c959a54e26f4d06b9752ab9c488e839b41fb1a895ae1f325  mtxrpicam_64.tar.gz

@@ -20,11 +20,11 @@ FRONTEND_DIST := internal/gui/frontend/dist
 
 # Pinned mediamtx-rpicamera release tag. mediamtx-rpicamera lives in its own
 # repo (bluenviron/mediamtx-rpicamera) with versioning independent from
-# mediamtx itself; mediamtx v1.13.1 internally pins this same v2.4.3 (see
+# mediamtx itself; mediamtx v1.18.1 internally pins this same v2.5.6 (see
 # its internal/staticsources/rpicamera/mtxrpicamdownloader/VERSION). Bump
 # together with scripts/mtxrpicam.sha256 so the Pi build channel ships a
 # reviewable, reproducible binary blob.
-MTXRPICAM_VERSION ?= v2.4.3
+MTXRPICAM_VERSION ?= v2.5.6
 RPICAM_DIR_32     := internal/rpicamera/mtxrpicam_32
 RPICAM_DIR_64     := internal/rpicamera/mtxrpicam_64
 
