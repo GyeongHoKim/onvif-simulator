@@ -10,6 +10,7 @@ import (
 
 	"github.com/bluenviron/gortsplib/v5/pkg/description"
 	"github.com/bluenviron/gortsplib/v5/pkg/format"
+	"github.com/bluenviron/gortsplib/v5/pkg/format/rtph264"
 	"github.com/pion/rtp"
 )
 
@@ -224,6 +225,67 @@ func TestLiveSourceReplayGOPNoOpWithoutMedia(t *testing.T) {
 	// either, because the media-nil guard short-circuits before the
 	// session is touched.
 	ls.ReplayGOP(nil)
+}
+
+// TestLiveSourceReplayGOPNoOpWithEmptyCache exercises the second guard in
+// ReplayGOP: media is attached but no GOP has been cached yet (Run never
+// observed an IDR). The empty-cache early return must fire before the
+// session writer is touched, so passing a nil ServerSession is safe.
+func TestLiveSourceReplayGOPNoOpWithEmptyCache(t *testing.T) {
+	t.Parallel()
+	ls := NewLiveSource(&ProbeResult{Codec: CodecH264}, nil)
+	media := &description.Media{
+		Type:    description.MediaTypeVideo,
+		Formats: []format.Format{&format.H264{PayloadTyp: 96, PacketizationMode: 1}},
+	}
+	ls.AttachStream(nil, media)
+
+	// gopCache is empty; ReplayGOP must return at the len(entries)==0
+	// guard. If it didn't, the subsequent ss.WritePacketRTPWithNTP on a
+	// nil session would panic.
+	ls.ReplayGOP(nil)
+}
+
+// TestLiveSourceWriteAUSurfacesStreamWriteError covers the error-return
+// branch in writeAU. After the server is stopped the underlying gortsplib
+// stream is closed, and any subsequent WritePacketRTPWithNTP returns
+// liberrors.ErrServerStreamClosed; writeAU must surface that error so
+// Run terminates the source goroutine instead of busy-looping.
+func TestLiveSourceWriteAUSurfacesStreamWriteError(t *testing.T) {
+	t.Parallel()
+	port := freePort(t)
+	s := New(port)
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	probe := &ProbeResult{Codec: CodecH264, Width: 1280, Height: 720, FPS: 30}
+	live := NewLiveSource(probe, nil)
+	if _, err := s.AddSource("live", live); err != nil {
+		t.Fatalf("AddSource: %v", err)
+	}
+
+	// Stop tears down the source's Run goroutine and closes the stream
+	// gortsplib holds onto. live.stream still points at the now-closed
+	// stream, which is the state writeAU must recognize as terminal.
+	s.Stop()
+
+	enc := &rtph264.Encoder{
+		PayloadType:    96,
+		PayloadMaxSize: 1460,
+	}
+	if err := enc.Init(); err != nil {
+		t.Fatalf("enc.Init: %v", err)
+	}
+
+	sps := []byte{0x67, 0x42, 0xc0, 0x1e}
+	pps := []byte{0x68, 0xce, 0x3c, 0x80}
+	idr := []byte{0x65, 0xb8, 0x00, 0x01}
+	au := AccessUnit{PTS: 0, NTP: time.Now(), NALs: [][]byte{sps, pps, idr}}
+
+	if err := live.writeAU(enc, au, true); err == nil {
+		t.Fatal("expected writeAU to surface stream write error after Stop, got nil")
+	}
 }
 
 // TestLiveSourceMidGoPJoinerReceivesKeyframe verifies that a client which
