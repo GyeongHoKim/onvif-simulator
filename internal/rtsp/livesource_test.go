@@ -1,11 +1,15 @@
 package rtsp
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/bluenviron/gortsplib/v5/pkg/description"
+	"github.com/bluenviron/gortsplib/v5/pkg/format"
 )
 
 func TestHasH264IDR(t *testing.T) {
@@ -29,6 +33,75 @@ func TestHasH264IDR(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLiveSourceFillsH264ParameterSetsFromFirstIDR(t *testing.T) {
+	t.Parallel()
+	sps := []byte{0x67, 0x42, 0xc0, 0x1e}
+	pps := []byte{0x68, 0xce, 0x3c, 0x80}
+	idr := []byte{0x65, 0xb8, 0x00, 0x01}
+
+	cases := []struct {
+		name    string
+		probe   *ProbeResult
+		nals    [][]byte
+		wantSPS []byte
+		wantPPS []byte
+	}{
+		{
+			name:    "writes SPS+PPS when probe is empty",
+			probe:   &ProbeResult{Codec: CodecH264},
+			nals:    [][]byte{sps, pps, idr},
+			wantSPS: sps,
+			wantPPS: pps,
+		},
+		{
+			name:    "missing PPS leaves PPS untouched",
+			probe:   &ProbeResult{Codec: CodecH264},
+			nals:    [][]byte{sps, idr},
+			wantSPS: sps,
+			wantPPS: nil,
+		},
+		{
+			name:    "preserves probe-supplied SPS+PPS",
+			probe:   &ProbeResult{Codec: CodecH264, SPS: []byte{0xAA}, PPS: []byte{0xBB}},
+			nals:    [][]byte{sps, pps, idr},
+			wantSPS: []byte{0xAA},
+			wantPPS: []byte{0xBB},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ls := NewLiveSource(tc.probe, nil)
+			h := &format.H264{
+				PayloadTyp:        96,
+				PacketizationMode: 1,
+				SPS:               tc.probe.SPS,
+				PPS:               tc.probe.PPS,
+			}
+			media := &description.Media{
+				Type:    description.MediaTypeVideo,
+				Formats: []format.Format{h},
+			}
+			ls.AttachStream(nil, media)
+
+			ls.fillH264ParameterSets(tc.nals)
+
+			if !bytes.Equal(h.SPS, tc.wantSPS) {
+				t.Fatalf("SPS=%x want %x", h.SPS, tc.wantSPS)
+			}
+			if !bytes.Equal(h.PPS, tc.wantPPS) {
+				t.Fatalf("PPS=%x want %x", h.PPS, tc.wantPPS)
+			}
+		})
+	}
+}
+
+func TestLiveSourceFillH264ParameterSetsNoMediaIsNoOp(t *testing.T) {
+	t.Parallel()
+	ls := NewLiveSource(&ProbeResult{Codec: CodecH264}, nil)
+	ls.fillH264ParameterSets([][]byte{{0x67, 0x42}, {0x68, 0xce}})
 }
 
 func TestLiveSourceReadyBeforeIDRBlocks(t *testing.T) {
