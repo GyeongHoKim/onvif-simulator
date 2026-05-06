@@ -10,6 +10,7 @@ import (
 
 	"github.com/bluenviron/gortsplib/v5/pkg/description"
 	"github.com/bluenviron/gortsplib/v5/pkg/format"
+	"github.com/bluenviron/gortsplib/v5/pkg/format/rtph264"
 	"github.com/pion/rtp"
 )
 
@@ -143,26 +144,38 @@ func TestLiveSourceUpdateGOPCacheReplacesOnIDR(t *testing.T) {
 	t.Parallel()
 	ls := NewLiveSource(&ProbeResult{Codec: CodecH264}, nil)
 
+	idrNTP := time.Unix(1700000000, 0)
 	first := []*rtp.Packet{{Header: rtp.Header{SequenceNumber: 1}}, {Header: rtp.Header{SequenceNumber: 2}}}
-	ls.updateGOPCache(first, true)
+	ls.updateGOPCache(first, idrNTP, true)
 	if got := len(ls.gopCache); got != 2 {
 		t.Fatalf("after IDR seed, len=%d want 2", got)
 	}
+	if !ls.gopCache[0].ntp.Equal(idrNTP) {
+		t.Fatalf("after IDR seed, ntp=%v want %v", ls.gopCache[0].ntp, idrNTP)
+	}
 
-	// non-IDR appends
-	ls.updateGOPCache([]*rtp.Packet{{Header: rtp.Header{SequenceNumber: 3}}}, false)
+	// non-IDR appends and carries its own NTP forward
+	pSliceNTP := idrNTP.Add(33 * time.Millisecond)
+	ls.updateGOPCache([]*rtp.Packet{{Header: rtp.Header{SequenceNumber: 3}}}, pSliceNTP, false)
 	if got := len(ls.gopCache); got != 3 {
 		t.Fatalf("after non-IDR append, len=%d want 3", got)
 	}
+	if !ls.gopCache[2].ntp.Equal(pSliceNTP) {
+		t.Fatalf("non-IDR ntp=%v want %v", ls.gopCache[2].ntp, pSliceNTP)
+	}
 
 	// next IDR replaces wholesale
+	secondNTP := idrNTP.Add(2 * time.Second)
 	second := []*rtp.Packet{{Header: rtp.Header{SequenceNumber: 100}}}
-	ls.updateGOPCache(second, true)
+	ls.updateGOPCache(second, secondNTP, true)
 	if got := len(ls.gopCache); got != 1 {
 		t.Fatalf("after second IDR, len=%d want 1", got)
 	}
-	if ls.gopCache[0].SequenceNumber != 100 {
-		t.Fatalf("after second IDR, head seq=%d want 100", ls.gopCache[0].SequenceNumber)
+	if ls.gopCache[0].pkt.SequenceNumber != 100 {
+		t.Fatalf("after second IDR, head seq=%d want 100", ls.gopCache[0].pkt.SequenceNumber)
+	}
+	if !ls.gopCache[0].ntp.Equal(secondNTP) {
+		t.Fatalf("after second IDR, ntp=%v want %v", ls.gopCache[0].ntp, secondNTP)
 	}
 }
 
@@ -172,7 +185,7 @@ func TestLiveSourceUpdateGOPCacheIgnoresNonIDRBeforeIDR(t *testing.T) {
 
 	// non-IDR before any IDR has seeded the cache must be skipped — caching
 	// reference-less slices would only confuse a replaying decoder.
-	ls.updateGOPCache([]*rtp.Packet{{Header: rtp.Header{SequenceNumber: 1}}}, false)
+	ls.updateGOPCache([]*rtp.Packet{{Header: rtp.Header{SequenceNumber: 1}}}, time.Now(), false)
 	if got := len(ls.gopCache); got != 0 {
 		t.Fatalf("non-IDR before IDR seeded cache: len=%d want 0", got)
 	}
@@ -186,20 +199,20 @@ func TestLiveSourceUpdateGOPCacheCapDropsAppend(t *testing.T) {
 	for i := range idr {
 		idr[i] = &rtp.Packet{}
 	}
-	ls.updateGOPCache(idr, true)
+	ls.updateGOPCache(idr, time.Now(), true)
 	if got := len(ls.gopCache); got != maxGOPCachePackets {
 		t.Fatalf("seeded cache len=%d want %d", got, maxGOPCachePackets)
 	}
 
 	// One more non-IDR packet would overflow → append must be dropped.
-	ls.updateGOPCache([]*rtp.Packet{{}}, false)
+	ls.updateGOPCache([]*rtp.Packet{{}}, time.Now(), false)
 	if got := len(ls.gopCache); got != maxGOPCachePackets {
 		t.Fatalf("after overflow append, len=%d want %d (drop, not grow)",
 			got, maxGOPCachePackets)
 	}
 
 	// Next IDR must still reset.
-	ls.updateGOPCache([]*rtp.Packet{{Header: rtp.Header{SequenceNumber: 1}}}, true)
+	ls.updateGOPCache([]*rtp.Packet{{Header: rtp.Header{SequenceNumber: 1}}}, time.Now(), true)
 	if got := len(ls.gopCache); got != 1 {
 		t.Fatalf("post-cap reset len=%d want 1", got)
 	}
@@ -212,6 +225,67 @@ func TestLiveSourceReplayGOPNoOpWithoutMedia(t *testing.T) {
 	// either, because the media-nil guard short-circuits before the
 	// session is touched.
 	ls.ReplayGOP(nil)
+}
+
+// TestLiveSourceReplayGOPNoOpWithEmptyCache exercises the second guard in
+// ReplayGOP: media is attached but no GOP has been cached yet (Run never
+// observed an IDR). The empty-cache early return must fire before the
+// session writer is touched, so passing a nil ServerSession is safe.
+func TestLiveSourceReplayGOPNoOpWithEmptyCache(t *testing.T) {
+	t.Parallel()
+	ls := NewLiveSource(&ProbeResult{Codec: CodecH264}, nil)
+	media := &description.Media{
+		Type:    description.MediaTypeVideo,
+		Formats: []format.Format{&format.H264{PayloadTyp: 96, PacketizationMode: 1}},
+	}
+	ls.AttachStream(nil, media)
+
+	// gopCache is empty; ReplayGOP must return at the len(entries)==0
+	// guard. If it didn't, the subsequent ss.WritePacketRTPWithNTP on a
+	// nil session would panic.
+	ls.ReplayGOP(nil)
+}
+
+// TestLiveSourceWriteAUSurfacesStreamWriteError covers the error-return
+// branch in writeAU. After the server is stopped the underlying gortsplib
+// stream is closed, and any subsequent WritePacketRTPWithNTP returns
+// liberrors.ErrServerStreamClosed; writeAU must surface that error so
+// Run terminates the source goroutine instead of busy-looping.
+func TestLiveSourceWriteAUSurfacesStreamWriteError(t *testing.T) {
+	t.Parallel()
+	port := freePort(t)
+	s := New(port)
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	probe := &ProbeResult{Codec: CodecH264, Width: 1280, Height: 720, FPS: 30}
+	live := NewLiveSource(probe, nil)
+	if _, err := s.AddSource("live", live); err != nil {
+		t.Fatalf("AddSource: %v", err)
+	}
+
+	// Stop tears down the source's Run goroutine and closes the stream
+	// gortsplib holds onto. live.stream still points at the now-closed
+	// stream, which is the state writeAU must recognize as terminal.
+	s.Stop()
+
+	enc := &rtph264.Encoder{
+		PayloadType:    96,
+		PayloadMaxSize: 1460,
+	}
+	if err := enc.Init(); err != nil {
+		t.Fatalf("enc.Init: %v", err)
+	}
+
+	sps := []byte{0x67, 0x42, 0xc0, 0x1e}
+	pps := []byte{0x68, 0xce, 0x3c, 0x80}
+	idr := []byte{0x65, 0xb8, 0x00, 0x01}
+	au := AccessUnit{PTS: 0, NTP: time.Now(), NALs: [][]byte{sps, pps, idr}}
+
+	if err := live.writeAU(enc, au, true); err == nil {
+		t.Fatal("expected writeAU to surface stream write error after Stop, got nil")
+	}
 }
 
 // TestLiveSourceMidGoPJoinerReceivesKeyframe verifies that a client which

@@ -26,10 +26,13 @@ type AccessUnit struct {
 }
 
 // liveBufferSize bounds the AccessUnit channel so a slow client does not
-// stall the producer. mtxrpicam emits frames at the configured FPS; eight
-// AUs is roughly 250 ms at 30 fps which is enough headroom but bounded so
-// stuck clients do not balloon memory.
-const liveBufferSize = 8
+// stall the producer. mtxrpicam emits frames at the configured FPS; 32 AUs
+// is roughly 1 s of head-room at 30 fps, which absorbs short consumer
+// stalls (GC pause, momentary stream-write slowdown) without dropping
+// frames. The earlier 8-AU sizing was tight enough that producer-side
+// drops could silently halve the effective frame rate observed by
+// clients.
+const liveBufferSize = 32
 
 // H.264 NAL unit types used by parameter-set extraction (ITU-T H.264 §7.3.1).
 const (
@@ -72,8 +75,20 @@ type LiveSource struct {
 	// next IDR replaces it. ReplayGOP snapshots this under the lock and
 	// writes it to a newly-joining session so the client receives a
 	// keyframe immediately instead of waiting for the next IDR period.
+	// Each entry retains the capture NTP that produced it so the
+	// session's RTCP SR carries the original wall-clock anchor.
 	gopMu    sync.Mutex
-	gopCache []*rtp.Packet
+	gopCache []cachedPacket
+}
+
+// cachedPacket pairs a cached RTP packet with the NTP wall-clock time of
+// the access unit that produced it. Storing NTP per packet means ReplayGOP
+// can call session.WritePacketRTPWithNTP and preserve the capture-anchored
+// timing instead of substituting "now", which would skew RTCP SR for any
+// client that joined long after the cached frame was produced.
+type cachedPacket struct {
+	pkt *rtp.Packet
+	ntp time.Time
 }
 
 // NewLiveSource builds a LiveSource for the codec described by probe. SPS
@@ -201,10 +216,15 @@ func (l *LiveSource) writeAU(enc *rtph264.Encoder, au AccessUnit, isIDR bool) er
 	// Update the GOP cache before broadcasting. Capturing before the
 	// stream write keeps the cache consistent with what readers actually
 	// receive, even if a write returns an error mid-batch.
-	l.updateGOPCache(pkts, isIDR)
+	l.updateGOPCache(pkts, au.NTP, isIDR)
 
+	// Pass the access unit's NTP through to gortsplib so RTCP sender
+	// reports anchor RTP timestamps to the actual capture moment instead
+	// of "now". Without this, demuxers that derive PTS from the SR pair
+	// (ffmpeg's RTSP demuxer logs "first_dts NOPTS not matching") see a
+	// drifting mapping during startup and can take longer to settle.
 	for _, pkt := range pkts {
-		if writeErr := l.stream.WritePacketRTP(l.media, pkt); writeErr != nil {
+		if writeErr := l.stream.WritePacketRTPWithNTP(l.media, pkt, au.NTP); writeErr != nil {
 			return writeErr
 		}
 	}
@@ -216,11 +236,17 @@ func (l *LiveSource) writeAU(enc *rtph264.Encoder, au AccessUnit, isIDR bool) er
 // appended. Appends after the cache reaches maxGOPCachePackets are dropped
 // instead of growing without bound — the early portion of the GOP still
 // bootstraps the decoder, and the next IDR rebuilds the cache from scratch.
-func (l *LiveSource) updateGOPCache(pkts []*rtp.Packet, isIDR bool) {
+// ntp is the capture wall-clock time of the access unit producing pkts; it
+// is stored alongside each packet so ReplayGOP can preserve the original
+// RTCP-SR anchor when a session joins later.
+func (l *LiveSource) updateGOPCache(pkts []*rtp.Packet, ntp time.Time, isIDR bool) {
 	l.gopMu.Lock()
 	defer l.gopMu.Unlock()
 	if isIDR {
-		l.gopCache = append(l.gopCache[:0], pkts...)
+		l.gopCache = l.gopCache[:0]
+		for _, p := range pkts {
+			l.gopCache = append(l.gopCache, cachedPacket{pkt: p, ntp: ntp})
+		}
 		return
 	}
 	if len(l.gopCache) == 0 {
@@ -236,7 +262,9 @@ func (l *LiveSource) updateGOPCache(pkts []*rtp.Packet, isIDR bool) {
 			"have", len(l.gopCache), "incoming", len(pkts))
 		return
 	}
-	l.gopCache = append(l.gopCache, pkts...)
+	for _, p := range pkts {
+		l.gopCache = append(l.gopCache, cachedPacket{pkt: p, ntp: ntp})
+	}
 }
 
 // ReplayGOP writes the cached GOP to ss so a client that joined mid-stream
@@ -248,31 +276,33 @@ func (l *LiveSource) updateGOPCache(pkts []*rtp.Packet, isIDR bool) {
 // Each cached *rtp.Packet is shallow-copied before write because gortsplib
 // rewrites SSRC on the way out, and a stream-level broadcast may have already
 // stamped the live SSRC onto the original. The session writer overwrites
-// SSRC again, so the value we put on the clone does not matter.
+// SSRC again, so the value we put on the clone does not matter. The cached
+// NTP is forwarded so the session's RTCP SR anchors to the original capture
+// time instead of the moment the replay happens.
 func (l *LiveSource) ReplayGOP(ss *gortsplib.ServerSession) {
 	if l.media == nil {
 		return
 	}
 
 	l.gopMu.Lock()
-	pkts := make([]*rtp.Packet, len(l.gopCache))
+	entries := make([]cachedPacket, len(l.gopCache))
 	for i, src := range l.gopCache {
-		clone := *src
-		pkts[i] = &clone
+		clone := *src.pkt
+		entries[i] = cachedPacket{pkt: &clone, ntp: src.ntp}
 	}
 	l.gopMu.Unlock()
 
-	if len(pkts) == 0 {
+	if len(entries) == 0 {
 		return
 	}
 
-	for _, pkt := range pkts {
-		if err := ss.WritePacketRTP(l.media, pkt); err != nil {
+	for _, e := range entries {
+		if err := ss.WritePacketRTPWithNTP(l.media, e.pkt, e.ntp); err != nil {
 			l.logger.Warn("rtsp livesource: replay gop write", "err", err)
 			return
 		}
 	}
-	l.logger.Debug("rtsp livesource: replayed gop", "packets", len(pkts))
+	l.logger.Debug("rtsp livesource: replayed gop", "packets", len(entries))
 }
 
 // fillH264ParameterSets pulls SPS (NAL type 7) and PPS (NAL type 8) out of
