@@ -87,7 +87,7 @@ configure a profile with `"kind": "rpicam"`:
 }
 ```
 
-See `onvif-simulator.example.json` for a worked example. The default build
+See `onvif-simulator.example.rpi.json` for a worked example. The default build
 channel (Linux/macOS/Windows × amd64/arm64) does not carry `mtxrpicam` and
 rejects `kind=rpicam` profiles at startup with a clear error message.
 

@@ -32,8 +32,10 @@ esac
 # Channel selection: default channel (linux/darwin × amd64/arm64) vs rpi channel
 # (linux/arm + linux/arm64, embeds mtxrpicam for Pi camera support).
 #
-# ONVIF_SIMULATOR_CHANNEL overrides auto-detection: "rpi" forces the Pi build,
-# "default" forces the generic build, anything else (or unset) auto-detects.
+# ONVIF_SIMULATOR_CHANNEL allowed values: "rpi" forces the Pi build, "default"
+# forces the generic build, "auto" (or unset) auto-detects via
+# /proc/device-tree/model. Any other value is rejected by the validation block
+# below and causes the script to exit.
 CHANNEL="${ONVIF_SIMULATOR_CHANNEL:-auto}"
 
 is_raspberry_pi() {
