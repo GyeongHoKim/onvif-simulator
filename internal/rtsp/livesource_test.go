@@ -132,6 +132,43 @@ func TestLiveSourceAbsorbParameterSetsNoMediaIsNoOp(t *testing.T) {
 	}
 }
 
+func TestLiveSourceDoesNotMirrorParameterSetsAfterReady(t *testing.T) {
+	t.Parallel()
+	sps := []byte{0x67, 0x42, 0xc0, 0x1e}
+	pps := []byte{0x68, 0xce, 0x3c, 0x80}
+	altSPS := []byte{0x67, 0x4d, 0x40, 0x29}
+	altPPS := []byte{0x68, 0xee, 0x3c, 0x80}
+
+	ls := NewLiveSource(&ProbeResult{Codec: CodecH264}, nil)
+	h := &format.H264{
+		PayloadTyp:        96,
+		PacketizationMode: 1,
+		SPS:               bytes.Clone(sps),
+		PPS:               bytes.Clone(pps),
+	}
+	media := &description.Media{
+		Type:    description.MediaTypeVideo,
+		Formats: []format.Format{h},
+	}
+	ls.AttachStream(nil, media)
+	ls.readyOnce.Do(func() { close(ls.ready) })
+
+	ls.absorbParameterSets([][]byte{altSPS, altPPS})
+
+	if !bytes.Equal(h.SPS, sps) {
+		t.Fatalf("SDP SPS changed after ready: got %x want %x", h.SPS, sps)
+	}
+	if !bytes.Equal(h.PPS, pps) {
+		t.Fatalf("SDP PPS changed after ready: got %x want %x", h.PPS, pps)
+	}
+	if !bytes.Equal(ls.psSPS, altSPS) {
+		t.Fatalf("cached SPS=%x want %x", ls.psSPS, altSPS)
+	}
+	if !bytes.Equal(ls.psPPS, altPPS) {
+		t.Fatalf("cached PPS=%x want %x", ls.psPPS, altPPS)
+	}
+}
+
 func TestLiveSourceMaybePrependParameterSets(t *testing.T) {
 	t.Parallel()
 	sps := []byte{0x67, 0x42, 0xc0, 0x1e}

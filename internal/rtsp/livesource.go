@@ -314,9 +314,9 @@ func (l *LiveSource) ReplayGOP(ss *gortsplib.ServerSession) {
 }
 
 // absorbParameterSets caches any SPS/PPS found in nals and mirrors the
-// latest values into the gortsplib format so the SDP sprop-parameter-sets
-// stays current. Runs on every AU because some producers emit parameter
-// sets in a frame separate from the first IDR.
+// latest pre-ready values into the gortsplib format so the SDP
+// sprop-parameter-sets stays current. Runs on every AU because some producers
+// emit parameter sets in a frame separate from the first IDR.
 func (l *LiveSource) absorbParameterSets(nals [][]byte) {
 	var newSPS, newPPS []byte
 	for _, nal := range nals {
@@ -348,6 +348,9 @@ func (l *LiveSource) absorbParameterSets(nals [][]byte) {
 }
 
 func (l *LiveSource) mirrorParameterSetsToFormat() {
+	if l.isReady() {
+		return
+	}
 	if l.media == nil || len(l.media.Formats) == 0 {
 		return
 	}
@@ -360,6 +363,15 @@ func (l *LiveSource) mirrorParameterSetsToFormat() {
 	}
 	if len(l.psPPS) > 0 {
 		h.PPS = bytes.Clone(l.psPPS)
+	}
+}
+
+func (l *LiveSource) isReady() bool {
+	select {
+	case <-l.ready:
+		return true
+	default:
+		return false
 	}
 }
 
