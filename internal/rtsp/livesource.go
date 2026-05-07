@@ -1,6 +1,7 @@
 package rtsp
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
@@ -49,8 +50,9 @@ const maxGOPCachePackets = 512
 // LiveSource is a Source backed by an external H.264 producer. The producer
 // (e.g. internal/rpicamera) pushes AccessUnit values onto Push; the source's
 // Run goroutine encodes them into RTP packets and writes them to the
-// gortsplib stream. DESCRIBE waits via Ready until the first IDR is
-// observed so clients never see a pre-keyframe SDP.
+// gortsplib stream. DESCRIBE waits via Ready until SPS, PPS, and the first
+// IDR have all been observed so clients never see a pre-keyframe SDP nor
+// miss the parameter sets the SDP advertises.
 //
 // LiveSource does not own the producer's lifecycle; callers stop the
 // producer separately when they cancel the Source's ctx.
@@ -68,6 +70,14 @@ type LiveSource struct {
 
 	readyOnce sync.Once
 	ready     chan struct{}
+
+	// SPS/PPS cache for in-band repetition. Some producers (V4L2 /
+	// libcamera path on Pi 3) emit parameter sets only at stream start, so
+	// writeAU re-prepends them to every IDR that arrives without them.
+	// Accessed only from Run, so no mutex is needed.
+	psSPS    []byte
+	psPPS    []byte
+	psSawIDR bool
 
 	// gopMu guards gopCache. The cache holds the RTP packets emitted for
 	// the most recent complete (or in-progress) GOP — i.e. the last IDR's
@@ -92,11 +102,9 @@ type cachedPacket struct {
 }
 
 // NewLiveSource builds a LiveSource for the codec described by probe. SPS
-// and PPS may be empty on the probe — they are extracted from the first
-// IDR access unit and written into the gortsplib H264 format before the
-// ready signal releases DESCRIBE, so the SDP carries sprop-parameter-sets
-// and clients are not stuck on "non-existing PPS referenced". logger may
-// be nil.
+// and PPS may be empty on the probe — they are extracted from the live
+// stream and mirrored into the gortsplib H264 format before Ready releases
+// DESCRIBE so the SDP carries sprop-parameter-sets. logger may be nil.
 func NewLiveSource(probe *ProbeResult, logger *slog.Logger) *LiveSource {
 	if logger == nil {
 		logger = obs.Discard()
@@ -160,8 +168,8 @@ func (l *LiveSource) Ready(ctx context.Context) error {
 }
 
 // Run drains the AU channel until ctx is canceled or the channel is closed.
-// Pre-IDR frames are dropped so DESCRIBE returns only when subsequent frames
-// can decode standalone.
+// Frames before the source has seen SPS, PPS, and an IDR are dropped so
+// DESCRIBE returns only when subsequent frames can decode standalone.
 func (l *LiveSource) Run(ctx context.Context) error {
 	enc := &rtph264.Encoder{
 		PayloadType:    96,
@@ -179,17 +187,17 @@ func (l *LiveSource) Run(ctx context.Context) error {
 			if !ok {
 				return nil
 			}
+			l.absorbParameterSets(au.NALs)
 			isIDR := hasH264IDR(au.NALs)
 			if isIDR {
-				l.fillH264ParameterSets(au.NALs)
+				l.psSawIDR = true
+			}
+			if l.psSawIDR && len(l.psSPS) > 0 && len(l.psPPS) > 0 {
 				l.readyOnce.Do(func() { close(l.ready) })
 			}
 			select {
 			case <-l.ready:
 			default:
-				// Pre-IDR frame: drop so the first packet a client sees
-				// after DESCRIBE is the keyframe that joinable decoding
-				// requires.
 				continue
 			}
 			if err := l.writeAU(enc, au, isIDR); err != nil {
@@ -203,7 +211,11 @@ func (l *LiveSource) Run(ctx context.Context) error {
 }
 
 func (l *LiveSource) writeAU(enc *rtph264.Encoder, au AccessUnit, isIDR bool) error {
-	pkts, err := enc.Encode(au.NALs)
+	nals := au.NALs
+	if isIDR {
+		nals = l.maybePrependParameterSets(nals)
+	}
+	pkts, err := enc.Encode(nals)
 	if err != nil {
 		l.logger.Warn("rtsp livesource: rtp encode", "err", err)
 		return nil
@@ -305,14 +317,41 @@ func (l *LiveSource) ReplayGOP(ss *gortsplib.ServerSession) {
 	l.logger.Debug("rtsp livesource: replayed gop", "packets", len(entries))
 }
 
-// fillH264ParameterSets pulls SPS (NAL type 7) and PPS (NAL type 8) out of
-// the first IDR access unit and writes them into the attached gortsplib
-// format.H264 so DESCRIBE emits sprop-parameter-sets in the SDP.
-//
-// Without this, clients that subscribe between IDRs never see SPS/PPS in
-// either the SDP (empty) or in-band (already passed) and decode loops
-// indefinitely on "non-existing PPS referenced".
-func (l *LiveSource) fillH264ParameterSets(nals [][]byte) {
+// absorbParameterSets caches any SPS/PPS found in nals and mirrors the
+// latest values into the gortsplib format so the SDP sprop-parameter-sets
+// stays current. Runs on every AU because some producers emit parameter
+// sets in a frame separate from the first IDR.
+func (l *LiveSource) absorbParameterSets(nals [][]byte) {
+	var newSPS, newPPS []byte
+	for _, nal := range nals {
+		if len(nal) == 0 {
+			continue
+		}
+		switch nal[0] & 0x1F {
+		case h264NALTypeSPS:
+			newSPS = nal
+		case h264NALTypePPS:
+			newPPS = nal
+		}
+	}
+	if newSPS == nil && newPPS == nil {
+		return
+	}
+	changed := false
+	if newSPS != nil && !bytes.Equal(l.psSPS, newSPS) {
+		l.psSPS = bytes.Clone(newSPS)
+		changed = true
+	}
+	if newPPS != nil && !bytes.Equal(l.psPPS, newPPS) {
+		l.psPPS = bytes.Clone(newPPS)
+		changed = true
+	}
+	if changed {
+		l.mirrorParameterSetsToFormat()
+	}
+}
+
+func (l *LiveSource) mirrorParameterSetsToFormat() {
 	if l.media == nil || len(l.media.Formats) == 0 {
 		return
 	}
@@ -320,27 +359,41 @@ func (l *LiveSource) fillH264ParameterSets(nals [][]byte) {
 	if !ok {
 		return
 	}
-	if len(h.SPS) > 0 && len(h.PPS) > 0 {
-		return
+	if len(l.psSPS) > 0 {
+		h.SPS = bytes.Clone(l.psSPS)
 	}
-	var sps, pps []byte
+	if len(l.psPPS) > 0 {
+		h.PPS = bytes.Clone(l.psPPS)
+	}
+}
+
+// maybePrependParameterSets returns nals with cached SPS/PPS prepended
+// when either is missing in-band. The input slice is not modified.
+func (l *LiveSource) maybePrependParameterSets(nals [][]byte) [][]byte {
+	var hasSPS, hasPPS bool
 	for _, nal := range nals {
 		if len(nal) == 0 {
 			continue
 		}
 		switch nal[0] & 0x1F {
 		case h264NALTypeSPS:
-			sps = nal
+			hasSPS = true
 		case h264NALTypePPS:
-			pps = nal
+			hasPPS = true
 		}
 	}
-	if len(h.SPS) == 0 && len(sps) > 0 {
-		h.SPS = sps
+	if hasSPS && hasPPS {
+		return nals
 	}
-	if len(h.PPS) == 0 && len(pps) > 0 {
-		h.PPS = pps
+	out := make([][]byte, 0, len(nals)+2)
+	if !hasSPS && len(l.psSPS) > 0 {
+		out = append(out, l.psSPS)
 	}
+	if !hasPPS && len(l.psPPS) > 0 {
+		out = append(out, l.psPPS)
+	}
+	out = append(out, nals...)
+	return out
 }
 
 // hasH264IDR scans access-unit NAL units for an IDR slice (NAL type 5).
