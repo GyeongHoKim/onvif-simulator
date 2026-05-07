@@ -110,5 +110,18 @@ func (p Params) hydrate() upstreamParams {
 	if up.Bitrate == 0 {
 		up.Bitrate = 5_000_000
 	}
+	// Contrast/Saturation/Sharpness are multiplicative libcamera controls
+	// where 0 produces a flat mid-gray output and 1.0 is the neutral
+	// identity. mediamtx's stock config defaults all three to 1.0; without
+	// this fallback an operator who omits them gets uniform Y=125 frames.
+	if up.Contrast == 0 {
+		up.Contrast = 1
+	}
+	if up.Saturation == 0 {
+		up.Saturation = 1
+	}
+	if up.Sharpness == 0 {
+		up.Sharpness = 1
+	}
 	return up
 }
