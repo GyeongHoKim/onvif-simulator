@@ -75,9 +75,8 @@ type LiveSource struct {
 	// libcamera path on Pi 3) emit parameter sets only at stream start, so
 	// writeAU re-prepends them to every IDR that arrives without them.
 	// Accessed only from Run, so no mutex is needed.
-	psSPS    []byte
-	psPPS    []byte
-	psSawIDR bool
+	psSPS []byte
+	psPPS []byte
 
 	// gopMu guards gopCache. The cache holds the RTP packets emitted for
 	// the most recent complete (or in-progress) GOP — i.e. the last IDR's
@@ -156,8 +155,8 @@ func (l *LiveSource) AttachStream(stream *gortsplib.ServerStream, media *descrip
 	l.media = media
 }
 
-// Ready satisfies Source. Blocks until the first IDR has been observed or
-// ctx is canceled.
+// Ready satisfies Source. Blocks until SPS, PPS, and an IDR from the same
+// access unit have been observed, or ctx is canceled.
 func (l *LiveSource) Ready(ctx context.Context) error {
 	select {
 	case <-l.ready:
@@ -189,10 +188,7 @@ func (l *LiveSource) Run(ctx context.Context) error {
 			}
 			l.absorbParameterSets(au.NALs)
 			isIDR := hasH264IDR(au.NALs)
-			if isIDR {
-				l.psSawIDR = true
-			}
-			if l.psSawIDR && len(l.psSPS) > 0 && len(l.psPPS) > 0 {
+			if isIDR && len(l.psSPS) > 0 && len(l.psPPS) > 0 {
 				l.readyOnce.Do(func() { close(l.ready) })
 			}
 			select {

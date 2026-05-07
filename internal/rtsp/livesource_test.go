@@ -588,6 +588,7 @@ func TestLiveSourceReadyHoldsUntilParameterSetsObserved(t *testing.T) {
 	}
 
 	idrOnly := []byte{0x65, 0xb8, 0x00, 0x01}
+	pSlice := []byte{0x41, 0x9a, 0x00, 0x02}
 	live.Push(AccessUnit{PTS: 0, NTP: time.Now(), NALs: [][]byte{idrOnly}})
 
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
@@ -598,11 +599,19 @@ func TestLiveSourceReadyHoldsUntilParameterSetsObserved(t *testing.T) {
 
 	sps := []byte{0x67, 0x42, 0xc0, 0x1e}
 	pps := []byte{0x68, 0xce, 0x3c, 0x80}
-	live.Push(AccessUnit{PTS: 3000, NTP: time.Now(), NALs: [][]byte{sps, pps, idrOnly}})
+	live.Push(AccessUnit{PTS: 3000, NTP: time.Now(), NALs: [][]byte{sps, pps, pSlice}})
 
-	ctx2, cancel2 := context.WithTimeout(t.Context(), 2*time.Second)
+	ctx2, cancel2 := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel2()
-	if err := live.Ready(ctx2); err != nil {
+	if err := live.Ready(ctx2); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Ready returned %v, expected DeadlineExceeded after SPS/PPS without current IDR", err)
+	}
+
+	live.Push(AccessUnit{PTS: 6000, NTP: time.Now(), NALs: [][]byte{idrOnly}})
+
+	ctx3, cancel3 := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel3()
+	if err := live.Ready(ctx3); err != nil {
 		t.Fatalf("Ready after SPS+PPS+IDR: %v", err)
 	}
 }
@@ -626,31 +635,13 @@ func TestLiveSourceWriteAUPrependsParameterSetsAfterCacheSeed(t *testing.T) {
 
 	sps := []byte{0x67, 0x42, 0xc0, 0x1e}
 	pps := []byte{0x68, 0xce, 0x3c, 0x80}
-	idr := []byte{0x65, 0xb8, 0x00, 0x01}
+	idr := append([]byte{0x65}, bytes.Repeat([]byte{0xb8}, 2000)...)
+	const secondIDRTimestamp = 3000
 
 	live.Push(AccessUnit{PTS: 0, NTP: time.Now(), NALs: [][]byte{sps, pps, idr}})
-	live.Push(AccessUnit{PTS: 3000, NTP: time.Now(), NALs: [][]byte{idr}})
+	live.Push(AccessUnit{PTS: secondIDRTimestamp, NTP: time.Now(), NALs: [][]byte{idr}})
 
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		live.gopMu.Lock()
-		populated := len(live.gopCache) > 0
-		live.gopMu.Unlock()
-		if populated {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	live.gopMu.Lock()
-	pkts := make([]*rtp.Packet, 0, len(live.gopCache))
-	for _, e := range live.gopCache {
-		pkts = append(pkts, e.pkt)
-	}
-	live.gopMu.Unlock()
-	if len(pkts) == 0 {
-		t.Fatal("gop cache is empty; second IDR did not land")
-	}
+	pkts := waitForGOPPacketsWithTimestamp(t, live, 2, secondIDRTimestamp)
 
 	dec := &rtph264.Decoder{}
 	if err := dec.Init(); err != nil {
@@ -671,4 +662,50 @@ func TestLiveSourceWriteAUPrependsParameterSetsAfterCacheSeed(t *testing.T) {
 	if !seenTypes[h264NALTypeSPS] || !seenTypes[h264NALTypePPS] || !seenTypes[5] {
 		t.Fatalf("decoded GOP cache NAL types=%v (want SPS=7, PPS=8, IDR=5)", seenTypes)
 	}
+}
+
+func waitForGOPPacketsWithTimestamp(t *testing.T, live *LiveSource, minPackets int, timestamp uint32) []*rtp.Packet {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		pkts := snapshotGOPPackets(live)
+		if len(pkts) >= minPackets && allPacketsHaveTimestamp(pkts, timestamp) {
+			return pkts
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	pkts := snapshotGOPPackets(live)
+	t.Fatalf("gop cache has %d packets at timestamp %d; want at least %d packets at timestamp %d",
+		len(pkts), firstPacketTimestamp(pkts), minPackets, timestamp)
+	return nil
+}
+
+func snapshotGOPPackets(live *LiveSource) []*rtp.Packet {
+	live.gopMu.Lock()
+	defer live.gopMu.Unlock()
+	pkts := make([]*rtp.Packet, 0, len(live.gopCache))
+	for _, e := range live.gopCache {
+		pkts = append(pkts, e.pkt)
+	}
+	return pkts
+}
+
+func allPacketsHaveTimestamp(pkts []*rtp.Packet, timestamp uint32) bool {
+	if len(pkts) == 0 {
+		return false
+	}
+	for _, pkt := range pkts {
+		if pkt.Timestamp != timestamp {
+			return false
+		}
+	}
+	return true
+}
+
+func firstPacketTimestamp(pkts []*rtp.Packet) uint32 {
+	if len(pkts) == 0 {
+		return 0
+	}
+	return pkts[0].Timestamp
 }
