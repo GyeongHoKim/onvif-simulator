@@ -4,13 +4,17 @@ package rpicamera
 // parameter struct. It carries only the subset the tests assert on so the
 // upstream wire-format stays internal to the package.
 type HydratedParams struct {
-	Width     uint32
-	Height    uint32
-	FPS       float32
-	Bitrate   uint32
-	IDRPeriod uint32
-	HFlip     bool
-	VFlip     bool
+	Width      uint32
+	Height     uint32
+	FPS        float32
+	Bitrate    uint32
+	IDRPeriod  uint32
+	HFlip      bool
+	VFlip      bool
+	Brightness float32
+	Contrast   float32
+	Saturation float32
+	Sharpness  float32
 }
 
 // HydrateForTest is the export hatch used by api_test.go to verify default
@@ -18,12 +22,16 @@ type HydratedParams struct {
 func HydrateForTest(p Params) HydratedParams {
 	up := p.hydrate()
 	return HydratedParams{
-		Width:     up.Width,
-		Height:    up.Height,
-		FPS:       up.FPS,
-		Bitrate:   up.Bitrate,
-		IDRPeriod: up.IDRPeriod,
-		HFlip:     up.HFlip,
-		VFlip:     up.VFlip,
+		Width:      up.Width,
+		Height:     up.Height,
+		FPS:        up.FPS,
+		Bitrate:    up.Bitrate,
+		IDRPeriod:  up.IDRPeriod,
+		HFlip:      up.HFlip,
+		VFlip:      up.VFlip,
+		Brightness: up.Brightness,
+		Contrast:   up.Contrast,
+		Saturation: up.Saturation,
+		Sharpness:  up.Sharpness,
 	}
 }

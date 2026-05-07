@@ -53,6 +53,22 @@ func TestParamsHydrateDefaults(t *testing.T) {
 	if got.IDRPeriod == 0 {
 		t.Fatalf("default idr_period must be non-zero")
 	}
+	// Contrast/Saturation/Sharpness must default to 1.0 when zero —
+	// passing 0 to libcamera collapses output to flat mid-gray.
+	if got.Contrast != 1 || got.Saturation != 1 || got.Sharpness != 1 {
+		t.Fatalf("multiplicative controls must default to 1.0, got contrast=%v saturation=%v sharpness=%v",
+			got.Contrast, got.Saturation, got.Sharpness)
+	}
+}
+
+func TestParamsHydratePreservesNonZeroMultiplicativeControls(t *testing.T) {
+	t.Parallel()
+	got := rpicamera.HydrateForTest(rpicamera.Params{
+		Contrast: 1.5, Saturation: 0.5, Sharpness: 2.0,
+	})
+	if got.Contrast != 1.5 || got.Saturation != 0.5 || got.Sharpness != 2.0 {
+		t.Fatalf("explicit non-zero values must pass through, got %+v", got)
+	}
 }
 
 func TestParamsHydratePreservesCallerValues(t *testing.T) {

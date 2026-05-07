@@ -37,39 +37,54 @@ func TestHasH264IDR(t *testing.T) {
 	}
 }
 
-func TestLiveSourceFillsH264ParameterSetsFromFirstIDR(t *testing.T) {
+func TestLiveSourceAbsorbsParameterSets(t *testing.T) {
 	t.Parallel()
 	sps := []byte{0x67, 0x42, 0xc0, 0x1e}
 	pps := []byte{0x68, 0xce, 0x3c, 0x80}
 	idr := []byte{0x65, 0xb8, 0x00, 0x01}
+	altSPS := []byte{0x67, 0x4d, 0x40, 0x29}
 
 	cases := []struct {
 		name    string
 		probe   *ProbeResult
-		nals    [][]byte
+		feed    [][][]byte // sequence of AUs to absorb
 		wantSPS []byte
 		wantPPS []byte
 	}{
 		{
-			name:    "writes SPS+PPS when probe is empty",
+			name:    "single inline IDR carries SPS+PPS",
 			probe:   &ProbeResult{Codec: CodecH264},
-			nals:    [][]byte{sps, pps, idr},
+			feed:    [][][]byte{{sps, pps, idr}},
 			wantSPS: sps,
 			wantPPS: pps,
 		},
 		{
-			name:    "missing PPS leaves PPS untouched",
+			name:    "SPS and PPS arriving in separate AUs are both cached",
 			probe:   &ProbeResult{Codec: CodecH264},
-			nals:    [][]byte{sps, idr},
+			feed:    [][][]byte{{sps}, {pps}, {idr}},
 			wantSPS: sps,
-			wantPPS: nil,
+			wantPPS: pps,
 		},
 		{
-			name:    "preserves probe-supplied SPS+PPS",
+			name:    "later AU overrides probe-supplied SPS+PPS",
 			probe:   &ProbeResult{Codec: CodecH264, SPS: []byte{0xAA}, PPS: []byte{0xBB}},
-			nals:    [][]byte{sps, pps, idr},
-			wantSPS: []byte{0xAA},
-			wantPPS: []byte{0xBB},
+			feed:    [][][]byte{{sps, pps, idr}},
+			wantSPS: sps,
+			wantPPS: pps,
+		},
+		{
+			name:    "newer SPS replaces older",
+			probe:   &ProbeResult{Codec: CodecH264},
+			feed:    [][][]byte{{sps, pps}, {altSPS, idr}},
+			wantSPS: altSPS,
+			wantPPS: pps,
+		},
+		{
+			name:    "PPS-less AU does not blank PPS",
+			probe:   &ProbeResult{Codec: CodecH264},
+			feed:    [][][]byte{{sps, pps}, {sps, idr}},
+			wantSPS: sps,
+			wantPPS: pps,
 		},
 	}
 	for _, tc := range cases {
@@ -88,22 +103,132 @@ func TestLiveSourceFillsH264ParameterSetsFromFirstIDR(t *testing.T) {
 			}
 			ls.AttachStream(nil, media)
 
-			ls.fillH264ParameterSets(tc.nals)
+			for _, nals := range tc.feed {
+				ls.absorbParameterSets(nals)
+			}
 
 			if !bytes.Equal(h.SPS, tc.wantSPS) {
-				t.Fatalf("SPS=%x want %x", h.SPS, tc.wantSPS)
+				t.Fatalf("SDP SPS=%x want %x", h.SPS, tc.wantSPS)
 			}
 			if !bytes.Equal(h.PPS, tc.wantPPS) {
-				t.Fatalf("PPS=%x want %x", h.PPS, tc.wantPPS)
+				t.Fatalf("SDP PPS=%x want %x", h.PPS, tc.wantPPS)
+			}
+			if !bytes.Equal(ls.psSPS, tc.wantSPS) {
+				t.Fatalf("cached SPS=%x want %x", ls.psSPS, tc.wantSPS)
+			}
+			if !bytes.Equal(ls.psPPS, tc.wantPPS) {
+				t.Fatalf("cached PPS=%x want %x", ls.psPPS, tc.wantPPS)
 			}
 		})
 	}
 }
 
-func TestLiveSourceFillH264ParameterSetsNoMediaIsNoOp(t *testing.T) {
+func TestLiveSourceAbsorbParameterSetsNoMediaIsNoOp(t *testing.T) {
 	t.Parallel()
 	ls := NewLiveSource(&ProbeResult{Codec: CodecH264}, nil)
-	ls.fillH264ParameterSets([][]byte{{0x67, 0x42}, {0x68, 0xce}})
+	ls.absorbParameterSets([][]byte{{0x67, 0x42}, {0x68, 0xce}})
+	if len(ls.psSPS) == 0 || len(ls.psPPS) == 0 {
+		t.Fatal("cache should populate even with no media attached")
+	}
+}
+
+func TestLiveSourceDoesNotMirrorParameterSetsAfterReady(t *testing.T) {
+	t.Parallel()
+	sps := []byte{0x67, 0x42, 0xc0, 0x1e}
+	pps := []byte{0x68, 0xce, 0x3c, 0x80}
+	altSPS := []byte{0x67, 0x4d, 0x40, 0x29}
+	altPPS := []byte{0x68, 0xee, 0x3c, 0x80}
+
+	ls := NewLiveSource(&ProbeResult{Codec: CodecH264}, nil)
+	h := &format.H264{
+		PayloadTyp:        96,
+		PacketizationMode: 1,
+		SPS:               bytes.Clone(sps),
+		PPS:               bytes.Clone(pps),
+	}
+	media := &description.Media{
+		Type:    description.MediaTypeVideo,
+		Formats: []format.Format{h},
+	}
+	ls.AttachStream(nil, media)
+	ls.readyOnce.Do(func() { close(ls.ready) })
+
+	ls.absorbParameterSets([][]byte{altSPS, altPPS})
+
+	if !bytes.Equal(h.SPS, sps) {
+		t.Fatalf("SDP SPS changed after ready: got %x want %x", h.SPS, sps)
+	}
+	if !bytes.Equal(h.PPS, pps) {
+		t.Fatalf("SDP PPS changed after ready: got %x want %x", h.PPS, pps)
+	}
+	if !bytes.Equal(ls.psSPS, altSPS) {
+		t.Fatalf("cached SPS=%x want %x", ls.psSPS, altSPS)
+	}
+	if !bytes.Equal(ls.psPPS, altPPS) {
+		t.Fatalf("cached PPS=%x want %x", ls.psPPS, altPPS)
+	}
+}
+
+func TestLiveSourceMaybePrependParameterSets(t *testing.T) {
+	t.Parallel()
+	sps := []byte{0x67, 0x42, 0xc0, 0x1e}
+	pps := []byte{0x68, 0xce, 0x3c, 0x80}
+	idr := []byte{0x65, 0xb8, 0x00, 0x01}
+
+	cases := []struct {
+		name      string
+		cacheSPS  []byte
+		cachePPS  []byte
+		input     [][]byte
+		wantTypes []byte
+	}{
+		{
+			name:      "IDR alone gets SPS+PPS prepended from cache",
+			cacheSPS:  sps,
+			cachePPS:  pps,
+			input:     [][]byte{idr},
+			wantTypes: []byte{7, 8, 5},
+		},
+		{
+			name:      "IDR with both SPS+PPS in-band passes through unchanged",
+			cacheSPS:  sps,
+			cachePPS:  pps,
+			input:     [][]byte{sps, pps, idr},
+			wantTypes: []byte{7, 8, 5},
+		},
+		{
+			name:      "IDR with only SPS in-band gets PPS prepended",
+			cacheSPS:  sps,
+			cachePPS:  pps,
+			input:     [][]byte{sps, idr},
+			wantTypes: []byte{8, 7, 5},
+		},
+		{
+			name:      "empty cache leaves IDR alone",
+			cacheSPS:  nil,
+			cachePPS:  nil,
+			input:     [][]byte{idr},
+			wantTypes: []byte{5},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ls := NewLiveSource(&ProbeResult{Codec: CodecH264}, nil)
+			ls.psSPS = tc.cacheSPS
+			ls.psPPS = tc.cachePPS
+
+			out := ls.maybePrependParameterSets(tc.input)
+			if len(out) != len(tc.wantTypes) {
+				t.Fatalf("len(out)=%d want %d", len(out), len(tc.wantTypes))
+			}
+			for i, nal := range out {
+				if got := nal[0] & 0x1F; got != tc.wantTypes[i] {
+					t.Fatalf("out[%d] type=%d want %d", i, got, tc.wantTypes[i])
+				}
+			}
+		})
+	}
 }
 
 func TestLiveSourceReadyBeforeIDRBlocks(t *testing.T) {
@@ -316,11 +441,9 @@ func TestLiveSourceMidGoPJoinerReceivesKeyframe(t *testing.T) {
 	idr := []byte{0x65, 0xb8, 0x00, 0x01}
 	pSlice := []byte{0x41, 0x9a, 0x00, 0x02}
 
-	// IDR access unit (SPS+PPS+IDR together — the inline-IDR shape that
-	// fillH264ParameterSets relies on) seeds the cache, then a few P-slices
-	// extend it. After this Push burst the producer goes idle for the rest
-	// of the test, so any packets the client receives must come from the
-	// cache replay path, not the live broadcast.
+	// SPS+PPS+IDR seeds the cache and releases Ready; subsequent
+	// P-slices extend it. The producer then goes idle, so any packets the
+	// client receives must come from the cache replay path.
 	live.Push(AccessUnit{PTS: 0, NTP: time.Now(), NALs: [][]byte{sps, pps, idr}})
 	live.Push(AccessUnit{PTS: 3000, NTP: time.Now(), NALs: [][]byte{pSlice}})
 	live.Push(AccessUnit{PTS: 6000, NTP: time.Now(), NALs: [][]byte{pSlice}})
@@ -433,9 +556,7 @@ func TestLiveSourceMidGoPJoinerReceivesKeyframeActiveProducer(t *testing.T) {
 }
 
 // TestLiveSourceStreamsAfterIDR exercises the full LiveSource lifecycle
-// (Run + writeAU + AttachStream + Ready releasing on first IDR + Close)
-// against a real gortsplib server and client. Pre-IDR access units are
-// dropped; the IDR releases DESCRIBE; subsequent frames flow as RTP.
+// against a real gortsplib server and client.
 func TestLiveSourceStreamsAfterIDR(t *testing.T) {
 	port := freePort(t)
 	s := New(port)
@@ -450,11 +571,11 @@ func TestLiveSourceStreamsAfterIDR(t *testing.T) {
 		t.Fatalf("AddSource: %v", err)
 	}
 
-	// Tiny non-IDR + IDR + non-IDR sequence is enough — the encoder only
-	// needs raw NAL bytes; the client just counts packets it receives.
-	preIDR := [][]byte{{0x41, 0x9a, 0x00}}     // non-IDR slice
-	idr := [][]byte{{0x65, 0xb8, 0x00, 0x01}}  // IDR slice
-	tail := [][]byte{{0x41, 0x9a, 0x00, 0x02}} // non-IDR slice
+	preIDR := [][]byte{{0x41, 0x9a, 0x00}}
+	sps := []byte{0x67, 0x42, 0xc0, 0x1e}
+	pps := []byte{0x68, 0xce, 0x3c, 0x80}
+	idr := [][]byte{sps, pps, {0x65, 0xb8, 0x00, 0x01}}
+	tail := [][]byte{{0x41, 0x9a, 0x00, 0x02}}
 
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
@@ -462,10 +583,8 @@ func TestLiveSourceStreamsAfterIDR(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		ts := int64(0)
-		// Push a pre-IDR frame first to exercise the drop-pre-IDR branch.
 		live.Push(AccessUnit{PTS: ts, NTP: time.Now(), NALs: preIDR})
 		ts += 3000
-		// IDR releases Ready and starts the stream.
 		live.Push(AccessUnit{PTS: ts, NTP: time.Now(), NALs: idr})
 		ts += 3000
 		for {
@@ -487,4 +606,143 @@ func TestLiveSourceStreamsAfterIDR(t *testing.T) {
 	}
 	close(stop)
 	wg.Wait()
+}
+
+// TestLiveSourceReadyHoldsUntilParameterSetsObserved verifies that Ready
+// waits for SPS, PPS, and an IDR — an IDR alone must not release it.
+func TestLiveSourceReadyHoldsUntilParameterSetsObserved(t *testing.T) {
+	port := freePort(t)
+	s := New(port)
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer s.Stop()
+
+	probe := &ProbeResult{Codec: CodecH264, Width: 640, Height: 480, FPS: 15}
+	live := NewLiveSource(probe, nil)
+	if _, err := s.AddSource("live", live); err != nil {
+		t.Fatalf("AddSource: %v", err)
+	}
+
+	idrOnly := []byte{0x65, 0xb8, 0x00, 0x01}
+	pSlice := []byte{0x41, 0x9a, 0x00, 0x02}
+	live.Push(AccessUnit{PTS: 0, NTP: time.Now(), NALs: [][]byte{idrOnly}})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	if err := live.Ready(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Ready returned %v, expected DeadlineExceeded with no SPS/PPS in cache", err)
+	}
+
+	sps := []byte{0x67, 0x42, 0xc0, 0x1e}
+	pps := []byte{0x68, 0xce, 0x3c, 0x80}
+	live.Push(AccessUnit{PTS: 3000, NTP: time.Now(), NALs: [][]byte{sps, pps, pSlice}})
+
+	ctx2, cancel2 := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel2()
+	if err := live.Ready(ctx2); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Ready returned %v, expected DeadlineExceeded after SPS/PPS without current IDR", err)
+	}
+
+	live.Push(AccessUnit{PTS: 6000, NTP: time.Now(), NALs: [][]byte{idrOnly}})
+
+	ctx3, cancel3 := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel3()
+	if err := live.Ready(ctx3); err != nil {
+		t.Fatalf("Ready after SPS+PPS+IDR: %v", err)
+	}
+}
+
+// TestLiveSourceWriteAUPrependsParameterSetsAfterCacheSeed verifies that a
+// bare-IDR AU pushed after the cache is seeded still reaches the GOP cache
+// with SPS+PPS prepended in-band.
+func TestLiveSourceWriteAUPrependsParameterSetsAfterCacheSeed(t *testing.T) {
+	port := freePort(t)
+	s := New(port)
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer s.Stop()
+
+	probe := &ProbeResult{Codec: CodecH264, Width: 640, Height: 480, FPS: 15}
+	live := NewLiveSource(probe, nil)
+	if _, err := s.AddSource("live", live); err != nil {
+		t.Fatalf("AddSource: %v", err)
+	}
+
+	sps := []byte{0x67, 0x42, 0xc0, 0x1e}
+	pps := []byte{0x68, 0xce, 0x3c, 0x80}
+	idr := append([]byte{0x65}, bytes.Repeat([]byte{0xb8}, 2000)...)
+	const secondIDRTimestamp = 3000
+
+	live.Push(AccessUnit{PTS: 0, NTP: time.Now(), NALs: [][]byte{sps, pps, idr}})
+	live.Push(AccessUnit{PTS: secondIDRTimestamp, NTP: time.Now(), NALs: [][]byte{idr}})
+
+	pkts := waitForGOPPacketsWithTimestamp(t, live, 2, secondIDRTimestamp)
+
+	dec := &rtph264.Decoder{}
+	if err := dec.Init(); err != nil {
+		t.Fatalf("decoder init: %v", err)
+	}
+	seenTypes := map[byte]bool{}
+	for _, pkt := range pkts {
+		nals, err := dec.Decode(pkt)
+		if err != nil {
+			continue
+		}
+		for _, n := range nals {
+			if len(n) > 0 {
+				seenTypes[n[0]&0x1F] = true
+			}
+		}
+	}
+	if !seenTypes[h264NALTypeSPS] || !seenTypes[h264NALTypePPS] || !seenTypes[5] {
+		t.Fatalf("decoded GOP cache NAL types=%v (want SPS=7, PPS=8, IDR=5)", seenTypes)
+	}
+}
+
+func waitForGOPPacketsWithTimestamp(t *testing.T, live *LiveSource, minPackets int, timestamp uint32) []*rtp.Packet {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		pkts := snapshotGOPPackets(live)
+		if len(pkts) >= minPackets && allPacketsHaveTimestamp(pkts, timestamp) {
+			return pkts
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	pkts := snapshotGOPPackets(live)
+	t.Fatalf("gop cache has %d packets at timestamp %d; want at least %d packets at timestamp %d",
+		len(pkts), firstPacketTimestamp(pkts), minPackets, timestamp)
+	return nil
+}
+
+func snapshotGOPPackets(live *LiveSource) []*rtp.Packet {
+	live.gopMu.Lock()
+	defer live.gopMu.Unlock()
+	pkts := make([]*rtp.Packet, 0, len(live.gopCache))
+	for _, e := range live.gopCache {
+		pkts = append(pkts, e.pkt)
+	}
+	return pkts
+}
+
+func allPacketsHaveTimestamp(pkts []*rtp.Packet, timestamp uint32) bool {
+	if len(pkts) == 0 {
+		return false
+	}
+	for _, pkt := range pkts {
+		if pkt.Timestamp != timestamp {
+			return false
+		}
+	}
+	return true
+}
+
+func firstPacketTimestamp(pkts []*rtp.Packet) uint32 {
+	if len(pkts) == 0 {
+		return 0
+	}
+	return pkts[0].Timestamp
 }
