@@ -340,10 +340,48 @@ export namespace config {
 	        this.events = source["events"];
 	    }
 	}
+	export class RPICamConfig {
+	    camera_id?: number;
+	    width?: number;
+	    height?: number;
+	    fps?: number;
+	    bitrate?: number;
+	    idr_period?: number;
+	    hflip?: boolean;
+	    vflip?: boolean;
+	    brightness?: number;
+	    contrast?: number;
+	    saturation?: number;
+	    sharpness?: number;
+	    extra_args?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RPICamConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.camera_id = source["camera_id"];
+	        this.width = source["width"];
+	        this.height = source["height"];
+	        this.fps = source["fps"];
+	        this.bitrate = source["bitrate"];
+	        this.idr_period = source["idr_period"];
+	        this.hflip = source["hflip"];
+	        this.vflip = source["vflip"];
+	        this.brightness = source["brightness"];
+	        this.contrast = source["contrast"];
+	        this.saturation = source["saturation"];
+	        this.sharpness = source["sharpness"];
+	        this.extra_args = source["extra_args"];
+	    }
+	}
 	export class ProfileConfig {
 	    name: string;
 	    token: string;
+	    kind?: string;
 	    media_file_path?: string;
+	    rpicam?: RPICamConfig;
 	    encoding?: string;
 	    width?: number;
 	    height?: number;
@@ -361,7 +399,9 @@ export namespace config {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
 	        this.token = source["token"];
+	        this.kind = source["kind"];
 	        this.media_file_path = source["media_file_path"];
+	        this.rpicam = this.convertValues(source["rpicam"], RPICamConfig);
 	        this.encoding = source["encoding"];
 	        this.width = source["width"];
 	        this.height = source["height"];
@@ -371,6 +411,24 @@ export namespace config {
 	        this.snapshot_uri = source["snapshot_uri"];
 	        this.video_source_token = source["video_source_token"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class MediaConfig {
 	    profiles: ProfileConfig[];
@@ -490,6 +548,7 @@ export namespace config {
 		    return a;
 		}
 	}
+	
 	
 	
 	
