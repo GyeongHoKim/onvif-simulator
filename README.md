@@ -112,7 +112,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=pi
-ExecStart=/usr/local/bin/onvif-simulator start
+ExecStart=/usr/local/bin/onvif-simulator serve
 Restart=on-failure
 RestartSec=3
 
@@ -137,7 +137,7 @@ Notes:
 - The simulator reads `onvif-simulator.json` from that user's XDG config
   directory (`~/.config/onvif-simulator/onvif-simulator.json` on Linux).
   To pin a different path, change `ExecStart` to
-  `/usr/local/bin/onvif-simulator start -config /etc/onvif-simulator.json`.
+  `/usr/local/bin/onvif-simulator serve -config /etc/onvif-simulator.json`.
 - To apply config changes, edit the JSON and run
   `sudo systemctl restart onvif-simulator.service`.
 
@@ -149,9 +149,9 @@ Run a single virtual device directly from the command line.
 
 ```bash
 # Start a virtual device with default settings(cannot customize in CLI mode)
-onvif-simulator start
+onvif-simulator serve
 # List available options
-onvif-simulator start --help
+onvif-simulator serve --help
 ```
 
 ### TUI Mode
@@ -322,7 +322,7 @@ make setup            # install git hooks and commitlint
 
 ```bash
 # CLI / TUI
-go run . start
+go run . serve
 go run .
 
 # GUI (requires Wails)
