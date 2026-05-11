@@ -41,6 +41,16 @@ func (stubProvider) CreatePullPointSubscription(
 	}, nil
 }
 
+func (stubProvider) Subscribe(
+	_ context.Context, _ eventsvc.SubscribeParams,
+) (eventsvc.SubscriptionInfo, error) {
+	return eventsvc.SubscriptionInfo{
+		SubscriptionID:  "sub-001",
+		TerminationTime: time.Now().Add(time.Hour),
+		CurrentTime:     time.Now(),
+	}, nil
+}
+
 func (stubProvider) PullMessages(
 	_ context.Context, _ string, _ eventsvc.PullMessagesParams,
 ) (eventsvc.PullMessagesResult, error) {

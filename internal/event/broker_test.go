@@ -45,6 +45,19 @@ func TestBroker_EventServiceCapabilities(t *testing.T) {
 	}
 }
 
+func TestBroker_EventServiceCapabilities_ReportsMaxNotificationProducers(t *testing.T) {
+	cfg := defaultCfg()
+	cfg.MaxNotificationProducers = 7
+	b := New(cfg)
+	caps, err := b.EventServiceCapabilities(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if caps.MaxNotificationProducers != 7 {
+		t.Errorf("MaxNotificationProducers = %d, want 7", caps.MaxNotificationProducers)
+	}
+}
+
 // ---------- EventProperties -----------------------------------------------------
 
 func TestBroker_EventProperties_EnabledTopicsAppear(t *testing.T) {

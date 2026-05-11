@@ -27,6 +27,9 @@ func (testStubProvider) CreatePullPointSubscription(
 ) (SubscriptionInfo, error) {
 	return SubscriptionInfo{SubscriptionID: "sub-001"}, nil
 }
+func (testStubProvider) Subscribe(_ context.Context, _ SubscribeParams) (SubscriptionInfo, error) {
+	return SubscriptionInfo{SubscriptionID: "sub-001"}, nil
+}
 func (testStubProvider) PullMessages(_ context.Context, _ string, _ PullMessagesParams) (PullMessagesResult, error) {
 	return PullMessagesResult{}, nil
 }
@@ -49,6 +52,9 @@ func (testErrProvider) EventProperties(context.Context) (EventProperties, error)
 func (testErrProvider) CreatePullPointSubscription(
 	_ context.Context, _ CreatePullPointSubscriptionParams,
 ) (SubscriptionInfo, error) {
+	return SubscriptionInfo{}, errTestProviderBoom
+}
+func (testErrProvider) Subscribe(_ context.Context, _ SubscribeParams) (SubscriptionInfo, error) {
 	return SubscriptionInfo{}, errTestProviderBoom
 }
 func (testErrProvider) PullMessages(_ context.Context, _ string, _ PullMessagesParams) (PullMessagesResult, error) {
@@ -279,6 +285,135 @@ func TestParseEventOperation_AcceptsEventsNamespace(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if op != "GetServiceCapabilities" {
+		t.Fatalf("operation = %q", op)
+	}
+}
+
+// ---------- Subscribe (WS-BaseNotification push) --------------------------------
+
+// subscribeCapturingProvider records the SubscribeParams passed in so tests
+// can assert that the consumer EPR and ReferenceParameters round-trip
+// through the SOAP decoder verbatim.
+type subscribeCapturingProvider struct {
+	testStubProvider
+	captured SubscribeParams
+	out      SubscriptionInfo
+	err      error
+}
+
+func (p *subscribeCapturingProvider) Subscribe(_ context.Context, params SubscribeParams) (SubscriptionInfo, error) {
+	p.captured = params
+	if p.err != nil {
+		return SubscriptionInfo{}, p.err
+	}
+	return p.out, nil
+}
+
+func soapRequestSubscribe(consumerInner, filter, initialTermination string) string {
+	return `<?xml version="1.0" encoding="utf-8"?>` +
+		`<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">` +
+		`<s:Body>` +
+		`<wsnt:Subscribe xmlns:wsnt="` + WSNBaseNotificationNS + `" xmlns:wsa="` + WSAddressingNamespace + `">` +
+		`<wsnt:ConsumerReference>` + consumerInner + `</wsnt:ConsumerReference>` +
+		filter +
+		initialTermination +
+		`</wsnt:Subscribe></s:Body></s:Envelope>`
+}
+
+func TestEventService_Subscribe(t *testing.T) {
+	p := &subscribeCapturingProvider{
+		out: SubscriptionInfo{SubscriptionID: "sub-xyz"},
+	}
+	h := NewEventServiceHandler(p,
+		WithSubscriptionManagerAddr("http://127.0.0.1:8080/onvif/subscription_manager"))
+
+	body := soapRequestSubscribe(
+		`<wsa:Address>http://consumer.example/sink</wsa:Address>`,
+		`<wsnt:Filter><wsnt:TopicExpression Dialect="http://docs.oasis-open.org/wsn/t-1/TopicExpression/Concrete">tns1:VideoSource/MotionAlarm</wsnt:TopicExpression></wsnt:Filter>`,
+		`<wsnt:InitialTerminationTime>PT1H</wsnt:InitialTerminationTime>`,
+	)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, EventServicePath,
+		bytes.NewBufferString(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	name := soapBodyRootName(t, rec.Body.Bytes())
+	if name.Local != "SubscribeResponse" {
+		t.Fatalf("root element = %q", name.Local)
+	}
+	resp := rec.Body.String()
+	for _, want := range []string{
+		"?id=sub-xyz",
+		"<TerminationTime>",
+		"<CurrentTime>",
+	} {
+		if !strings.Contains(resp, want) {
+			t.Errorf("response missing %q: %s", want, resp)
+		}
+	}
+	if p.captured.ConsumerAddress != "http://consumer.example/sink" {
+		t.Errorf("ConsumerAddress = %q", p.captured.ConsumerAddress)
+	}
+	if p.captured.Filter != "tns1:VideoSource/MotionAlarm" {
+		t.Errorf("Filter = %q", p.captured.Filter)
+	}
+	if p.captured.InitialTerminationTime != "PT1H" {
+		t.Errorf("InitialTerminationTime = %q", p.captured.InitialTerminationTime)
+	}
+}
+
+func TestEventService_Subscribe_EchoesReferenceParameters(t *testing.T) {
+	p := &subscribeCapturingProvider{
+		out: SubscriptionInfo{SubscriptionID: "sub-rp"},
+	}
+	h := NewEventServiceHandler(p)
+	body := soapRequestSubscribe(
+		`<wsa:Address>http://consumer/x</wsa:Address>`+
+			`<wsa:ReferenceParameters><wsa:MyId>k</wsa:MyId></wsa:ReferenceParameters>`,
+		"", "",
+	)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, EventServicePath,
+		bytes.NewBufferString(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(p.captured.ConsumerReferenceParams, "<wsa:MyId>k</wsa:MyId>") &&
+		!strings.Contains(p.captured.ConsumerReferenceParams, "<MyId") {
+		t.Errorf("ReferenceParameters not captured: %q", p.captured.ConsumerReferenceParams)
+	}
+}
+
+var errTestConsumerRequired = errors.New("ConsumerReference Address required")
+
+func TestEventService_Subscribe_MissingConsumerAddressReturnsFault(t *testing.T) {
+	p := &subscribeCapturingProvider{
+		err: errors.Join(ErrInvalidArgs, errTestConsumerRequired),
+	}
+	h := NewEventServiceHandler(p)
+	body := soapRequestSubscribe(``, "", "")
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, EventServicePath,
+		bytes.NewBufferString(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Sender") {
+		t.Errorf("expected Sender fault: %s", rec.Body.String())
+	}
+}
+
+func TestParseEventOperation_AcceptsWSNNamespaceForSubscribe(t *testing.T) {
+	body := soapRequestSubscribe(`<wsa:Address>http://c/x</wsa:Address>`, "", "")
+	_, op, err := parseEventOperation([]byte(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if op != "Subscribe" {
 		t.Fatalf("operation = %q", op)
 	}
 }
