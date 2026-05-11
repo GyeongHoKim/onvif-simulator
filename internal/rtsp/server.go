@@ -28,8 +28,8 @@ var ErrSourceNotFound = errors.New("rtsp: source not found")
 // listener has not been opened yet.
 var ErrServerNotStarted = errors.New("rtsp: server not started")
 
-// ErrUnsupportedCodec is returned by buildMedia for codecs other than H264 and
-// H265 (we currently only packetize those two).
+// ErrUnsupportedCodec is returned by buildMedia for codecs other than H264,
+// H265, and MJPEG.
 var ErrUnsupportedCodec = errors.New("rtsp: unsupported codec")
 
 // ErrNilSource is returned by AddSource when the caller passes a nil Source.
@@ -228,6 +228,19 @@ func (s *Server) streamFor(path string) *gortsplib.ServerStream {
 	return nil
 }
 
+// SourceFor returns the Source registered for the exact profile token, or
+// nil when no such source exists. Used by composition layers that need to
+// attach side-channels (e.g. an rpicam secondary MJPEG callback) to an
+// already-registered source without re-creating it.
+func (s *Server) SourceFor(token string) Source {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if src, ok := s.sources[token]; ok {
+		return src.src
+	}
+	return nil
+}
+
 // streamAndSourceFor returns both the gortsplib stream and the underlying
 // Source for an URL path. OnDescribe uses the Source to wait for readiness
 // before responding.
@@ -282,6 +295,14 @@ func buildMedia(p *ProbeResult) (*description.Media, error) {
 				SPS:        p.SPS,
 				PPS:        p.PPS,
 			}},
+		}, nil
+	case CodecMJPEG:
+		// RFC 2435 fixes the payload type at 26 — format.MJPEG{} reports it
+		// via PayloadType() without us setting it. JPEG is intra-only with no
+		// parameter sets, so SPS/PPS/VPS on the probe are irrelevant here.
+		return &description.Media{
+			Type:    description.MediaTypeVideo,
+			Formats: []format.Format{&format.MJPEG{}},
 		}, nil
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrUnsupportedCodec, p.Codec)
