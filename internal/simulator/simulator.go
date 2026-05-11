@@ -142,6 +142,14 @@ type Simulator struct {
 	discoveryCancel context.CancelFunc
 	discoveryDone   chan struct{}
 
+	// derivedMJPEGProfiles are the auto-generated Profile S §7.9 MJPEG
+	// siblings — one per user profile with a usable source. They live in
+	// memory only (never written to onvif-simulator.json) so an operator
+	// who edits the config never sees them appear/disappear from disk.
+	// The media provider unions them with cfg.Media.Profiles when
+	// answering GetProfiles / GetVideoEncoderConfigurations queries.
+	derivedMJPEGProfiles []config.ProfileConfig
+
 	// Core components. Immutable after New.
 	store      *auth.MutableUserStore
 	controller *auth.Controller
@@ -322,6 +330,23 @@ func (s *Simulator) snapshotConfig() config.Config {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return cloneConfig(&s.cfg)
+}
+
+// snapshotEffectiveProfiles returns user profiles ∪ derived MJPEG
+// siblings under the lock. The media provider answers GetProfiles,
+// GetVideoEncoderConfigurations, and friends from this list so a
+// Profile S §7.9 client sees every MJPEG endpoint without the
+// simulator persisting siblings to disk.
+//
+// The returned slice is a fresh copy — safe to mutate.
+func (s *Simulator) snapshotEffectiveProfiles() []config.ProfileConfig {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	total := len(s.cfg.Media.Profiles) + len(s.derivedMJPEGProfiles)
+	out := make([]config.ProfileConfig, 0, total)
+	out = append(out, s.cfg.Media.Profiles...)
+	out = append(out, s.derivedMJPEGProfiles...)
+	return out
 }
 
 // reloadFromDisk reads the config file again and updates live state. Called

@@ -34,19 +34,19 @@ func (*mediaProvider) ServiceCapabilities(context.Context) (mediasvc.ServiceCapa
 }
 
 func (p *mediaProvider) Profiles(context.Context) ([]mediasvc.Profile, error) {
-	cfg := p.sim.snapshotConfig()
-	out := make([]mediasvc.Profile, 0, len(cfg.Media.Profiles))
-	for i := range cfg.Media.Profiles {
-		out = append(out, profileFromConfig(&cfg.Media.Profiles[i]))
+	profiles := p.sim.snapshotEffectiveProfiles()
+	out := make([]mediasvc.Profile, 0, len(profiles))
+	for i := range profiles {
+		out = append(out, profileFromConfig(&profiles[i]))
 	}
 	return out, nil
 }
 
 func (p *mediaProvider) Profile(_ context.Context, token string) (mediasvc.Profile, error) {
-	cfg := p.sim.snapshotConfig()
-	for i := range cfg.Media.Profiles {
-		if cfg.Media.Profiles[i].Token == token {
-			return profileFromConfig(&cfg.Media.Profiles[i]), nil
+	profiles := p.sim.snapshotEffectiveProfiles()
+	for i := range profiles {
+		if profiles[i].Token == token {
+			return profileFromConfig(&profiles[i]), nil
 		}
 	}
 	return mediasvc.Profile{}, fmt.Errorf("%w: %s", mediasvc.ErrProfileNotFound, token)
@@ -197,10 +197,10 @@ func (*mediaProvider) VideoSourceConfigurationOptions(
 }
 
 func (p *mediaProvider) VideoEncoderConfigurations(context.Context) ([]mediasvc.VideoEncoderConfiguration, error) {
-	cfg := p.sim.snapshotConfig()
-	out := make([]mediasvc.VideoEncoderConfiguration, 0, len(cfg.Media.Profiles))
-	for i := range cfg.Media.Profiles {
-		out = append(out, veConfigFromProfile(&cfg.Media.Profiles[i]))
+	profiles := p.sim.snapshotEffectiveProfiles()
+	out := make([]mediasvc.VideoEncoderConfiguration, 0, len(profiles))
+	for i := range profiles {
+		out = append(out, veConfigFromProfile(&profiles[i]))
 	}
 	return out, nil
 }
@@ -208,10 +208,10 @@ func (p *mediaProvider) VideoEncoderConfigurations(context.Context) ([]mediasvc.
 func (p *mediaProvider) VideoEncoderConfiguration(
 	_ context.Context, token string,
 ) (mediasvc.VideoEncoderConfiguration, error) {
-	cfg := p.sim.snapshotConfig()
-	for i := range cfg.Media.Profiles {
-		if cfg.Media.Profiles[i].Token == token {
-			return veConfigFromProfile(&cfg.Media.Profiles[i]), nil
+	profiles := p.sim.snapshotEffectiveProfiles()
+	for i := range profiles {
+		if profiles[i].Token == token {
+			return veConfigFromProfile(&profiles[i]), nil
 		}
 	}
 	return mediasvc.VideoEncoderConfiguration{}, fmt.Errorf("%w: %s", mediasvc.ErrConfigNotFound, token)
@@ -238,14 +238,34 @@ func (p *mediaProvider) CompatibleVideoEncoderConfigurations(
 func (*mediaProvider) VideoEncoderConfigurationOptions(
 	context.Context, string, string,
 ) (mediasvc.VideoEncoderConfigurationOptions, error) {
+	// Profile S §7.9.1: device "shall declare MJPEG Option in
+	// VideoEncoderConfigurationOptions". The H264 block covers §7.5; the
+	// JPEG block is what the §7.9 client-side compliance check looks for.
+	// Both lists include the same baseline resolutions because the
+	// simulator can serve every codec at every advertised dimension —
+	// for H.264 by passing the source through, for MJPEG by transcoding
+	// or by the rpicam secondary stream.
+	resolutions := []mediasvc.ResolutionOptions{
+		{Width: 1920, Height: 1080},
+		{Width: 1280, Height: 720},
+		{Width: 640, Height: 480},
+		// Media Spec §5.1 mandates JPEG QVGA support; we list it
+		// explicitly so a strictly-compliant client never has to derive it.
+		{Width: 320, Height: 240},
+	}
 	return mediasvc.VideoEncoderConfigurationOptions{
 		QualityRange: mediasvc.IntRange{Min: 1, Max: 5},
 		H264: mediasvc.H264Options{
-			ResolutionsAvailable:  []mediasvc.ResolutionOptions{{Width: 1920, Height: 1080}, {Width: 640, Height: 480}},
+			ResolutionsAvailable:  resolutions,
 			GovLengthRange:        mediasvc.IntRange{Min: 1, Max: 120},
 			FrameRateRange:        mediasvc.IntRange{Min: 1, Max: 60},
 			EncodingIntervalRange: mediasvc.IntRange{Min: 1, Max: 1},
 			H264ProfilesSupported: []string{"Baseline", "Main", "High"},
+		},
+		JPEG: mediasvc.JPEGOptions{
+			ResolutionsAvailable:  resolutions,
+			FrameRateRange:        mediasvc.IntRange{Min: 1, Max: 60},
+			EncodingIntervalRange: mediasvc.IntRange{Min: 1, Max: 1},
 		},
 	}, nil
 }
@@ -254,8 +274,9 @@ func (p *mediaProvider) StreamURI(
 	_ context.Context, profileToken string, _ mediasvc.StreamSetup,
 ) (mediasvc.MediaURI, error) {
 	cfg := p.sim.snapshotConfig()
-	for i := range cfg.Media.Profiles {
-		prof := &cfg.Media.Profiles[i]
+	profiles := p.sim.snapshotEffectiveProfiles()
+	for i := range profiles {
+		prof := &profiles[i]
 		if prof.Token != profileToken {
 			continue
 		}
@@ -278,13 +299,13 @@ func streamURIFor(cfg *config.Config, p *config.ProfileConfig) string {
 }
 
 func (p *mediaProvider) SnapshotURI(_ context.Context, profileToken string) (mediasvc.MediaURI, error) {
-	cfg := p.sim.snapshotConfig()
-	for i := range cfg.Media.Profiles {
-		if cfg.Media.Profiles[i].Token == profileToken {
-			if cfg.Media.Profiles[i].SnapshotURI == "" {
+	profiles := p.sim.snapshotEffectiveProfiles()
+	for i := range profiles {
+		if profiles[i].Token == profileToken {
+			if profiles[i].SnapshotURI == "" {
 				return mediasvc.MediaURI{}, fmt.Errorf("%w: %s", mediasvc.ErrNoSnapshot, profileToken)
 			}
-			return mediasvc.MediaURI{URI: cfg.Media.Profiles[i].SnapshotURI, Timeout: mediaTimeoutPT0S}, nil
+			return mediasvc.MediaURI{URI: profiles[i].SnapshotURI, Timeout: mediaTimeoutPT0S}, nil
 		}
 	}
 	return mediasvc.MediaURI{}, fmt.Errorf("%w: %s", mediasvc.ErrProfileNotFound, profileToken)
@@ -396,11 +417,18 @@ func vsConfigFromProfile(p *config.ProfileConfig, sourceToken string) mediasvc.V
 }
 
 func veConfigFromProfile(p *config.ProfileConfig) mediasvc.VideoEncoderConfiguration {
+	// ONVIF Encoding values: "H264" | "H265" | "JPEG" — note that MJPEG
+	// flows through ONVIF as the bare "JPEG" enum value even though the
+	// stream is RTP/Motion-JPEG. Map our internal CodecMJPEG token to it.
+	encoding := p.Encoding
+	if encoding == rtsp.CodecMJPEG {
+		encoding = "JPEG"
+	}
 	cfg := mediasvc.VideoEncoderConfiguration{
 		Token:      p.Token + "_enc",
 		Name:       p.Name + "_enc",
 		UseCount:   1,
-		Encoding:   p.Encoding,
+		Encoding:   encoding,
 		Resolution: mediasvc.Resolution{Width: p.Width, Height: p.Height},
 		Quality:    4,
 		RateControl: mediasvc.VideoRateControl{
