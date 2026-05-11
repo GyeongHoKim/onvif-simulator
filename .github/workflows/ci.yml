@@ -53,6 +53,8 @@ jobs:
           cache: npm
           cache-dependency-path: internal/gui/frontend/package-lock.json
 
+      - uses: extractions/setup-just@v3
+
       - name: Install frontend dependencies
         working-directory: internal/gui/frontend
         run: npm ci
@@ -62,7 +64,7 @@ jobs:
         run: npm run build
 
       - name: Run tests
-        run: make test
+        run: just test
 
   mtxrpicam-version-pin:
     name: MTXRPICAM version pin
@@ -71,19 +73,19 @@ jobs:
       - uses: actions/checkout@v6.0.2
 
       # Catch drift between the three places that pin mediamtx-rpicamera:
-      # Makefile's MTXRPICAM_VERSION, the .goreleaser.yml pre-hook, and the
+      # Justfile's mtxrpicam_version, the .goreleaser.yml pre-hook, and the
       # header comment in scripts/mtxrpicam.sha256. They are bumped together
       # by hand, so a missed file should fail PR CI loudly.
       - name: Verify MTXRPICAM version pin is consistent
         run: |
           set -euo pipefail
-          mk=$(sed -n 's/^MTXRPICAM_VERSION[[:space:]]*?=[[:space:]]*\(v[0-9.]*\).*/\1/p' Makefile)
+          jf=$(sed -n "s/^mtxrpicam_version[[:space:]]*:=[[:space:]]*env_var_or_default([^,]*,[[:space:]]*'\(v[0-9.]*\)').*/\1/p" Justfile)
           gr=$(grep -oE 'fetch-mtxrpicam\.sh.*v[0-9.]+' .goreleaser.yml \
                 | grep -oE 'v[0-9.]+' | sort -u)
           sh=$(sed -n 's/.*mediamtx-rpicamera \(v[0-9.]*\).*/\1/p' scripts/mtxrpicam.sha256 \
                 | sort -u)
-          echo "Makefile=$mk goreleaser=$gr sha256=$sh"
-          [ -n "$mk" ] && [ -n "$gr" ] && [ -n "$sh" ] || {
+          echo "Justfile=$jf goreleaser=$gr sha256=$sh"
+          [ -n "$jf" ] && [ -n "$gr" ] && [ -n "$sh" ] || {
             echo "could not extract a version from one or more files" >&2; exit 1; }
           [ "$(echo "$gr" | wc -l)" = "1" ] || {
             echo ".goreleaser.yml pre-hook references multiple versions" >&2; exit 1; }
@@ -91,8 +93,8 @@ jobs:
             echo "scripts/mtxrpicam.sha256 references multiple versions:" >&2
             echo "$sh" >&2
             exit 1; }
-          [ "$mk" = "$gr" ] && [ "$mk" = "$sh" ] || {
-            echo "MTXRPICAM version drift between Makefile, .goreleaser.yml, and scripts/mtxrpicam.sha256" >&2
+          [ "$jf" = "$gr" ] && [ "$jf" = "$sh" ] || {
+            echo "MTXRPICAM version drift between Justfile, .goreleaser.yml, and scripts/mtxrpicam.sha256" >&2
             exit 1; }
 
   rpicam-build-check:
@@ -112,6 +114,8 @@ jobs:
           cache: npm
           cache-dependency-path: internal/gui/frontend/package-lock.json
 
+      - uses: extractions/setup-just@v3
+
       # rpicam-build-check cross-compiles ./..., which includes internal/gui;
       # that package's //go:embed all:frontend/dist requires the dist tree to
       # exist at compile time even though the rpi channel itself never ships
@@ -129,4 +133,4 @@ jobs:
       # in internal/rpicamera/camera_rpicam.go that the disabled stub would
       # otherwise hide on the default linux/amd64 build.
       - name: Cross-compile rpicam-tagged code
-        run: make rpicam-build-check
+        run: just rpicam-build-check

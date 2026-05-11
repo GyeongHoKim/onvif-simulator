@@ -299,24 +299,37 @@ go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
 ### Setup
 
+The repo uses [just](https://github.com/casey/just) as its task runner. Install it once via any of:
+
+```bash
+mise install                  # picks up the version pinned in mise.toml
+brew install just             # macOS / Linuxbrew
+scoop install just            # Windows (scoop)
+cargo install just            # any platform with Rust
+```
+
+Then:
+
 ```bash
 git clone https://github.com/GyeongHoKim/onvif-simulator.git
 cd onvif-simulator
 go mod tidy
 cp onvif-simulator.example.json onvif-simulator.json  # fill in your RTSP URIs
-make setup            # install git hooks and commitlint
+just setup            # install git hooks and commitlint
 ```
+
+The legacy `Makefile` is a thin deprecation wrapper that simply forwards every target to the matching `just` recipe; new work should call `just <recipe>` directly. Run `just --list` to see everything available.
 
 ### Common Tasks
 
 | Command | Description |
 |---------|-------------|
-| `make setup` | Install git hooks and commitlint (run once after cloning) |
-| `make cli` | Build the CLI/TUI binary |
-| `make gui` | Build the GUI binary (requires Wails) |
-| `make format` | Run `go fmt` across all packages |
-| `make lint` | Run golangci-lint |
-| `make clean` | Remove build artifacts |
+| `just setup` | Install git hooks and commitlint (run once after cloning) |
+| `just cli` | Build the CLI/TUI binary |
+| `just gui` | Build the GUI binary (requires Wails) |
+| `just format` | Run `go fmt` across all packages |
+| `just lint` | Run golangci-lint |
+| `just clean` | Remove build artifacts |
 
 ### Run
 
