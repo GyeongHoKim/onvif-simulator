@@ -23,7 +23,7 @@ trying to exec a few-byte file.
 
 ## Build flow
 
-```
+```bash
 just ffmpeg-fetch       # one-time per (goos, goarch), or whenever
                         # scripts/ffmpeg.sha256 changes
 just cli                # go build embeds the real binary for the host
