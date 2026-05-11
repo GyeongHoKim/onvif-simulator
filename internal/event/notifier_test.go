@@ -100,17 +100,28 @@ func TestNotifier_DeliverPOSTsSOAP(t *testing.T) {
 
 	n := newNotifier(0, nil) // default timeout & discard logger
 	var resultOK atomic.Bool
+	resultCh := make(chan struct{}, 1)
 	n.deliver(context.Background(), &pushDispatch{
 		subscriptionAddr: "http://device/sm?id=sub-1",
 		consumer:         consumerEPR{address: srv.URL},
 		topic:            "tns1:VideoSource/MotionAlarm",
 		message:          "<tt:Message/>",
-	}, func(success bool) { resultOK.Store(success) })
+	}, func(success bool) {
+		resultOK.Store(success)
+		resultCh <- struct{}{}
+	})
 
 	select {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("notifier did not POST within 1s")
+	}
+	// Wait for the onResult callback before asserting on resultOK so the
+	// test does not race against deliver finishing its post-response work.
+	select {
+	case <-resultCh:
+	case <-time.After(time.Second):
+		t.Fatal("onResult callback did not fire within 1s")
 	}
 	if !strings.Contains(capturedCT, "application/soap+xml") {
 		t.Errorf("Content-Type = %q, want application/soap+xml", capturedCT)
