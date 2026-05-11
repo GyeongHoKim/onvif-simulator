@@ -83,6 +83,25 @@ func TestMJPEGSourceRunExitsOnCancel(t *testing.T) {
 	}
 }
 
+func TestMJPEGSourceRunSkipsEmptyJPEGPayload(t *testing.T) {
+	t.Parallel()
+	probe := &ProbeResult{Codec: CodecMJPEG, Width: 640, Height: 480, FPS: 30}
+	src := NewMJPEGSource(probe, nil)
+	done := make(chan error, 1)
+	go func() { done <- src.Run(context.Background()) }()
+	src.Push(JPEGFrame{PTS: 1, NTP: time.Now(), Image: nil})
+	src.Push(JPEGFrame{PTS: 2, NTP: time.Now(), Image: []byte{}})
+	src.Close()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not exit after Close")
+	}
+}
+
 func TestMJPEGSourceRunExitsOnChannelClose(t *testing.T) {
 	t.Parallel()
 	probe := &ProbeResult{Codec: CodecMJPEG, Width: 640, Height: 480, FPS: 30}

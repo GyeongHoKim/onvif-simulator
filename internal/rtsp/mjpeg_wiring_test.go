@@ -43,12 +43,24 @@ func TestNewTranscodingSource_RejectsEmptyMediaPath(t *testing.T) {
 	t.Parallel()
 	_, err := NewTranscodingSource(ffmpeg.Params{}, 0, 0, 0, nil)
 	if err == nil {
-		t.Fatal("expected error from missing MediaFilePath / unavailable ffmpeg")
+		t.Fatal("expected error for empty MediaFilePath")
 	}
-	// Either way is acceptable: placeholder build returns ErrUnsupported,
-	// availability success then fails on the MediaFilePath check.
-	if !errors.Is(err, ffmpeg.ErrUnsupported) && err.Error() == "" {
-		t.Fatalf("unexpected error shape: %v", err)
+	if !errors.Is(err, ErrTranscodingMediaFilePathRequired) {
+		t.Fatalf("expected ErrTranscodingMediaFilePathRequired, got %v", err)
+	}
+}
+
+func TestNewTranscodingSource_RejectsWhenFFmpegUnavailable(t *testing.T) {
+	t.Parallel()
+	if err := ffmpeg.Available(); err == nil {
+		t.Skip("embedded ffmpeg present; placeholder ErrUnsupported path not testable here")
+	}
+	_, err := NewTranscodingSource(ffmpeg.Params{MediaFilePath: "/tmp/x.mp4"}, 640, 480, 30, nil)
+	if err == nil {
+		t.Fatal("expected error when ffmpeg blob is placeholder")
+	}
+	if !errors.Is(err, ffmpeg.ErrUnsupported) {
+		t.Fatalf("expected ErrUnsupported, got %v", err)
 	}
 }
 

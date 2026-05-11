@@ -88,6 +88,19 @@ func TestReadMPJPEGFrame_StreamEnd(t *testing.T) {
 	}
 }
 
+func TestReadMPJPEGFrame_InvalidContentLengthValue(t *testing.T) {
+	t.Parallel()
+	bad := "--ffmpeg\r\nContent-type: image/jpeg\r\nContent-length: not-a-number\r\n\r\n"
+	br := bufio.NewReader(strings.NewReader(bad))
+	_, err := readMPJPEGFrame(context.Background(), br)
+	if err == nil {
+		t.Fatal("expected error for non-numeric Content-Length")
+	}
+	if errors.Is(err, errReaderClosed) {
+		t.Fatalf("parse error should not map to errReaderClosed: %v", err)
+	}
+}
+
 func TestReadMPJPEGFrame_MissingContentLength(t *testing.T) {
 	t.Parallel()
 	bad := "--ffmpeg\r\nContent-type: image/jpeg\r\n\r\n"

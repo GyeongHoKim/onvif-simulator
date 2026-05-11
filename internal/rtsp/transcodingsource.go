@@ -12,9 +12,9 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/obs"
 )
 
-// errTranscodingMediaFilePathRequired is returned by NewTranscodingSource
+// ErrTranscodingMediaFilePathRequired is returned by NewTranscodingSource
 // when Params arrives without a source file path.
-var errTranscodingMediaFilePathRequired = errors.New(
+var ErrTranscodingMediaFilePathRequired = errors.New(
 	"rtsp: TranscodingSource requires Params.MediaFilePath")
 
 // TranscodingSource wraps an MJPEGSource with an ffmpeg.Transcoder that
@@ -35,6 +35,20 @@ type TranscodingSource struct {
 	closeOnce sync.Once
 }
 
+// transcoderSession is the subset of *ffmpeg.Transcoder Run needs so tests
+// can inject a fake subprocess without a real embedded binary.
+type transcoderSession interface {
+	Close()
+	Wait() error
+}
+
+// openTranscoderHook defaults to ffmpeg.Open; tests swap it for fakes.
+var openTranscoderHook = func(
+	p ffmpeg.Params, logger *slog.Logger, onJPEG ffmpeg.OnJPEGDataFunc,
+) (transcoderSession, error) {
+	return ffmpeg.Open(p, logger, onJPEG)
+}
+
 // NewTranscodingSource builds a TranscodingSource for the configured
 // source file. width/height/fps describe the *output* MJPEG stream and
 // are advertised via Describe(); ffmpeg takes its dimensions from the
@@ -47,11 +61,11 @@ type TranscodingSource struct {
 func NewTranscodingSource(
 	params ffmpeg.Params, width, height, fps int, logger *slog.Logger,
 ) (Source, error) {
+	if params.MediaFilePath == "" {
+		return nil, ErrTranscodingMediaFilePathRequired
+	}
 	if err := ffmpeg.Available(); err != nil {
 		return nil, err
-	}
-	if params.MediaFilePath == "" {
-		return nil, errTranscodingMediaFilePathRequired
 	}
 	if logger == nil {
 		logger = obs.Discard()
@@ -73,7 +87,7 @@ func NewTranscodingSource(
 // embedded MJPEGSource until ctx is canceled, the transcoder exits, or
 // the source's Run loop returns.
 func (t *TranscodingSource) Run(ctx context.Context) error {
-	tc, err := ffmpeg.Open(t.params, t.logger, func(pts int64, ntp time.Time, jpeg []byte) {
+	tc, err := openTranscoderHook(t.params, t.logger, func(pts int64, ntp time.Time, jpeg []byte) {
 		t.Push(JPEGFrame{PTS: pts, NTP: ntp, Image: jpeg})
 	})
 	if err != nil {
