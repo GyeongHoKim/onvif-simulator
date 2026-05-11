@@ -221,8 +221,8 @@ func (t *Transcoder) runInner() error {
 	for {
 		select {
 		case err := <-cmdDone:
-			_ = t.stdout.Close() //nolint:errcheck // shutdown best-effort
 			<-readDone
+			_ = t.stdout.Close() //nolint:errcheck // shutdown best-effort
 			<-t.stderrDone
 			return err
 		case err := <-readDone:
@@ -233,8 +233,8 @@ func (t *Transcoder) runInner() error {
 		case <-t.terminate:
 			_ = t.cmd.Process.Kill() //nolint:errcheck // best-effort terminate on Close
 			<-cmdDone
-			_ = t.stdout.Close() //nolint:errcheck // shutdown best-effort
 			<-readDone
+			_ = t.stdout.Close() //nolint:errcheck // shutdown best-effort
 			<-t.stderrDone
 			return errTerminated
 		}
