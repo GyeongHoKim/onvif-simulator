@@ -122,10 +122,10 @@ ffmpeg-fetch:
     done
 
 # Fetch a real ffmpeg binary for every supported (goos, goarch). Idempotent.
-# Requires bash on PATH (typically via git-bash / WSL on a developer workstation).
+# Windows: PowerShell ports under scripts/*.ps1 (same pins as fetch-ffmpeg.sh).
 [windows]
 ffmpeg-fetch:
-    foreach ($t in '{{ffmpeg_targets}}'.Split(' ')) { $parts = $t.Split('_', 2); bash ./scripts/fetch-ffmpeg.sh $parts[0] $parts[1] }
+    foreach ($t in '{{ffmpeg_targets}}'.Split(' ')) { $parts = $t.Split('_', 2); pwsh -NoProfile -File ./scripts/fetch-ffmpeg.ps1 -Goos $parts[0] -Goarch $parts[1] }
 
 # Cross-compile rpicam-tagged code for both Pi targets (no upstream fetch).
 [unix]
