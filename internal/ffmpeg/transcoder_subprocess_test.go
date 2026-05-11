@@ -2,9 +2,7 @@ package ffmpeg
 
 import (
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -136,8 +134,3 @@ func TestOpen_FakeBinaryCloseTerminatesEarly(t *testing.T) {
 		t.Fatalf("Wait after Close returned %v, expected nil", err)
 	}
 }
-
-// Pull in os/exec so the static analyzer sees we used it via the
-// helper binary contract above.
-var _ = exec.Command
-var _ io.Reader = (*os.File)(nil)
