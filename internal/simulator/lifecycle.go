@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
+	"github.com/GyeongHoKim/onvif-simulator/internal/ffmpeg"
 	"github.com/GyeongHoKim/onvif-simulator/internal/obs"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/devicesvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/eventsvc"
@@ -38,7 +39,7 @@ func (s *Simulator) Start(_ context.Context) error {
 	}
 
 	rtspLogger := s.rootLogger.With("component", "rtsp")
-	rtspServer, probedProfiles, rtspErr := startRTSPServer(&cfg, rtspLogger)
+	rtspServer, probedProfiles, mjpegSiblings, rtspErr := startRTSPServer(&cfg, rtspLogger)
 	if rtspErr != nil {
 		_ = listener.Close() //nolint:errcheck // best-effort during failure
 		return rtspErr
@@ -66,6 +67,7 @@ func (s *Simulator) Start(_ context.Context) error {
 	if probedProfiles != nil {
 		s.cfg.Media.Profiles = probedProfiles
 	}
+	s.derivedMJPEGProfiles = mjpegSiblings
 	s.listenAddr = listenAddr
 	s.started = time.Now().UTC()
 	s.running = true
@@ -127,14 +129,27 @@ var errUnknownSourceKind = errors.New("simulator: unknown source kind")
 
 // startRTSPServer boots the embedded RTSP server (if at least one profile
 // declares a usable source) and returns the probed profiles whose encoder
-// fields the lifecycle should publish back into Simulator.cfg.
+// fields the lifecycle should publish back into Simulator.cfg, plus the
+// auto-generated Profile S §7.9 MJPEG sibling profiles the lifecycle
+// should store on Simulator.derivedMJPEGProfiles.
 //
 // A profile is "usable" when ProfileConfig.HasSource reports true: kind=file
 // with a non-empty media_file_path, or kind=rpicam with rpicam params. When
 // no profile is usable the returned server is nil and StreamURI continues to
 // emit the conventional rtsp://host:port/<token> URL even without an active
 // listener, so clients can detect the absence as "no media on that path".
-func startRTSPServer(cfg *config.Config, logger *slog.Logger) (*rtsp.Server, []config.ProfileConfig, error) {
+//
+// For every usable profile the function also registers a sibling MJPEG
+// RTSP source under <token>_JPEG: kind=file siblings transcode via the
+// embedded ffmpeg helper, kind=rpicam siblings hook the mtxrpicam
+// secondary stream (Pi ISP hardware JPEG). When the ffmpeg helper is not
+// available on the current build (placeholder binary), kind=file siblings
+// are silently skipped and only the H.264/H.265 path stays registered so
+// the simulator still boots; the MJPEG path will be unavailable until a
+// real ffmpeg binary is fetched.
+func startRTSPServer(
+	cfg *config.Config, logger *slog.Logger,
+) (srv *rtsp.Server, probed, mjpegSiblings []config.ProfileConfig, err error) {
 	hasSource := false
 	for i := range cfg.Media.Profiles {
 		if cfg.Media.Profiles[i].HasSource() {
@@ -143,15 +158,15 @@ func startRTSPServer(cfg *config.Config, logger *slog.Logger) (*rtsp.Server, []c
 		}
 	}
 	if !hasSource {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 
-	srv := rtsp.New(cfg.Network.RTSPPortOrDefault(), rtsp.WithLogger(logger))
-	if err := srv.Start(); err != nil {
-		return nil, nil, fmt.Errorf("simulator: start rtsp server: %w", err)
+	srv = rtsp.New(cfg.Network.RTSPPortOrDefault(), rtsp.WithLogger(logger))
+	if startErr := srv.Start(); startErr != nil {
+		return nil, nil, nil, fmt.Errorf("simulator: start rtsp server: %w", startErr)
 	}
 
-	probed := make([]config.ProfileConfig, len(cfg.Media.Profiles))
+	probed = make([]config.ProfileConfig, len(cfg.Media.Profiles))
 	copy(probed, cfg.Media.Profiles)
 	for i := range probed {
 		p := &probed[i]
@@ -161,7 +176,7 @@ func startRTSPServer(cfg *config.Config, logger *slog.Logger) (*rtsp.Server, []c
 		src, err := buildRTSPSource(p, logger)
 		if err != nil {
 			srv.Stop()
-			return nil, nil, fmt.Errorf(
+			return nil, nil, nil, fmt.Errorf(
 				"simulator: register rtsp source %q: %w",
 				p.Token, err,
 			)
@@ -169,7 +184,7 @@ func startRTSPServer(cfg *config.Config, logger *slog.Logger) (*rtsp.Server, []c
 		probe, err := srv.AddSource(p.Token, src)
 		if err != nil {
 			srv.Stop()
-			return nil, nil, fmt.Errorf(
+			return nil, nil, nil, fmt.Errorf(
 				"simulator: register rtsp source %q: %w",
 				p.Token, err,
 			)
@@ -183,8 +198,125 @@ func startRTSPServer(cfg *config.Config, logger *slog.Logger) (*rtsp.Server, []c
 		p.Height = probe.Height
 		p.FPS = probe.FPS
 	}
-	return srv, probed, nil
+
+	mjpegSiblings, sibErr := registerMJPEGSiblings(srv, probed, logger)
+	if sibErr != nil {
+		srv.Stop()
+		return nil, nil, nil, sibErr
+	}
+	return srv, probed, mjpegSiblings, nil
 }
+
+// registerMJPEGSiblings creates and registers one MJPEG RTSP source per
+// usable user profile so Profile S §7.9 is satisfied. The function
+// returns the in-memory ProfileConfig entries the caller should hand to
+// Simulator.derivedMJPEGProfiles so GetProfiles enumerates them.
+//
+// The h264Sources map is keyed by parent token and supplies the
+// rpicam-tagged source that needs the secondary-MJPEG callback wired
+// up; it is unused for kind=file siblings.
+func registerMJPEGSiblings(
+	srv *rtsp.Server,
+	probed []config.ProfileConfig,
+	logger *slog.Logger,
+) ([]config.ProfileConfig, error) {
+	siblings := deriveMJPEGSiblings(probed)
+	if len(siblings) == 0 {
+		return nil, nil
+	}
+	out := make([]config.ProfileConfig, 0, len(siblings))
+	for i := range siblings {
+		sib := siblings[i]
+		parentTok := MJPEGSiblingParentToken(sib.Token)
+		parent := findProfileByToken(probed, parentTok)
+		if parent == nil {
+			continue
+		}
+		sibLogger := logger.With("profile", sib.Token, "parent", parentTok)
+		src, buildErr := buildMJPEGSiblingSource(parent, srv, sibLogger)
+		if buildErr != nil {
+			sibLogger.Warn("simulator: skip mjpeg sibling — source unavailable",
+				"err", buildErr)
+			continue
+		}
+		if _, addErr := srv.AddSource(sib.Token, src); addErr != nil {
+			return nil, fmt.Errorf(
+				"simulator: register mjpeg sibling %q: %w",
+				sib.Token, addErr,
+			)
+		}
+		out = append(out, sib)
+	}
+	return out, nil
+}
+
+// buildMJPEGSiblingSource constructs the rtsp.Source feeding the MJPEG
+// sibling for a kind=file or kind=rpicam parent profile. kind=file uses
+// the embedded ffmpeg transcoder; kind=rpicam attaches the secondary
+// stream callback to the parent's rpicam source (which is already
+// registered by startRTSPServer's main loop).
+//
+// Returns (nil, nil) when the parent's kind cannot produce an MJPEG
+// sibling (e.g. an unknown kind defended against in validateProfileSource);
+// returns (nil, error) when the transcoder is unavailable.
+func buildMJPEGSiblingSource(
+	parent *config.ProfileConfig, srv *rtsp.Server, logger *slog.Logger,
+) (rtsp.Source, error) {
+	switch parent.Kind {
+	case "", config.ProfileKindFile:
+		params := ffmpegParamsForProfile(parent)
+		return rtsp.NewTranscodingSource(params, parent.Width, parent.Height, parent.FPS, logger)
+	case config.ProfileKindRPICam:
+		// The MJPEG sibling for an rpicam profile is fed by the parent's
+		// secondary stream callback. Build a plain MJPEGSource here and
+		// wire it into the parent via rtsp.AttachMJPEG below. The parent
+		// rpicam source is already registered (under parent.Token) by
+		// startRTSPServer's main loop; we look it up via srv to attach.
+		mjpeg := rtsp.NewMJPEGSource(&rtsp.ProbeResult{
+			Codec:  rtsp.CodecMJPEG,
+			Width:  parent.Width,
+			Height: parent.Height,
+			FPS:    parent.FPS,
+		}, logger)
+		parentSrc := srv.SourceFor(parent.Token)
+		if parentSrc == nil {
+			return nil, errMJPEGParentSourceMissing
+		}
+		if !rtsp.AttachMJPEG(parentSrc, mjpeg.Push) {
+			return nil, errMJPEGParentNotRPICam
+		}
+		return mjpeg, nil
+	default:
+		return nil, errMJPEGUnsupportedParentKind
+	}
+}
+
+// ffmpegParamsForProfile maps a kind=file parent profile to the ffmpeg
+// transcoder configuration. The simulator loops the source file forever
+// to mirror the H.264 looper's behavior so an MJPEG client sees the
+// same continuous loop a parallel H.264 client does.
+func ffmpegParamsForProfile(p *config.ProfileConfig) ffmpeg.Params {
+	return ffmpeg.Params{
+		MediaFilePath: p.MediaFilePath,
+		FPS:           p.FPS,
+		LoopForever:   true,
+	}
+}
+
+func findProfileByToken(profiles []config.ProfileConfig, token string) *config.ProfileConfig {
+	for i := range profiles {
+		if profiles[i].Token == token {
+			return &profiles[i]
+		}
+	}
+	return nil
+}
+
+var (
+	errMJPEGParentSourceMissing   = errors.New("simulator: parent rpicam source not registered")
+	errMJPEGParentNotRPICam       = errors.New("simulator: parent source is not an rpicam source")
+	errMJPEGUnsupportedParentKind = errors.New("simulator: cannot derive MJPEG sibling for this profile kind")
+)
 
 // buildRTSPSource maps a ProfileConfig source kind to the matching
 // rtsp.Source. The kind=rpicam branch returns rpicamera.ErrUnsupported on

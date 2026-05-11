@@ -2,6 +2,22 @@ version: 2
 
 project_name: onvif-simulator
 
+before:
+  # Populate internal/ffmpeg/binaries/<goos>_<goarch>/ffmpeg{,.exe} with
+  # real LGPL static builds before any `go build` runs. The script is
+  # idempotent — earlier builds in the same release see the binaries
+  # already in place and skip re-fetching. Pin per-platform SHA-256s in
+  # scripts/ffmpeg.sha256 before release; the script refuses unpinned
+  # downloads.
+  hooks:
+    - ./scripts/fetch-ffmpeg.sh linux amd64
+    - ./scripts/fetch-ffmpeg.sh linux arm64
+    - ./scripts/fetch-ffmpeg.sh linux arm
+    - ./scripts/fetch-ffmpeg.sh darwin amd64
+    - ./scripts/fetch-ffmpeg.sh darwin arm64
+    - ./scripts/fetch-ffmpeg.sh windows amd64
+    - ./scripts/fetch-ffmpeg.sh windows arm64
+
 builds:
   - id: cli
     main: ./cmd/cli

@@ -682,6 +682,9 @@ func validateProfile(i int, p *ProfileConfig, seenProfileTokens map[string]bool)
 	if err := validateProfileSource(prefix, p); err != nil {
 		return err
 	}
+	if err := validateProfileEncoding(prefix+".encoding", p.Encoding); err != nil {
+		return err
+	}
 	if p.Bitrate < 0 {
 		return fmt.Errorf("config: %s.bitrate: %w", prefix, errProfileBitrateNegative)
 	}
@@ -742,6 +745,20 @@ func validateRPICam(prefix string, r *RPICamConfig) error {
 		return fmt.Errorf("config: %s.extra_args: %w", prefix, ErrProfileRPICamExtraArgs)
 	}
 	return nil
+}
+
+// validateProfileEncoding gates profile.encoding to the codec set the
+// simulator can stream. Empty is allowed because kind=file probes the value
+// from the mp4 at startup; kind=rpicam fills it in from the camera helper.
+// The simulator also derives an "MJPEG" sibling profile per Profile S §7.9
+// even when the persisted value is H264/H265.
+func validateProfileEncoding(field, raw string) error {
+	switch raw {
+	case "", "H264", "H265", "MJPEG":
+		return nil
+	default:
+		return fmt.Errorf("config: %s %q: %w", field, raw, ErrProfileEncodingInvalid)
+	}
 }
 
 // validateMediaFilePath rejects whitespace-only paths. An empty string is

@@ -254,6 +254,30 @@ func TestServerStreamH265(t *testing.T) {
 	}
 }
 
+func TestServerSourceFor(t *testing.T) {
+	t.Parallel()
+	s := New(freePort(t))
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { s.Stop() })
+
+	path := filepath.Join("testdata", "short_h264.mp4")
+	src, err := NewFileSource(path)
+	if err != nil {
+		t.Fatalf("NewFileSource: %v", err)
+	}
+	if _, err := s.AddSource("cam", src); err != nil {
+		t.Fatalf("AddSource: %v", err)
+	}
+	if got := s.SourceFor("cam"); got != src {
+		t.Fatalf("SourceFor(cam) = %p want %p", got, src)
+	}
+	if got := s.SourceFor("missing"); got != nil {
+		t.Fatalf("SourceFor(missing) = %v want nil", got)
+	}
+}
+
 func TestServerDescribeUnknownPath(t *testing.T) {
 	port := freePort(t)
 	s := New(port)

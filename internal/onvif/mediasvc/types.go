@@ -130,12 +130,25 @@ type H264Options struct {
 	H264ProfilesSupported []string
 }
 
+// JPEGOptions advertises the allowed JPEG (MJPEG) values for the encoder.
+// Profile S §7.9.1 requires every device that streams MJPEG to declare this
+// option block alongside the H.264 one. A zero-value JPEGOptions advertises
+// no resolutions; the field is omitted from the SOAP envelope when its
+// ResolutionsAvailable slice is empty.
+type JPEGOptions struct {
+	ResolutionsAvailable  []ResolutionOptions
+	FrameRateRange        IntRange
+	EncodingIntervalRange IntRange
+}
+
 // VideoEncoderConfigurationOptions advertises encoder capabilities.
-// The Media service exposes one entry per supported codec; the simulator
-// currently advertises H.264 only.
+// Profile S §7.9.1 mandates the JPEG block; H264 covers the §7.5 mandate.
+// The Media service returns the same options regardless of the requesting
+// profile so a client can switch encoding via SetVideoEncoderConfiguration.
 type VideoEncoderConfigurationOptions struct {
 	QualityRange IntRange
 	H264         H264Options
+	JPEG         JPEGOptions
 }
 
 // MetadataConfiguration describes the metadata stream configuration for a profile.

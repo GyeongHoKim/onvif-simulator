@@ -380,6 +380,18 @@ func (h *Handler) handleGetVideoEncoderConfigurationOptions(ctx context.Context,
 	for i, r := range opt.H264.ResolutionsAvailable {
 		resolutions[i] = resolutionEnvelope(r)
 	}
+	var jpeg *jpegOptionsEnvelope
+	if len(opt.JPEG.ResolutionsAvailable) > 0 {
+		jpegRes := make([]resolutionEnvelope, len(opt.JPEG.ResolutionsAvailable))
+		for i, r := range opt.JPEG.ResolutionsAvailable {
+			jpegRes[i] = resolutionEnvelope(r)
+		}
+		jpeg = &jpegOptionsEnvelope{
+			ResolutionsAvailable:  jpegRes,
+			FrameRateRange:        intRangeEnvelope(opt.JPEG.FrameRateRange),
+			EncodingIntervalRange: intRangeEnvelope(opt.JPEG.EncodingIntervalRange),
+		}
+	}
 	return xml.Marshal(getVideoEncoderConfigurationOptionsResponse{
 		XMLNS:   MediaNamespace,
 		XMLNSTT: SchemaNamespace,
@@ -392,6 +404,7 @@ func (h *Handler) handleGetVideoEncoderConfigurationOptions(ctx context.Context,
 				EncodingIntervalRange: intRangeEnvelope(opt.H264.EncodingIntervalRange),
 				H264ProfilesSupported: append([]string(nil), opt.H264.H264ProfilesSupported...),
 			},
+			JPEG: jpeg,
 		},
 	})
 }

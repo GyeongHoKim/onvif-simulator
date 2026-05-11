@@ -19,6 +19,7 @@ func TestOpenReturnsUnsupportedOnDefaultBuild(t *testing.T) {
 		rpicamera.Params{Width: 1920, Height: 1080, FPS: 30},
 		nil,
 		func(int64, time.Time, [][]byte) {},
+		nil,
 	)
 	_ = cam
 	if !errors.Is(err, rpicamera.ErrUnsupported) {

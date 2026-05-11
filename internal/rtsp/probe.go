@@ -19,10 +19,13 @@ import (
 )
 
 // Codec names used in ProbeResult and exposed via ONVIF
-// VideoEncoderConfiguration.
+// VideoEncoderConfiguration. CodecMJPEG is never the result of Probe — it is
+// produced only by the transcoder/secondary-stream paths that materialize an
+// MJPEG sibling for every H264/H265 source (Profile S §7.9 mandatory).
 const (
-	CodecH264 = "H264"
-	CodecH265 = "H265"
+	CodecH264  = "H264"
+	CodecH265  = "H265"
+	CodecMJPEG = "MJPEG"
 )
 
 // ErrNoVideoTrack is returned when an mp4 file does not contain a video track

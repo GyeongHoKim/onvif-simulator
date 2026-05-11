@@ -417,6 +417,9 @@ func (h *Handler) handleGetGuaranteedNumberOfVideoEncoderInstances(
 		XMLNS:       MediaNamespace,
 		TotalNumber: n,
 		H264:        n,
+		// Profile S §7.9 mandates MJPEG. The simulator transcodes/captures one
+		// MJPEG sibling per H.264 source, so JPEG instance count tracks H264.
+		JPEG: n,
 	})
 }
 

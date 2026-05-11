@@ -27,6 +27,12 @@ mtxrpicam_version := env_var_or_default('MTXRPICAM_VERSION', 'v2.5.6')
 rpicam_dir_32 := "internal/rpicamera/mtxrpicam_32"
 rpicam_dir_64 := "internal/rpicamera/mtxrpicam_64"
 
+# Per-platform ffmpeg targets the simulator embeds for the MJPEG transcoder
+# (Profile S §7.9). Bump with scripts/ffmpeg.sha256 in lockstep so each
+# build channel ships a reproducible, hash-verified binary blob. Each tuple
+# corresponds to one entry under internal/ffmpeg/binaries/<goos>_<goarch>/.
+ffmpeg_targets := "linux_amd64 linux_arm64 linux_arm darwin_amd64 darwin_arm64 windows_amd64 windows_arm64"
+
 docs_port := env_var_or_default('DOCS_PORT', '8080')
 
 # Default: list all recipes.
@@ -102,6 +108,24 @@ rpicam-fetch:
 rpicam-fetch:
     pwsh -NoProfile -File ./scripts/fetch-mtxrpicam.ps1 -WordSize 32 -Version '{{mtxrpicam_version}}' -DestDir '{{rpicam_dir_32}}'
     pwsh -NoProfile -File ./scripts/fetch-mtxrpicam.ps1 -WordSize 64 -Version '{{mtxrpicam_version}}' -DestDir '{{rpicam_dir_64}}'
+
+# Fetch a real ffmpeg binary for every supported (goos, goarch). Idempotent
+# — fetch-ffmpeg.sh skips targets that already have a >= 1 MiB binary in
+# place. Pin the per-archive SHA-256s in scripts/ffmpeg.sha256 before
+# running; the script refuses unpinned downloads.
+[unix]
+ffmpeg-fetch:
+    for t in {{ffmpeg_targets}}; do \
+      goos="$(echo $t | cut -d_ -f1)"; \
+      goarch="$(echo $t | cut -d_ -f2-)"; \
+      ./scripts/fetch-ffmpeg.sh "$goos" "$goarch"; \
+    done
+
+# Fetch a real ffmpeg binary for every supported (goos, goarch). Idempotent.
+# Windows: PowerShell ports under scripts/*.ps1 (same pins as fetch-ffmpeg.sh).
+[windows]
+ffmpeg-fetch:
+    foreach ($t in '{{ffmpeg_targets}}'.Split(' ')) { $parts = $t.Split('_', 2); pwsh -NoProfile -File ./scripts/fetch-ffmpeg.ps1 -Goos $parts[0] -Goarch $parts[1] }
 
 # Cross-compile rpicam-tagged code for both Pi targets (no upstream fetch).
 [unix]
