@@ -34,3 +34,12 @@ internal/rpicamera/mtxrpicam_32/*
 !internal/rpicamera/mtxrpicam_32/placeholder
 internal/rpicamera/mtxrpicam_64/*
 !internal/rpicamera/mtxrpicam_64/placeholder
+
+# Embedded ffmpeg blobs follow the same fetch-only pattern as mtxrpicam:
+# only a 1-byte `placeholder` file is committed per platform directory
+# so //go:embed has something to find; CI (and any local dev wanting
+# MJPEG to actually work) runs `just ffmpeg-fetch` to populate the real
+# ffmpeg / ffmpeg.exe alongside the placeholder. Verified against
+# scripts/ffmpeg.sha256.
+internal/ffmpeg/binaries/*/ffmpeg
+internal/ffmpeg/binaries/*/ffmpeg.exe
