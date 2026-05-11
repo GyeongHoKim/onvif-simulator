@@ -126,6 +126,39 @@ func TestReadMPJPEGFrame_HonorsContext(t *testing.T) {
 	}
 }
 
+func TestReadMPJPEGFrame_TruncatedBody(t *testing.T) {
+	t.Parallel()
+	// Advertise a 64-byte body but only supply 16 bytes so io.ReadFull
+	// returns io.ErrUnexpectedEOF. The parser should map this to a
+	// truncation error distinct from errReaderClosed so callers can flag
+	// it as a transport failure rather than a graceful close.
+	body := bytes.Repeat([]byte{0xAB}, 16)
+	stream := "--ffmpeg\r\nContent-type: image/jpeg\r\nContent-length: 64\r\n\r\n" + string(body)
+	br := bufio.NewReader(strings.NewReader(stream))
+	_, err := readMPJPEGFrame(context.Background(), br)
+	if err == nil {
+		t.Fatal("expected error for truncated frame body")
+	}
+	if errors.Is(err, errReaderClosed) {
+		t.Fatalf("truncated body must not map to errReaderClosed: %v", err)
+	}
+	if !errors.Is(err, errFrameTruncated) {
+		t.Fatalf("expected errFrameTruncated, got %v", err)
+	}
+}
+
+func TestReadMPJPEGFrame_RejectsOversizedContentLength(t *testing.T) {
+	t.Parallel()
+	// Content-Length far above maxMPJPEGFrameSize must be rejected before
+	// the parser allocates memory.
+	huge := "--ffmpeg\r\nContent-type: image/jpeg\r\nContent-length: 999999999\r\n\r\n"
+	br := bufio.NewReader(strings.NewReader(huge))
+	_, err := readMPJPEGFrame(context.Background(), br)
+	if !errors.Is(err, errFrameTooLarge) {
+		t.Fatalf("expected errFrameTooLarge, got %v", err)
+	}
+}
+
 func TestReadMPJPEGFrame_TolerantOfLFOnlyEndings(t *testing.T) {
 	t.Parallel()
 	// Some ffmpeg builds emit `\n` rather than `\r\n` for the multipart

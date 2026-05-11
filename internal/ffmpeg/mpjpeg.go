@@ -20,6 +20,21 @@ var errReaderClosed = errors.New("ffmpeg: mpjpeg stream closed")
 // the Content-Length header — without it we cannot read the JPEG body.
 var errMissingContentLength = errors.New("ffmpeg: mpjpeg frame missing Content-Length")
 
+// errFrameTooLarge is returned when the Content-Length header advertises a
+// frame larger than maxMPJPEGFrameSize. The cap defends against a malformed
+// or hostile producer driving the parser to allocate unbounded memory.
+var errFrameTooLarge = errors.New("ffmpeg: mpjpeg frame exceeds size cap")
+
+// errFrameTruncated is returned when the underlying reader ends part-way
+// through a frame body. Distinct from errReaderClosed (clean stream end)
+// so callers can flag truncation as a transport failure.
+var errFrameTruncated = errors.New("ffmpeg: mpjpeg frame truncated")
+
+// maxMPJPEGFrameSize caps the JPEG body size readMPJPEGFrame will allocate.
+// 32 MiB comfortably covers 4K JPEG frames at high quality and leaves a wide
+// margin over the simulator's expected 1080p/4K MJPEG output.
+const maxMPJPEGFrameSize = 32 << 20
+
 // mpjpegBoundary matches the boundary literal ffmpeg emits when invoked
 // with `-f mpjpeg`. The muxer hard-codes "ffmpeg" — we do not parse the
 // Content-Type header that announces the boundary because it appears
@@ -84,12 +99,27 @@ func readMPJPEGFrame(ctx context.Context, br *bufio.Reader) ([]byte, error) {
 			contentLength = n
 		}
 	}
+	return readFrameBody(br, contentLength)
+}
+
+// readFrameBody allocates and fills the exact Content-Length-sized JPEG
+// payload, after validating that the advertised size is within the cap.
+// Splitting this out keeps readMPJPEGFrame under the cyclomatic limit.
+func readFrameBody(br *bufio.Reader, contentLength int) ([]byte, error) {
 	if contentLength <= 0 {
 		return nil, errMissingContentLength
 	}
-
+	if contentLength > maxMPJPEGFrameSize {
+		return nil, fmt.Errorf("%w: %d > %d", errFrameTooLarge, contentLength, maxMPJPEGFrameSize)
+	}
 	buf := make([]byte, contentLength)
 	if _, err := io.ReadFull(br, buf); err != nil {
+		// io.ReadFull returns io.EOF (zero bytes read) or io.ErrUnexpectedEOF
+		// (partial read) when the stream ends mid-frame. Both are truncation
+		// here because we already committed to consuming Content-Length bytes.
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return nil, fmt.Errorf("%w: %w", errFrameTruncated, err)
+		}
 		return nil, mapReaderErr(err)
 	}
 	return buf, nil
@@ -97,11 +127,10 @@ func readMPJPEGFrame(ctx context.Context, br *bufio.Reader) ([]byte, error) {
 
 // mapReaderErr converts io.EOF (clean stream end) into errReaderClosed
 // so callers can distinguish a graceful shutdown from a parse failure.
+// io.ErrUnexpectedEOF is left to the caller — see readMPJPEGFrame's
+// frame-body branch, which wraps it as errFrameTruncated.
 func mapReaderErr(err error) error {
 	if errors.Is(err, io.EOF) {
-		return errReaderClosed
-	}
-	if errors.Is(err, io.ErrUnexpectedEOF) {
 		return errReaderClosed
 	}
 	return fmt.Errorf("ffmpeg: read mpjpeg: %w", err)
