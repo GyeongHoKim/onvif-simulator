@@ -91,16 +91,32 @@ func TestDeriveMJPEGSiblings_PreservesDimensions(t *testing.T) {
 
 func TestDeriveMJPEGSiblings_SkipsAlreadyDerived(t *testing.T) {
 	t.Parallel()
+	// When the input already contains a sibling-shaped entry, derivation
+	// must not produce a duplicate: the explicit profile wins and we emit
+	// no derived sibling for that parent.
 	in := []config.ProfileConfig{
 		{Name: "Main", Token: "Main", Kind: config.ProfileKindFile, MediaFilePath: "/tmp/x.mp4"},
 		{Name: "Main (MJPEG)", Token: "Main_JPEG", Kind: config.ProfileKindFile, MediaFilePath: "/tmp/x.mp4"},
 	}
 	got := deriveMJPEGSiblings(in)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 sibling (only Main, not Main_JPEG), got %d: %+v", len(got), got)
+	if len(got) != 0 {
+		t.Fatalf("expected 0 derived siblings when Main_JPEG already present, got %d: %+v", len(got), got)
 	}
-	if got[0].Token != "Main_JPEG" {
-		t.Errorf("expected token Main_JPEG, got %q", got[0].Token)
+}
+
+func TestDeriveMJPEGSiblings_SuppressesParentWhenSiblingNameTaken(t *testing.T) {
+	t.Parallel()
+	// hasProfileMatching also matches on name so a user that pre-declared
+	// the derived label collides and the parent's derivation is skipped.
+	in := []config.ProfileConfig{
+		{Name: "Main", Token: "Main", Kind: config.ProfileKindFile, MediaFilePath: "/tmp/x.mp4"},
+		// No source on this entry → won't itself be iterated for derivation,
+		// keeps the test focused on the name-collision branch.
+		{Name: "Main (MJPEG)", Token: "Decoy"},
+	}
+	got := deriveMJPEGSiblings(in)
+	if len(got) != 0 {
+		t.Fatalf("expected 0 derived siblings when sibling name already present, got %d: %+v", len(got), got)
 	}
 }
 

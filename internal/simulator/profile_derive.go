@@ -44,15 +44,22 @@ func deriveMJPEGSiblings(profiles []config.ProfileConfig) []config.ProfileConfig
 		if !src.HasSource() {
 			continue
 		}
-		// Skip if a sibling already exists in the input. Defensive — the
-		// simulator never persists siblings, but a caller that mistakenly
-		// re-derives over an already-derived list should not double up.
+		// Skip if the source itself is already an MJPEG sibling — defensive
+		// against a caller re-deriving over an already-derived list.
 		if IsMJPEGSiblingToken(src.Token) {
 			continue
 		}
+		// Skip if the user has already declared a profile occupying the
+		// sibling's name or token. Otherwise we would emit a duplicate when
+		// the on-disk config carries both "Main" and "Main_JPEG".
+		siblingToken := src.Token + mjpegSiblingTokenSuffix
+		siblingName := src.Name + mjpegSiblingNameSuffix
+		if hasProfileMatching(profiles, siblingToken, siblingName) {
+			continue
+		}
 		sibling := config.ProfileConfig{
-			Name:             src.Name + mjpegSiblingNameSuffix,
-			Token:            src.Token + mjpegSiblingTokenSuffix,
+			Name:             siblingName,
+			Token:            siblingToken,
 			Kind:             src.Kind, // shared source kind drives RTSP wiring
 			MediaFilePath:    src.MediaFilePath,
 			RPICam:           src.RPICam,
@@ -70,4 +77,16 @@ func deriveMJPEGSiblings(profiles []config.ProfileConfig) []config.ProfileConfig
 		out = append(out, sibling)
 	}
 	return out
+}
+
+// hasProfileMatching reports whether profiles already contains an entry with
+// the given token or name. Either match suppresses derivation so the output
+// list never carries two profiles that collide on identity.
+func hasProfileMatching(profiles []config.ProfileConfig, token, name string) bool {
+	for i := range profiles {
+		if profiles[i].Token == token || profiles[i].Name == name {
+			return true
+		}
+	}
+	return false
 }
