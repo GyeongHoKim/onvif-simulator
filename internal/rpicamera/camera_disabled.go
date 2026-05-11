@@ -20,8 +20,10 @@ func Available() error { return ErrUnsupported }
 type Camera struct{}
 
 // Open is the disabled stub: every call returns ErrUnsupported. Callers
-// detect this with errors.Is and surface a build-channel hint.
-func Open(_ Params, _ *slog.Logger, _ OnDataFunc) (*Camera, error) {
+// detect this with errors.Is and surface a build-channel hint. The
+// secondary-stream callback is accepted for signature parity with the
+// rpicam-tagged build; on this build it is ignored.
+func Open(_ Params, _ *slog.Logger, _ OnDataFunc, _ OnMJPEGDataFunc) (*Camera, error) {
 	return nil, ErrUnsupported
 }
 

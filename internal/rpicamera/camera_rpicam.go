@@ -61,8 +61,9 @@ func Available() error { return nil }
 // Camera is an active mtxrpicam helper process. It is created by Open and
 // shut down by Close; Wait blocks until the helper exits.
 type Camera struct {
-	logger *slog.Logger
-	onData OnDataFunc
+	logger  *slog.Logger
+	onData  OnDataFunc
+	onMJPEG OnMJPEGDataFunc
 
 	cmd        *exec.Cmd
 	pipeOut    *pipe
@@ -79,8 +80,11 @@ type Camera struct {
 }
 
 // Open extracts and starts the embedded mtxrpicam helper, returning a
-// running Camera. logger may be nil. onData must be non-nil.
-func Open(p Params, logger *slog.Logger, onData OnDataFunc) (*Camera, error) {
+// running Camera. logger may be nil. onData must be non-nil. onMJPEG is
+// optional — pass non-nil to enable the helper's secondary MJPEG stream
+// (Pi ISP hardware JPEG encoder, near-zero CPU cost) so the simulator can
+// satisfy Profile S §7.9 without software transcoding.
+func Open(p Params, logger *slog.Logger, onData OnDataFunc, onMJPEG OnMJPEGDataFunc) (*Camera, error) {
 	if onData == nil {
 		return nil, fmt.Errorf("rpicamera: onData must be non-nil")
 	}
@@ -88,7 +92,7 @@ func Open(p Params, logger *slog.Logger, onData OnDataFunc) (*Camera, error) {
 		logger = obs.Discard()
 	}
 
-	c := &Camera{logger: logger, onData: onData, tail: newStderrTail(stderrTailLines)}
+	c := &Camera{logger: logger, onData: onData, onMJPEG: onMJPEG, tail: newStderrTail(stderrTailLines)}
 
 	if err := dumpComponent(); err != nil {
 		return nil, err
@@ -152,12 +156,28 @@ func Open(p Params, logger *slog.Logger, onData OnDataFunc) (*Camera, error) {
 
 	go c.run()
 
-	if err := c.pipeOut.write(append([]byte{'c'}, p.hydrate().serialize()...)); err != nil {
+	if err := c.pipeOut.write(append([]byte{'c'}, configureForOpen(p, onMJPEG != nil).serialize()...)); err != nil {
 		c.Close()
 		return nil, err
 	}
 
 	return c, nil
+}
+
+// configureForOpen hydrates Params and, when secondary MJPEG is requested,
+// mirrors the primary stream's geometry to the secondary fields and turns on
+// the JPEG quality knob. SecondaryMJPEGQuality=0 keeps the helper's
+// secondary stream disabled so callers without an onMJPEG callback pay zero
+// extra Pi resources. Quality=75 matches mediamtx's stock value.
+func configureForOpen(p Params, enableSecondaryMJPEG bool) upstreamParams {
+	up := p.hydrate()
+	if enableSecondaryMJPEG {
+		up.SecondaryWidth = up.Width
+		up.SecondaryHeight = up.Height
+		up.SecondaryFPS = up.FPS
+		up.SecondaryMJPEGQuality = 75
+	}
+	return up
 }
 
 // Close signals the helper to exit and waits for it. Idempotent: subsequent
@@ -180,9 +200,10 @@ func (c *Camera) Wait() error {
 // ReloadParams re-sends the capture parameters to a running helper. Today
 // the simulator does not call this (live param edits are stop/edit/start);
 // it is exposed for parity with mediamtx and for the deferred hot-reload
-// follow-up.
+// follow-up. The previously-configured secondary stream stays enabled when
+// Camera was opened with a non-nil onMJPEG callback.
 func (c *Camera) ReloadParams(p Params) error {
-	return c.pipeOut.write(append([]byte{'c'}, p.hydrate().serialize()...))
+	return c.pipeOut.write(append([]byte{'c'}, configureForOpen(p, c.onMJPEG != nil).serialize()...))
 }
 
 func (c *Camera) run() {
@@ -331,8 +352,40 @@ streaming:
 			c.onData(multiplyAndDivide(dts, 90000, 1e6), ntp, nalus)
 
 		case 's':
-			// Secondary MJPEG stream — currently unused; drop silently so a
-			// future enabling of the secondary track does not break compat.
+			// Secondary MJPEG stream from the Pi ISP's hardware JPEG encoder.
+			// Wire format mirrors the primary 'd' frame: byte 0 = 's', bytes
+			// 1–8 = DTS in microseconds (uint64 little-endian), bytes 9+ =
+			// a single self-contained JPEG bytestream (SOI…EOI). The helper
+			// only emits these frames when SecondaryMJPEGQuality > 0 was
+			// negotiated at startup, so a nil onMJPEG callback simply means
+			// the buffer never arrives. Profile S §7.9 mandate.
+			if c.onMJPEG == nil {
+				// Defensive: helper should not emit 's' when secondary was
+				// disabled, but if it does, drop silently rather than crash.
+				continue
+			}
+			if len(buf) < 9 {
+				return fmt.Errorf("rpicamera: short mjpeg frame (%d bytes)", len(buf))
+			}
+			dts := int64(buf[8])<<56 | int64(buf[7])<<48 | int64(buf[6])<<40 | int64(buf[5])<<32 |
+				int64(buf[4])<<24 | int64(buf[3])<<16 | int64(buf[2])<<8 | int64(buf[1])
+
+			jpeg := buf[9:]
+			if len(jpeg) < 4 || jpeg[0] != 0xFF || jpeg[1] != 0xD8 {
+				// Skip frames the helper somehow emits with a non-JPEG
+				// prefix — better than corrupting the stream downstream.
+				c.logger.Warn("rpicamera: secondary frame missing JPEG SOI marker",
+					"bytes", len(jpeg))
+				continue
+			}
+
+			unixNTP := ntpTime()
+			unixMono := monotonicTime()
+			ntp := time.Unix(int64(unixNTP.Sec), int64(unixNTP.Nsec))
+			deltaT := time.Duration(unixMono.Nano()-dts*1e3) * time.Nanosecond
+			ntp = ntp.Add(-deltaT)
+
+			c.onMJPEG(multiplyAndDivide(dts, 90000, 1e6), ntp, jpeg)
 
 		default:
 			return fmt.Errorf("rpicamera: unexpected control byte 0x%.2x", buf[0])
