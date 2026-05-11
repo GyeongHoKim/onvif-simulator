@@ -237,8 +237,9 @@ type h264ConfigurationEnvelope struct {
 }
 
 type videoEncoderConfigurationOptionsEnvelope struct {
-	QualityRange intRangeEnvelope    `xml:"tt:QualityRange"`
-	H264         h264OptionsEnvelope `xml:"tt:H264"`
+	QualityRange intRangeEnvelope     `xml:"tt:QualityRange"`
+	H264         h264OptionsEnvelope  `xml:"tt:H264"`
+	JPEG         *jpegOptionsEnvelope `xml:"tt:JPEG,omitempty"`
 }
 
 type h264OptionsEnvelope struct {
@@ -247,6 +248,17 @@ type h264OptionsEnvelope struct {
 	FrameRateRange        intRangeEnvelope     `xml:"tt:FrameRateRange"`
 	EncodingIntervalRange intRangeEnvelope     `xml:"tt:EncodingIntervalRange"`
 	H264ProfilesSupported []string             `xml:"tt:H264ProfilesSupported"`
+}
+
+// jpegOptionsEnvelope mirrors tt:JpegOptions from the ONVIF schema and is
+// emitted in GetVideoEncoderConfigurationOptionsResponse to satisfy Profile S
+// §7.9.1's "device shall declare MJPEG Option" requirement. The envelope is
+// omitted when ResolutionsAvailable is empty so legacy callers that never
+// see MJPEG profiles do not get a stray empty element.
+type jpegOptionsEnvelope struct {
+	ResolutionsAvailable  []resolutionEnvelope `xml:"tt:ResolutionsAvailable"`
+	FrameRateRange        intRangeEnvelope     `xml:"tt:FrameRateRange"`
+	EncodingIntervalRange intRangeEnvelope     `xml:"tt:EncodingIntervalRange"`
 }
 
 // ---------- GetGuaranteedNumberOfVideoEncoderInstances envelope ----------
