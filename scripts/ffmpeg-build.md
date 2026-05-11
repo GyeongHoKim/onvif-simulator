@@ -76,39 +76,6 @@ strip ffmpeg
 ```
 
 Key points:
-- `--disable-everything` zeroes the default codec/muxer/protocol set so we
-  pick exactly what the simulator's MJPEG path uses.
-- No `--enable-gpl` — keeps the binary LGPL-only and free of x264/x265
-  encoders we do not need.
-- `--enable-bsf=h264_mp4toannexb,hevc_mp4toannexb` is required so the
-  MP4 input demuxer's AVCC NAL framing converts to Annex-B before the
-  decoder consumes it.
-- `mpjpeg` muxer is preferred over `image2pipe` because it includes
-  Content-Length per frame, which makes `internal/ffmpeg/mpjpeg.go`'s
-  parser robust against JPEG-internal `0xFFD8`/`0xFFD9` byte
-  collisions.
-
-## Build flags
-
-```sh
-./configure \
-  --disable-everything \
-  --disable-doc \
-  --disable-debug \
-  --disable-network \
-  --enable-decoder=h264,hevc \
-  --enable-encoder=mjpeg \
-  --enable-muxer=mpjpeg,image2pipe \
-  --enable-demuxer=mov,matroska,h264,hevc \
-  --enable-protocol=file,pipe \
-  --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb \
-  --enable-parser=h264,hevc,mjpeg \
-  --enable-filter=fps,format,scale \
-  --enable-small
-strip ffmpeg
-```
-
-Key points:
 
 - `--disable-everything` zeroes the default codec/muxer/protocol set so we
   pick exactly what the simulator's MJPEG path uses.
