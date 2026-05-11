@@ -97,11 +97,11 @@ rpicam-fetch:
     ./scripts/fetch-mtxrpicam.sh 32 {{mtxrpicam_version}} {{rpicam_dir_32}}
     ./scripts/fetch-mtxrpicam.sh 64 {{mtxrpicam_version}} {{rpicam_dir_64}}
 
-# Fetch mtxrpicam helper binaries for the Pi channel (requires bash on PATH).
+# Fetch mtxrpicam helper binaries for the Pi channel (PowerShell on Windows).
 [windows]
 rpicam-fetch:
-    bash ./scripts/fetch-mtxrpicam.sh 32 {{mtxrpicam_version}} {{rpicam_dir_32}}
-    bash ./scripts/fetch-mtxrpicam.sh 64 {{mtxrpicam_version}} {{rpicam_dir_64}}
+    pwsh -NoProfile -File ./scripts/fetch-mtxrpicam.ps1 -WordSize 32 -Version '{{mtxrpicam_version}}' -DestDir '{{rpicam_dir_32}}'
+    pwsh -NoProfile -File ./scripts/fetch-mtxrpicam.ps1 -WordSize 64 -Version '{{mtxrpicam_version}}' -DestDir '{{rpicam_dir_64}}'
 
 # Cross-compile rpicam-tagged code for both Pi targets (no upstream fetch).
 [unix]
