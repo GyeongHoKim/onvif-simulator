@@ -140,20 +140,27 @@ func (m *MJPEGSource) Run(ctx context.Context) error {
 			if !ok {
 				return nil
 			}
-			m.readyOnce.Do(func() { close(m.ready) })
-			if err := m.writeFrame(enc, frame); err != nil {
+			packetized, err := m.writeFrame(enc, frame)
+			if err != nil {
 				if errors.Is(err, context.Canceled) {
 					return nil
 				}
 				return err
 			}
+			if packetized {
+				m.readyOnce.Do(func() { close(m.ready) })
+			}
 		}
 	}
 }
 
-func (m *MJPEGSource) writeFrame(enc *rtpmjpeg.Encoder, f JPEGFrame) error {
+// writeFrame returns packetized=true when the frame produced at least one
+// RTP packet that was successfully written. Empty payloads and frames the
+// encoder refuses (e.g. progressive JPEG) return packetized=false so the
+// ready signal does not flip on a frame that never reaches the wire.
+func (m *MJPEGSource) writeFrame(enc *rtpmjpeg.Encoder, f JPEGFrame) (bool, error) {
 	if len(f.Image) == 0 {
-		return nil
+		return false, nil
 	}
 	pkts, err := enc.Encode(f.Image)
 	if err != nil {
@@ -161,16 +168,19 @@ func (m *MJPEGSource) writeFrame(enc *rtpmjpeg.Encoder, f JPEGFrame) error {
 		// (e.g. progressive, non-yuvj420/422). Log and drop the frame rather
 		// than tearing the source down — the producer can keep emitting.
 		m.logger.Warn("rtsp mjpegsource: rtp encode", "err", err, "bytes", len(f.Image))
-		return nil
+		return false, nil
+	}
+	if len(pkts) == 0 {
+		return false, nil
 	}
 	ts := uint32(f.PTS) //nolint:gosec // mod-2^32 wrap is the RTP timestamp semantic
 	for _, pkt := range pkts {
 		pkt.Timestamp = ts
 		if writeErr := m.stream.WritePacketRTPWithNTP(m.media, pkt, f.NTP); writeErr != nil {
-			return writeErr
+			return false, writeErr
 		}
 	}
-	return nil
+	return true, nil
 }
 
 // Compile-time guard that MJPEGSource and the gortsplib MJPEG format stay in
