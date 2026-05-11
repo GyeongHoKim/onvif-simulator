@@ -60,9 +60,7 @@ jobs:
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
-      - name: Install Make
-        shell: powershell
-        run: choco install make --yes --no-progress
+      - uses: extractions/setup-just@v3
 
       - name: Install NSIS
         shell: powershell
@@ -73,8 +71,8 @@ jobs:
         run: echo "C:/Program Files (x86)/NSIS" >> "$GITHUB_PATH"
 
       - name: Build GUI (NSIS installer)
-        shell: bash
-        run: make gui-windows
+        shell: pwsh
+        run: just gui-windows
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v3.0.0
@@ -105,8 +103,10 @@ jobs:
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
+      - uses: extractions/setup-just@v3
+
       - name: Build GUI (.app)
-        run: make gui-darwin
+        run: just gui-darwin
 
       - name: Package as .dmg
         run: |
@@ -149,6 +149,8 @@ jobs:
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
+      - uses: extractions/setup-just@v3
+
       - name: Install AppImage tool
         run: |
           curl -fsSL -o appimagetool.AppImage https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
@@ -158,7 +160,7 @@ jobs:
           ln -s appimagetool-extracted/AppRun appimagetool
 
       - name: Build GUI
-        run: make gui-linux
+        run: just gui-linux
 
       - name: Package as AppImage
         run: |

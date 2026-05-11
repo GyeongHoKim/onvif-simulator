@@ -291,6 +291,8 @@ mise install
 
 This installs Go 1.26.2, golangci-lint 2.11.4, and Node.js 24.15.0 (needed for GUI via Wails).
 
+On **Windows**, `just rpicam-fetch`, `just ffmpeg-fetch`, and the `cli-rpi-*` recipes call `bash` to run scripts under `scripts/`. Install [Git for Windows](https://git-scm.com/download/win) (Git Bash), [WSL](https://learn.microsoft.com/en-us/windows/wsl/install), [MSYS2](https://www.msys2.org/), or another distribution that puts `bash` on your `PATH`, then confirm with `bash --version`.
+
 For GUI development, also install the [Wails CLI](https://wails.io/docs/gettingstarted/installation):
 
 ```bash
@@ -299,24 +301,37 @@ go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
 ### Setup
 
+The repo uses [just](https://github.com/casey/just) as its task runner. Install it once via any of:
+
+```bash
+mise install                  # picks up the version pinned in mise.toml
+brew install just             # macOS / Linuxbrew
+scoop install just            # Windows (scoop)
+cargo install just            # any platform with Rust
+```
+
+Then:
+
 ```bash
 git clone https://github.com/GyeongHoKim/onvif-simulator.git
 cd onvif-simulator
 go mod tidy
 cp onvif-simulator.example.json onvif-simulator.json  # fill in your RTSP URIs
-make setup            # install git hooks and commitlint
+just setup            # install git hooks and commitlint
 ```
+
+The legacy `Makefile` is a thin deprecation wrapper that simply forwards every target to the matching `just` recipe; new work should call `just <recipe>` directly. Run `just --list` to see everything available.
 
 ### Common Tasks
 
 | Command | Description |
 |---------|-------------|
-| `make setup` | Install git hooks and commitlint (run once after cloning) |
-| `make cli` | Build the CLI/TUI binary |
-| `make gui` | Build the GUI binary (requires Wails) |
-| `make format` | Run `go fmt` across all packages |
-| `make lint` | Run golangci-lint |
-| `make clean` | Remove build artifacts |
+| `just setup` | Install git hooks and commitlint (run once after cloning) |
+| `just cli` | Build the CLI/TUI binary |
+| `just gui` | Build the GUI binary (requires Wails) |
+| `just format` | Run `go fmt` across all packages |
+| `just lint` | Run golangci-lint |
+| `just clean` | Remove build artifacts |
 
 ### Run
 

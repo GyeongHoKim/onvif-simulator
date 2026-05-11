@@ -16,29 +16,29 @@ All three share the same `internal/` core; none of them owns simulator logic.
 
 ## Common commands
 
-Use `make` targets rather than calling `go`, `golangci-lint`, or `wails` directly — they encode the correct output paths, build tags, and defaults.
+Use `just` recipes rather than calling `go`, `golangci-lint`, or `wails` directly — they encode the correct output paths, build tags, and defaults. The legacy `Makefile` is a deprecation wrapper that forwards to the same `just` recipes; prefer `just <recipe>` for new work.
 
 | Task | Command |
 | --- | --- |
-| Build CLI/TUI binary | `make cli` |
-| Build GUI binary (requires Wails CLI) | `make gui` |
-| Build CLI for Raspberry Pi (arm + arm64) | `make cli-rpi` |
-| Cross-compile rpicam-tagged code (no fetch) | `make rpicam-build-check` |
-| Format | `make format` |
-| Lint | `make lint` |
-| Unit tests (race detector) | `make test` |
-| Coverage | `make coverage` |
-| E2E suite (speaks SOAP against a running simulator) | `make e2e` |
-| Browse Go doc in browser | `make manual` / `make manual DOCS_PORT=3000` |
-| One-time repo setup (hooks + commitlint) | `make setup` |
+| Build CLI/TUI binary | `just cli` |
+| Build GUI binary (requires Wails CLI) | `just gui` |
+| Build CLI for Raspberry Pi (arm + arm64) | `just cli-rpi` |
+| Cross-compile rpicam-tagged code (no fetch) | `just rpicam-build-check` |
+| Format | `just format` |
+| Lint | `just lint` |
+| Unit tests (race detector) | `just test` |
+| Coverage | `just coverage` |
+| E2E suite (speaks SOAP against a running simulator) | `just e2e` |
+| Browse Go doc in browser | `just manual` / `DOCS_PORT=3000 just manual` |
+| One-time repo setup (hooks + commitlint) | `just setup` |
 
 Run a single Go test: `go test -race -run TestName ./internal/<pkg>/...`.
 
-**Code quality gate (required after every code change):** run `make format` followed by `make lint` before handing the task back. Do not skip either step.
+**Code quality gate (required after every code change):** run `just format` followed by `just lint` before handing the task back. Do not skip either step.
 
-`make e2e` honors `ONVIF_HOST`, `ONVIF_USERNAME`, `ONVIF_PASSWORD` — point them at a running simulator.
+`just e2e` honors `ONVIF_HOST`, `ONVIF_USERNAME`, `ONVIF_PASSWORD` — point them at a running simulator.
 
-Toolchain versions are pinned in `mise.toml`. Run `mise install` after cloning.
+Toolchain versions are pinned in `mise.toml` (including `just` itself). Run `mise install` after cloning.
 
 GUI frontend lives in `internal/gui/frontend/` (React + Vite + Tailwind, shadcn registry), is built by npm into `internal/gui/frontend/dist`, and is hosted by Wails from `cmd/gui`. Run `wails dev` inside `cmd/gui` for the dev harness; Wails invokes the frontend build for production. The TUI is a Bubble Tea program in `internal/tui` with no web assets; launch it with `onvif-simulator tui` (same binary as the CLI).
 
@@ -46,10 +46,10 @@ GUI frontend lives in `internal/gui/frontend/` (React + Vite + Tailwind, shadcn 
 
 The repo ships two Go binary build channels:
 
-- **default** — built with `make cli` and goreleaser build id `cli`. Runs on linux/darwin/windows × amd64/arm64. No platform-specific embedded assets. Produces `onvif-simulator`.
-- **rpi** — built with `make cli-rpi` and goreleaser build id `cli-rpi`. Runs on linux/arm (Pi Zero/2/3 32-bit) and linux/arm64 (Pi 3/4/5 64-bit). The build pipeline fetches `mtxrpicam_32.tar.gz` and `mtxrpicam_64.tar.gz` from the pinned mediamtx-rpicamera release (a separate repo from mediamtx itself) into `internal/rpicamera/mtxrpicam_{32,64}/` and `go build -tags rpicam` embeds them via `//go:embed`. Produces `onvif-simulator-rpi-arm` / `onvif-simulator-rpi-arm64`. The default channel never carries this asset and `kind=rpicam` profiles fail fast with `rpicamera.ErrUnsupported` on non-rpi builds.
+- **default** — built with `just cli` and goreleaser build id `cli`. Runs on linux/darwin/windows × amd64/arm64. No platform-specific embedded assets. Produces `onvif-simulator`.
+- **rpi** — built with `just cli-rpi` and goreleaser build id `cli-rpi`. Runs on linux/arm (Pi Zero/2/3 32-bit) and linux/arm64 (Pi 3/4/5 64-bit). The build pipeline fetches `mtxrpicam_32.tar.gz` and `mtxrpicam_64.tar.gz` from the pinned mediamtx-rpicamera release (a separate repo from mediamtx itself) into `internal/rpicamera/mtxrpicam_{32,64}/` and `go build -tags rpicam` embeds them via `//go:embed`. Produces `onvif-simulator-rpi-arm` / `onvif-simulator-rpi-arm64`. The default channel never carries this asset and `kind=rpicam` profiles fail fast with `rpicamera.ErrUnsupported` on non-rpi builds.
 
-The `rpicam` build tag controls every rpicam runtime path. PR CI does not download the binary — it cross-compiles `-tags rpicam` against a 1-byte placeholder file checked into each `mtxrpicam_*` directory (`make rpicam-build-check`). The pinned mediamtx-rpicamera version lives in `Makefile`'s `MTXRPICAM_VERSION`; tarball checksums in `scripts/mtxrpicam.sha256` are bumped in lockstep so the fetch step (`scripts/fetch-mtxrpicam.sh`) refuses unverified blobs. Those hashes are cross-checkable against mediamtx's own `internal/staticsources/rpicamera/mtxrpicamdownloader/HASH_MTXRPICAM_*_TAR_GZ`, giving an out-of-band verification source independent of the release page itself. GUI is intentionally CLI/TUI-only on the rpi channel — there is no `make gui-rpi` and there will not be one.
+The `rpicam` build tag controls every rpicam runtime path. PR CI does not download the binary — it cross-compiles `-tags rpicam` against a 1-byte placeholder file checked into each `mtxrpicam_*` directory (`just rpicam-build-check`). The pinned mediamtx-rpicamera version lives in `Justfile`'s `mtxrpicam_version`; tarball checksums in `scripts/mtxrpicam.sha256` are bumped in lockstep so the fetch step (`scripts/fetch-mtxrpicam.sh`) refuses unverified blobs. Those hashes are cross-checkable against mediamtx's own `internal/staticsources/rpicamera/mtxrpicamdownloader/HASH_MTXRPICAM_*_TAR_GZ`, giving an out-of-band verification source independent of the release page itself. GUI is intentionally CLI/TUI-only on the rpi channel — there is no `just gui-rpi` and there will not be one.
 
 ## Architecture
 
