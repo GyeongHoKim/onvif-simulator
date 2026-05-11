@@ -219,11 +219,14 @@ func (b *Broker) Publish(topic, message string) {
 		delivered++
 	}
 	b.logger.Debug("event: publish", "topic", topic, "delivered", delivered, "push", len(pushes))
+	// Capture the notifier under the lock so a concurrent UpdateConfig that
+	// swaps b.notify cannot race the read below.
+	notify := b.notify
 	b.mu.Unlock()
 
 	for i := range pushes {
 		d := &pushes[i]
-		go b.notify.deliver(context.Background(), d, func(success bool) {
+		go notify.deliver(context.Background(), d, func(success bool) {
 			b.recordNotifyResult(d.subscriptionID, success)
 		})
 	}
@@ -285,10 +288,12 @@ func (b *Broker) topicEnabledLocked(topic string) bool {
 
 // UpdateConfig replaces the broker's runtime configuration. Active
 // subscriptions are not affected; the new config takes effect for future
-// CreatePullPointSubscription calls and for GetEventProperties.
+// CreatePullPointSubscription / Subscribe calls, for GetEventProperties,
+// and for subsequent Notify dispatches (the notifier is rebuilt to pick
+// up the new timeout).
 //
 // A nil cfg.Logger preserves the broker's existing logger so callers can
-// hot-swap topics or pull-point limits without re-plumbing observability.
+// hot-swap topics or capacity limits without re-plumbing observability.
 //
 //nolint:gocritic // BrokerConfig is intentionally passed by value for the public hot-swap API
 func (b *Broker) UpdateConfig(cfg BrokerConfig) {
@@ -298,12 +303,16 @@ func (b *Broker) UpdateConfig(cfg BrokerConfig) {
 	if cfg.SubscriptionTimeout <= 0 {
 		cfg.SubscriptionTimeout = DefaultSubscriptionTimeout
 	}
+	if cfg.NotifyFailureThreshold <= 0 {
+		cfg.NotifyFailureThreshold = DefaultNotifyFailureThreshold
+	}
 	cfg.Topics = cloneTopics(cfg.Topics)
 	b.mu.Lock()
 	b.cfg = cfg
 	if cfg.Logger != nil {
 		b.logger = cfg.Logger
 	}
+	b.notify = newNotifier(cfg.NotifyTimeout, b.logger)
 	b.mu.Unlock()
 }
 
@@ -397,11 +406,11 @@ func (b *Broker) Subscribe(
 			"%w: Subscribe requires non-empty ConsumerReference Address",
 			eventsvc.ErrInvalidArgs)
 	}
-	consumerURL, err := url.ParseRequestURI(params.ConsumerAddress)
-	if err != nil {
+	consumerURL, parseErr := url.ParseRequestURI(params.ConsumerAddress)
+	if parseErr != nil {
 		return eventsvc.SubscriptionInfo{}, fmt.Errorf(
 			"%w: ConsumerReference Address %q is not a valid URI: %w",
-			eventsvc.ErrInvalidArgs, params.ConsumerAddress, err)
+			eventsvc.ErrInvalidArgs, params.ConsumerAddress, parseErr)
 	}
 	if consumerURL.Host == "" {
 		return eventsvc.SubscriptionInfo{}, fmt.Errorf(

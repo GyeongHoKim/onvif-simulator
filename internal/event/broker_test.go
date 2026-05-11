@@ -294,6 +294,54 @@ func TestBroker_UpdateConfig(t *testing.T) {
 	}
 }
 
+func TestBroker_UpdateConfig_NormalizesPushDefaults(t *testing.T) {
+	b := New(defaultCfg())
+	// Caller passes zeros for the push knobs; UpdateConfig must replace them
+	// with the documented defaults so the notifier is usable afterwards.
+	b.UpdateConfig(BrokerConfig{
+		MaxPullPoints:       3,
+		SubscriptionTimeout: time.Minute,
+		// NotifyFailureThreshold and NotifyTimeout intentionally zero.
+		Topics: []TopicConfig{{Name: "tns1:VideoSource/MotionAlarm", Enabled: true}},
+	})
+	b.mu.Lock()
+	gotThreshold := b.cfg.NotifyFailureThreshold
+	gotNotify := b.notify
+	b.mu.Unlock()
+	if gotThreshold != DefaultNotifyFailureThreshold {
+		t.Errorf("NotifyFailureThreshold = %d, want %d",
+			gotThreshold, DefaultNotifyFailureThreshold)
+	}
+	if gotNotify == nil {
+		t.Fatal("notifier must not be nil after UpdateConfig")
+	}
+	if gotNotify.client.Timeout != defaultNotifyTimeout {
+		t.Errorf("notifier client timeout = %v, want %v",
+			gotNotify.client.Timeout, defaultNotifyTimeout)
+	}
+}
+
+func TestBroker_UpdateConfig_AppliesNewNotifyTimeout(t *testing.T) {
+	b := New(defaultCfg())
+	originalNotify := b.notify
+	want := 250 * time.Millisecond
+	b.UpdateConfig(BrokerConfig{
+		MaxPullPoints:       3,
+		SubscriptionTimeout: time.Minute,
+		NotifyTimeout:       want,
+		Topics:              []TopicConfig{{Name: "tns1:VideoSource/MotionAlarm", Enabled: true}},
+	})
+	b.mu.Lock()
+	got := b.notify
+	b.mu.Unlock()
+	if got == originalNotify {
+		t.Error("UpdateConfig must replace notifier when timeout changes")
+	}
+	if got.client.Timeout != want {
+		t.Errorf("notifier client timeout = %v, want %v", got.client.Timeout, want)
+	}
+}
+
 // ---------- helpers -------------------------------------------------------------
 
 func containsStr(s, sub string) bool {
