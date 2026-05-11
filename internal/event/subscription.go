@@ -7,7 +7,24 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/eventsvc"
 )
 
-// subscription represents one active pull-point subscription.
+// subKind distinguishes pull-point (default) from WS-BaseNotification push
+// subscriptions. Zero value is pull so existing call sites stay correct.
+type subKind uint8
+
+const (
+	subKindPull subKind = 0
+	subKindPush subKind = 1
+)
+
+// consumerEPR captures the WS-Addressing ConsumerReference for a push
+// subscription. referenceParams holds the inner XML of wsa:ReferenceParameters
+// verbatim so it can be echoed into the SOAP Header of every Notify.
+type consumerEPR struct {
+	address         string
+	referenceParams string
+}
+
+// subscription represents one active subscription (pull-point or push).
 // Fields must be accessed with Broker.mu held.
 type subscription struct {
 	id string
@@ -20,6 +37,10 @@ type subscription struct {
 	filter          string
 	terminationTime time.Time
 	queue           []eventsvc.NotificationMessage
+
+	kind           subKind
+	consumer       consumerEPR
+	notifyFailures int
 }
 
 // enqueue appends msg to the subscription queue. When the queue is at capacity

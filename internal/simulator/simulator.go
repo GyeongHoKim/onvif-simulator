@@ -314,12 +314,14 @@ func brokerConfigFromConfig(cfg *config.Config) event.BrokerConfig {
 		}
 	}
 	return event.BrokerConfig{
-		MaxPullPoints:       cfg.Events.MaxPullPoints,
-		SubscriptionTimeout: timeout,
-		Topics:              topics,
+		MaxPullPoints:            cfg.Events.MaxPullPoints,
+		MaxNotificationProducers: cfg.Events.MaxNotificationProducers,
+		SubscriptionTimeout:      timeout,
+		Topics:                   topics,
 	}
 }
 
+//nolint:gocritic // BrokerConfig is intentionally passed by value to mirror event.New/UpdateConfig
 func brokerConfigWithAddr(base event.BrokerConfig, addr string) event.BrokerConfig {
 	base.SubscriptionManagerAddr = addr
 	return base

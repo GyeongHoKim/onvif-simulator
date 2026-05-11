@@ -26,7 +26,14 @@ type soapBody struct {
 
 // endpointReferenceEnvelope is a WS-Addressing EndpointReference (EPR).
 type endpointReferenceEnvelope struct {
-	Address string `xml:"wsa:Address"`
+	Address             string                       `xml:"wsa:Address"`
+	ReferenceParameters *referenceParametersEnvelope `xml:"wsa:ReferenceParameters,omitempty"`
+}
+
+// referenceParametersEnvelope holds a verbatim XML fragment so consumer-supplied
+// wsa:ReferenceParameters can be echoed back on Notify (per WS-Addressing).
+type referenceParametersEnvelope struct {
+	InnerXML string `xml:",innerxml"`
 }
 
 // ---------- EventService responses -----------------------------------------------
@@ -52,6 +59,18 @@ type eventServiceCapabilitiesEnvelope struct {
 // Unsubscribe.
 type createPullPointSubscriptionResponse struct {
 	XMLName               xml.Name                  `xml:"CreatePullPointSubscriptionResponse"`
+	XMLNS                 string                    `xml:"xmlns,attr"`
+	XMLNSWsa              string                    `xml:"xmlns:wsa,attr"`
+	SubscriptionReference endpointReferenceEnvelope `xml:"SubscriptionReference"`
+	CurrentTime           string                    `xml:"CurrentTime"`
+	TerminationTime       string                    `xml:"TerminationTime"`
+}
+
+// subscribeResponse is the WS-BaseNotification Subscribe response. ONVIF
+// Core §9.3.2 mandates both CurrentTime and TerminationTime even though
+// they are optional in plain WS-BaseNotification.
+type subscribeResponse struct {
+	XMLName               xml.Name                  `xml:"SubscribeResponse"`
 	XMLNS                 string                    `xml:"xmlns,attr"`
 	XMLNSWsa              string                    `xml:"xmlns:wsa,attr"`
 	SubscriptionReference endpointReferenceEnvelope `xml:"SubscriptionReference"`

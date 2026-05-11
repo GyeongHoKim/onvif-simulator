@@ -78,6 +78,18 @@ type CreatePullPointSubscriptionParams struct {
 	InitialTerminationTime string
 }
 
+// SubscribeParams carries the request parameters for the WS-BaseNotification
+// Subscribe operation (push subscription). The ConsumerAddress is required;
+// ConsumerReferenceParams holds the verbatim inner XML of the consumer's
+// wsa:ReferenceParameters element and is echoed back as a SOAP Header on
+// every Notify message.
+type SubscribeParams struct {
+	ConsumerAddress         string
+	ConsumerReferenceParams string
+	Filter                  string
+	InitialTerminationTime  string
+}
+
 // SubscriptionInfo is returned by CreatePullPointSubscription.
 type SubscriptionInfo struct {
 	// SubscriptionID is the opaque token for this pull-point subscription.
@@ -142,6 +154,11 @@ type Provider interface {
 	// CreatePullPointSubscription allocates a new pull-point subscription and
 	// returns its ID, current time, and termination time.
 	CreatePullPointSubscription(ctx context.Context, params CreatePullPointSubscriptionParams) (SubscriptionInfo, error)
+
+	// Subscribe allocates a new WS-BaseNotification push subscription and
+	// returns its ID, current time, and termination time. Notify messages are
+	// emitted out-of-band to the ConsumerReference by the Provider.
+	Subscribe(ctx context.Context, params SubscribeParams) (SubscriptionInfo, error)
 
 	// PullMessages drains up to params.MessageLimit events from the
 	// subscription queue.  It must not block; return an empty slice when the

@@ -14,7 +14,11 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/eventsvc"
 )
 
-var errMaxPullPointsReached = errors.New("event: maximum pull points reached")
+var (
+	errMaxPullPointsReached            = errors.New("event: maximum pull points reached")
+	errMaxNotificationProducersReached = errors.New("event: maximum notification producers reached")
+	errNotificationProducerDisabled    = errors.New("event: notification producer disabled (MaxNotificationProducers=0)")
+)
 
 const (
 	// DefaultSubscriptionTimeout is used when config omits subscription_timeout.
@@ -22,6 +26,10 @@ const (
 
 	// DefaultMaxPullPoints is used when config omits max_pull_points.
 	DefaultMaxPullPoints = 10
+
+	// DefaultNotifyFailureThreshold is the number of consecutive Notify
+	// dispatch failures tolerated before a push subscription is force-expired.
+	DefaultNotifyFailureThreshold = 3
 
 	// defaultQueueDepth is the per-subscription event queue capacity.
 	// Oldest events are dropped when the queue is full.
@@ -53,6 +61,20 @@ type BrokerConfig struct {
 	// the broker will accept. Additional requests return an error.
 	// Zero is replaced with DefaultMaxPullPoints.
 	MaxPullPoints int
+	// MaxNotificationProducers is the maximum number of concurrent
+	// WS-BaseNotification push subscriptions (per ONVIF Core §9.3.2 /
+	// §9.5 capability of the same name). Independent of MaxPullPoints.
+	// Zero disables the NotificationProducer interface entirely; Subscribe
+	// then returns errNotificationProducerDisabled.
+	MaxNotificationProducers int
+	// NotifyFailureThreshold is the number of consecutive Notify dispatch
+	// failures (network error or non-2xx response) tolerated before a push
+	// subscription is force-expired and removed at the next reap. Zero or
+	// negative is replaced with DefaultNotifyFailureThreshold.
+	NotifyFailureThreshold int
+	// NotifyTimeout caps each outbound Notify HTTP POST. Zero or negative
+	// is replaced with defaultNotifyTimeout.
+	NotifyTimeout time.Duration
 	// SubscriptionTimeout is the default lifetime assigned when
 	// CreatePullPointSubscription omits InitialTerminationTime.
 	// Zero or negative is replaced with DefaultSubscriptionTimeout.
@@ -96,6 +118,10 @@ type Broker struct {
 	// topic / pull-point limits.
 	logger *slog.Logger
 
+	// notify dispatches push Notify SOAP envelopes for subscriptions of
+	// subKindPush. Owned by the broker, shared across all dispatches.
+	notify *notifier
+
 	// stopCh is closed by Stop to terminate the background reaper.
 	stopCh    chan struct{}
 	startOnce sync.Once
@@ -104,12 +130,17 @@ type Broker struct {
 
 // New creates a Broker from cfg.  Zero-valued numeric fields in cfg are
 // replaced by their defaults (see DefaultMaxPullPoints, DefaultSubscriptionTimeout).
+//
+//nolint:gocritic // BrokerConfig is intentionally passed by value as a one-shot constructor argument
 func New(cfg BrokerConfig) *Broker {
 	if cfg.MaxPullPoints <= 0 {
 		cfg.MaxPullPoints = DefaultMaxPullPoints
 	}
 	if cfg.SubscriptionTimeout <= 0 {
 		cfg.SubscriptionTimeout = DefaultSubscriptionTimeout
+	}
+	if cfg.NotifyFailureThreshold <= 0 {
+		cfg.NotifyFailureThreshold = DefaultNotifyFailureThreshold
 	}
 	cfg.Topics = cloneTopics(cfg.Topics)
 	logger := cfg.Logger
@@ -120,6 +151,7 @@ func New(cfg BrokerConfig) *Broker {
 		cfg:    cfg,
 		subs:   make(map[string]*subscription),
 		logger: logger,
+		notify: newNotifier(cfg.NotifyTimeout, logger),
 		stopCh: make(chan struct{}),
 	}
 }
@@ -144,19 +176,23 @@ func (b *Broker) Stop() {
 //	   <tt:Data><tt:SimpleItem Name="State" Value="true"/></tt:Data>
 //	 </tt:Message>`
 //
-// Publish is safe for concurrent use and returns immediately.
+// Publish is safe for concurrent use and returns immediately. Pull-point
+// subscriptions receive the message in their queue; push subscriptions get a
+// Notify SOAP POST dispatched asynchronously so a slow consumer cannot block
+// publishing.
 // If the topic is not in the broker's topic list or is disabled, Publish is a no-op.
 func (b *Broker) Publish(topic, message string) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 
 	if !b.topicEnabledLocked(topic) {
 		b.logger.Debug("event: drop publish, topic disabled or unknown", "topic", topic)
+		b.mu.Unlock()
 		return
 	}
 
 	now := time.Now()
 	delivered := 0
+	var pushes []pushDispatch
 	for _, sub := range b.subs {
 		if now.After(sub.terminationTime) {
 			continue
@@ -164,14 +200,59 @@ func (b *Broker) Publish(topic, message string) {
 		if !sub.matchesTopic(topic) {
 			continue
 		}
-		sub.enqueue(eventsvc.NotificationMessage{
-			SubscriptionReference: sub.address,
-			Topic:                 topic,
-			Message:               message,
-		})
+		switch sub.kind {
+		case subKindPush:
+			pushes = append(pushes, pushDispatch{
+				subscriptionID:   sub.id,
+				subscriptionAddr: sub.address,
+				consumer:         sub.consumer,
+				topic:            topic,
+				message:          message,
+			})
+		default:
+			sub.enqueue(eventsvc.NotificationMessage{
+				SubscriptionReference: sub.address,
+				Topic:                 topic,
+				Message:               message,
+			})
+		}
 		delivered++
 	}
-	b.logger.Debug("event: publish", "topic", topic, "delivered", delivered)
+	b.logger.Debug("event: publish", "topic", topic, "delivered", delivered, "push", len(pushes))
+	b.mu.Unlock()
+
+	for i := range pushes {
+		d := &pushes[i]
+		go b.notify.deliver(context.Background(), d, func(success bool) {
+			b.recordNotifyResult(d.subscriptionID, success)
+		})
+	}
+}
+
+// recordNotifyResult is invoked by the notifier after each Notify dispatch.
+// On success the failure counter is reset; on failure it is incremented and
+// the subscription is force-expired (next reap removes it) once the
+// configured NotifyFailureThreshold is reached.
+func (b *Broker) recordNotifyResult(subscriptionID string, success bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	sub, ok := b.subs[subscriptionID]
+	if !ok {
+		return
+	}
+	if success {
+		sub.notifyFailures = 0
+		return
+	}
+	sub.notifyFailures++
+	if sub.notifyFailures >= b.cfg.NotifyFailureThreshold {
+		b.logger.Warn("event: notify threshold reached, force-expiring push subscription",
+			"subscription_id", sub.id,
+			"failures", sub.notifyFailures,
+			"threshold", b.cfg.NotifyFailureThreshold,
+		)
+		sub.terminationTime = time.Now().Add(-time.Second)
+	}
 }
 
 // subscriptionAddrLocked composes the full subscription manager URL for the
@@ -208,6 +289,8 @@ func (b *Broker) topicEnabledLocked(topic string) bool {
 //
 // A nil cfg.Logger preserves the broker's existing logger so callers can
 // hot-swap topics or pull-point limits without re-plumbing observability.
+//
+//nolint:gocritic // BrokerConfig is intentionally passed by value for the public hot-swap API
 func (b *Broker) UpdateConfig(cfg BrokerConfig) {
 	if cfg.MaxPullPoints <= 0 {
 		cfg.MaxPullPoints = DefaultMaxPullPoints
@@ -230,10 +313,12 @@ func (b *Broker) UpdateConfig(cfg BrokerConfig) {
 func (b *Broker) EventServiceCapabilities(_ context.Context) (eventsvc.ServiceCapabilities, error) {
 	b.mu.Lock()
 	maxPP := b.cfg.MaxPullPoints
+	maxNP := b.cfg.MaxNotificationProducers
 	b.mu.Unlock()
 	return eventsvc.ServiceCapabilities{
-		WSPullPointSupport: true,
-		MaxPullPoints:      maxPP,
+		WSPullPointSupport:       true,
+		MaxPullPoints:            maxPP,
+		MaxNotificationProducers: maxNP,
 	}, nil
 }
 
@@ -258,10 +343,10 @@ func (b *Broker) CreatePullPointSubscription(
 	defer b.mu.Unlock()
 
 	b.reapLocked()
-	if len(b.subs) >= b.cfg.MaxPullPoints {
+	if n := b.countByKindLocked(subKindPull); n >= b.cfg.MaxPullPoints {
 		b.logger.Warn("event: max pull points reached",
 			"max", b.cfg.MaxPullPoints,
-			"active", len(b.subs),
+			"active", n,
 		)
 		return eventsvc.SubscriptionInfo{}, fmt.Errorf("%w (%d)", errMaxPullPointsReached, b.cfg.MaxPullPoints)
 	}
@@ -297,6 +382,86 @@ func (b *Broker) CreatePullPointSubscription(
 		CurrentTime:     now,
 		TerminationTime: sub.terminationTime,
 	}, nil
+}
+
+// Subscribe creates a WS-BaseNotification push subscription. The simulator
+// stores the consumer EPR and, on Publish, posts a Notify SOAP envelope to
+// ConsumerAddress for every matching event. Renew and Unsubscribe operate on
+// the returned SubscriptionID through the same SubscriptionManager endpoint
+// that pull-point subscriptions use.
+func (b *Broker) Subscribe(
+	_ context.Context, params eventsvc.SubscribeParams,
+) (eventsvc.SubscriptionInfo, error) {
+	if params.ConsumerAddress == "" {
+		return eventsvc.SubscriptionInfo{}, fmt.Errorf(
+			"%w: Subscribe requires non-empty ConsumerReference Address",
+			eventsvc.ErrInvalidArgs)
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.cfg.MaxNotificationProducers <= 0 {
+		return eventsvc.SubscriptionInfo{}, errNotificationProducerDisabled
+	}
+
+	b.reapLocked()
+	if n := b.countByKindLocked(subKindPush); n >= b.cfg.MaxNotificationProducers {
+		b.logger.Warn("event: max notification producers reached",
+			"max", b.cfg.MaxNotificationProducers,
+			"active", n,
+		)
+		return eventsvc.SubscriptionInfo{}, fmt.Errorf(
+			"%w (%d)", errMaxNotificationProducersReached, b.cfg.MaxNotificationProducers)
+	}
+
+	timeout := b.cfg.SubscriptionTimeout
+	if params.InitialTerminationTime != "" {
+		d, err := parseISO8601Duration(params.InitialTerminationTime)
+		if err != nil {
+			return eventsvc.SubscriptionInfo{}, fmt.Errorf(
+				"event: invalid InitialTerminationTime %q: %w", params.InitialTerminationTime, err)
+		}
+		if d > 0 {
+			timeout = d
+		}
+	}
+
+	id, err := newSubscriptionID()
+	if err != nil {
+		return eventsvc.SubscriptionInfo{}, err
+	}
+	now := time.Now()
+	sub := &subscription{
+		id:              id,
+		address:         b.subscriptionAddrLocked(id),
+		filter:          params.Filter,
+		terminationTime: now.Add(timeout),
+		kind:            subKindPush,
+		consumer: consumerEPR{
+			address:         params.ConsumerAddress,
+			referenceParams: params.ConsumerReferenceParams,
+		},
+	}
+	b.subs[id] = sub
+
+	return eventsvc.SubscriptionInfo{
+		SubscriptionID:  id,
+		CurrentTime:     now,
+		TerminationTime: sub.terminationTime,
+	}, nil
+}
+
+// countByKindLocked returns the number of subscriptions of the given kind.
+// Must be called with b.mu held.
+func (b *Broker) countByKindLocked(kind subKind) int {
+	n := 0
+	for _, s := range b.subs {
+		if s.kind == kind {
+			n++
+		}
+	}
+	return n
 }
 
 // PullMessages implements eventsvc.Provider.

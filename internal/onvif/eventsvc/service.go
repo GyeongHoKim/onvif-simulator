@@ -24,6 +24,11 @@ const (
 	faultCodeReceiver = "Receiver"
 
 	bodyLocalName = "Body"
+
+	// opSubscribe is the WS-BaseNotification Subscribe operation name. Lives
+	// in the wsnt:Subscribe element (WSNBaseNotificationNS) rather than the
+	// ONVIF events namespace.
+	opSubscribe = "Subscribe"
 )
 
 var xmlReplacer = strings.NewReplacer(
@@ -200,9 +205,60 @@ func (h *EventServiceHandler) dispatch(ctx context.Context, operation string, pa
 		return h.handleCreatePullPointSubscription(ctx, payload)
 	case "GetEventProperties":
 		return h.handleGetEventProperties(ctx, payload)
+	case opSubscribe:
+		return h.handleSubscribe(ctx, payload)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnsupportedOp, operation)
 	}
+}
+
+func (h *EventServiceHandler) handleSubscribe(ctx context.Context, payload []byte) ([]byte, error) {
+	var req struct {
+		ConsumerReference struct {
+			Address             string `xml:"Address"`
+			ReferenceParameters struct {
+				InnerXML string `xml:",innerxml"`
+			} `xml:"ReferenceParameters"`
+		} `xml:"ConsumerReference"`
+		Filter                 string `xml:"Filter>TopicExpression"`
+		InitialTerminationTime string `xml:"InitialTerminationTime"`
+	}
+	if err := xml.Unmarshal(payload, &req); err != nil {
+		return nil, errors.Join(errDecodePayload, fmt.Errorf("eventsvc: decode Subscribe: %w", err))
+	}
+
+	info, err := h.provider.Subscribe(ctx, SubscribeParams{
+		ConsumerAddress:         req.ConsumerReference.Address,
+		ConsumerReferenceParams: req.ConsumerReference.ReferenceParameters.InnerXML,
+		Filter:                  req.Filter,
+		InitialTerminationTime:  req.InitialTerminationTime,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	rawAddr := h.subscriptionManagerAddr
+	if rawAddr == "" {
+		rawAddr = SubscriptionManagerPath
+	}
+	u, err := url.Parse(rawAddr)
+	if err != nil {
+		return nil, fmt.Errorf("eventsvc: parse subscription manager addr: %w", err)
+	}
+	q := u.Query()
+	q.Set("id", info.SubscriptionID)
+	u.RawQuery = q.Encode()
+	addr := u.String()
+
+	return xml.Marshal(subscribeResponse{
+		XMLNS:    WSNBaseNotificationNS,
+		XMLNSWsa: WSAddressingNamespace,
+		SubscriptionReference: endpointReferenceEnvelope{
+			Address: addr,
+		},
+		CurrentTime:     formatXSDDateTime(info.CurrentTime),
+		TerminationTime: formatXSDDateTime(info.TerminationTime),
+	})
 }
 
 func (h *EventServiceHandler) handleGetServiceCapabilities(ctx context.Context) ([]byte, error) {
@@ -270,8 +326,19 @@ func (h *EventServiceHandler) handleGetEventProperties(ctx context.Context, _ []
 	})
 }
 
+// isEventOperationNamespaceAccepted reports whether the operation element
+// (namespace + local name) is one this handler dispatches. ONVIF events live
+// under EventsNamespace; the single WS-BaseNotification operation we accept
+// at this endpoint is wsnt:Subscribe.
+func isEventOperationNamespaceAccepted(ns, local string) bool {
+	if ns == EventsNamespace {
+		return true
+	}
+	return ns == WSNBaseNotificationNS && local == opSubscribe
+}
+
 // parseEventOperation extracts the SOAP body inner XML and the operation name,
-// validating that the operation element belongs to EventsNamespace.
+// validating that the operation element belongs to an accepted namespace.
 func parseEventOperation(data []byte) (payload []byte, operation string, err error) {
 	var env struct {
 		Body struct {
@@ -301,7 +368,7 @@ func parseEventOperation(data []byte) (payload []byte, operation string, err err
 			if !inBody {
 				continue
 			}
-			if elem.Name.Space != EventsNamespace {
+			if !isEventOperationNamespaceAccepted(elem.Name.Space, elem.Name.Local) {
 				return nil, "", fmt.Errorf("%w: %s", errInvalidNamespace, elem.Name.Space)
 			}
 			return env.Body.Inner, elem.Name.Local, nil

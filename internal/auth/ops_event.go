@@ -14,6 +14,7 @@ var EventOperationClasses = map[string]AccessClass{
 
 	// The remaining operations create or manage runtime subscriptions.
 	"CreatePullPointSubscription": ClassActuate,
+	"Subscribe":                   ClassActuate,
 	"PullMessages":                ClassActuate,
 	"SetSynchronizationPoint":     ClassActuate,
 	"Renew":                       ClassActuate,
