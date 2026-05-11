@@ -4,8 +4,11 @@ package ffmpeg
 
 import "embed"
 
-// binariesFS is empty on unsupported platforms. availableImpl reports
-// ErrUnsupported on this build, so Open never reaches extractBinary.
+// binariesFS carries only the binaries/README.md asset on unsupported
+// platforms — no platform binary is embedded here. availableImpl reports
+// ErrUnsupported on this build, so Open returns early and extractBinary is
+// never invoked. The README embed exists solely so //go:embed has a valid
+// path on every platform.
 //
 //go:embed binaries/README.md
 var binariesFS embed.FS
