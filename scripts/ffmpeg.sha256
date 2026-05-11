@@ -1,0 +1,30 @@
+# SHA-256 checksums of the archive fetched by scripts/fetch-ffmpeg.sh for
+# each supported platform. Format: "<sha256>  <goos>_<goarch>".
+#
+# Bump these together with any URL change in fetch-ffmpeg.sh. To recompute:
+#   curl -fsSL <URL> | sha256sum
+# (or `shasum -a 256` on macOS).
+#
+# Provenance:
+#   linux_*  : johnvansickle.com  ffmpeg 7.0.2 release static (Aug 2024)
+#              <https://johnvansickle.com/ffmpeg/releases/>
+#   darwin_amd64  : evermeet.cx  ffmpeg 7.1 (Sep 2024)
+#                   <https://evermeet.cx/ffmpeg/>
+#   darwin_arm64  : osxexperts.net  ffmpeg 7.1 arm64 (Oct 2024)
+#                   <https://www.osxexperts.net/>
+#   windows_amd64 : BtbN/FFmpeg-Builds  win64-lgpl static (latest tag)
+#                   <https://github.com/BtbN/FFmpeg-Builds/releases>
+#
+# License posture: johnvansickle/evermeet/osxexperts ship GPL builds
+# (they include libx264/libx265). BtbN's "lgpl" variant strips those out.
+# The simulator runs ffmpeg as a fork+exec subprocess, which FFmpeg's own
+# legal.html treats as a separate program — so even a GPL ffmpeg blob
+# does not contaminate our MIT-licensed Go binary. See scripts/ffmpeg-build.md.
+
+abda8d77ce8309141f83ab8edf0596834087c52467f6badf376a6a2a4c87cf67  linux_amd64
+f4149bb2b0784e30e99bdda85471c9b5930d3402014e934a5098b41d0f7201b1  linux_arm64
+7d41f558cb1f3395b313f8ceabed78b3731c79a0962abf405ebb5cd393e93991  linux_arm
+5a1303c7babaffff3c32c141ff49c7f44bd3b3b3e7dcea992fd7d04b6558ef43  darwin_amd64
+0878f3313311c2c1b2c818e7c955c0bd828c97b357fa86211b42a5c36d01e36f  darwin_arm64
+54b6e7c1610ddb2dae5c62ce84cd06300b86b1d6b33fb48954a55dbd19d61d0e  windows_amd64
+ee529725163d75465429109fae709f6055bb128b4da4252a929e65fd248bc96e  windows_arm64
