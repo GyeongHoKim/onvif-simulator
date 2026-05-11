@@ -46,6 +46,27 @@ func TestBroker_Subscribe_RejectsEmptyConsumerAddress(t *testing.T) {
 	}
 }
 
+func TestBroker_Subscribe_RejectsMalformedConsumerAddress(t *testing.T) {
+	b := New(defaultPushCfg())
+	cases := map[string]string{
+		"not-a-url":          "::::not a url::::",
+		"missing-host":       "http://",
+		"missing-scheme":     "consumer.example/sink",
+		"unsupported-scheme": "ftp://consumer.example/sink",
+		"file-scheme":        "file:///tmp/sink",
+	}
+	for name, addr := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := b.Subscribe(context.Background(), eventsvc.SubscribeParams{
+				ConsumerAddress: addr,
+			})
+			if !errors.Is(err, eventsvc.ErrInvalidArgs) {
+				t.Errorf("Subscribe(%q) = %v, want ErrInvalidArgs", addr, err)
+			}
+		})
+	}
+}
+
 func TestBroker_Subscribe_MaxNotificationProducersApplies(t *testing.T) {
 	cfg := defaultPushCfg()
 	cfg.MaxNotificationProducers = 1

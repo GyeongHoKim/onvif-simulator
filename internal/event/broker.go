@@ -397,6 +397,22 @@ func (b *Broker) Subscribe(
 			"%w: Subscribe requires non-empty ConsumerReference Address",
 			eventsvc.ErrInvalidArgs)
 	}
+	consumerURL, err := url.ParseRequestURI(params.ConsumerAddress)
+	if err != nil {
+		return eventsvc.SubscriptionInfo{}, fmt.Errorf(
+			"%w: ConsumerReference Address %q is not a valid URI: %w",
+			eventsvc.ErrInvalidArgs, params.ConsumerAddress, err)
+	}
+	if consumerURL.Host == "" {
+		return eventsvc.SubscriptionInfo{}, fmt.Errorf(
+			"%w: ConsumerReference Address %q has no host",
+			eventsvc.ErrInvalidArgs, params.ConsumerAddress)
+	}
+	if consumerURL.Scheme != "http" && consumerURL.Scheme != "https" {
+		return eventsvc.SubscriptionInfo{}, fmt.Errorf(
+			"%w: ConsumerReference Address %q has unsupported scheme %q (want http or https)",
+			eventsvc.ErrInvalidArgs, params.ConsumerAddress, consumerURL.Scheme)
+	}
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
