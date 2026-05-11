@@ -60,7 +60,7 @@ gui-linux: _frontend-dist
 # invocations don't pay the npm install cost on every test/lint run.
 [unix]
 _frontend-dist:
-    @if [ ! -d {{frontend_dist}} ]; then cd internal/gui/frontend && npm install && npm run build; fi
+    @if [ ! -d "{{frontend_dist}}" ]; then cd internal/gui/frontend && npm install && npm run build; fi
 
 # Ensure the frontend bundle exists. Skipped when already present so repeat
 # invocations don't pay the npm install cost on every test/lint run.
@@ -147,7 +147,10 @@ e2e:
 # Run E2E SOAP suite against a running simulator (honors ONVIF_HOST, ONVIF_USERNAME, ONVIF_PASSWORD).
 [windows]
 e2e:
-    if (-not $env:ONVIF_HOST) { $env:ONVIF_HOST = 'localhost:8080' }; if (-not $env:ONVIF_USERNAME) { $env:ONVIF_USERNAME = 'admin' }; if (-not $env:ONVIF_PASSWORD) { $env:ONVIF_PASSWORD = '' }; go test ./test/e2e/... -tags e2e -v
+    if (-not $env:ONVIF_HOST) { $env:ONVIF_HOST = 'localhost:8080' }; \
+    if (-not $env:ONVIF_USERNAME) { $env:ONVIF_USERNAME = 'admin' }; \
+    if (-not $env:ONVIF_PASSWORD) { $env:ONVIF_PASSWORD = '' }; \
+    go test ./test/e2e/... -tags e2e -v
 
 # Remove build artifacts. Scoped to ./bin and ./build/bin — the rest of
 # ./build (Wails appicon, NSIS installer template, darwin Info.plist, …)

@@ -291,6 +291,8 @@ mise install
 
 This installs Go 1.26.2, golangci-lint 2.11.4, and Node.js 24.15.0 (needed for GUI via Wails).
 
+On **Windows**, `just rpicam-fetch`, `just ffmpeg-fetch`, and the `cli-rpi-*` recipes call `bash` to run scripts under `scripts/`. Install [Git for Windows](https://git-scm.com/download/win) (Git Bash), [WSL](https://learn.microsoft.com/en-us/windows/wsl/install), [MSYS2](https://www.msys2.org/), or another distribution that puts `bash` on your `PATH`, then confirm with `bash --version`.
+
 For GUI development, also install the [Wails CLI](https://wails.io/docs/gettingstarted/installation):
 
 ```bash
