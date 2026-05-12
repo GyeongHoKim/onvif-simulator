@@ -4,8 +4,11 @@
 [![Release](https://github.com/GyeongHoKim/onvif-simulator/actions/workflows/release.yml/badge.svg)](https://github.com/GyeongHoKim/onvif-simulator/actions/workflows/release.yml)
 [![codecov](https://codecov.io/gh/GyeongHoKim/onvif-simulator/graph/badge.svg)](https://codecov.io/gh/GyeongHoKim/onvif-simulator)
 [![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/GyeongHoKim/onvif-simulator?utm_source=oss&utm_medium=github&utm_campaign=GyeongHoKim%2Fonvif-simulator&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)](https://coderabbit.ai)
+[![ONVIF Profile S compliant](https://img.shields.io/badge/ONVIF-Profile%20S%20compliant-0aa)](https://www.onvif.org/profiles/profile-s/)
 
 A cross-platform ONVIF device simulator written in Go. Supports CLI, TUI, and GUI modes, making it easy to test ONVIF clients without real hardware.
+
+**v0.4.0** is the first release to implement every **ONVIF Profile S v1.3** device-side mandatory feature — discovery, capabilities, system + network configuration, user handling, media profile/encoder/source/metadata configuration, H.264/H.265/MJPEG over RTSP, and WS-BaseNotification pull-point + push event handling.
 
 ## Features
 
@@ -16,7 +19,7 @@ A cross-platform ONVIF device simulator written in Go. Supports CLI, TUI, and GU
 
 ## Supported profiles
 
-- **Profile S**
+- **Profile S** (v1.3) — every device-side mandatory feature implemented as of v0.4.0; see [`doc/`](doc/) for the bundled Profile S Specification PDF, and [Profile S conformance validation](#profile-s-conformance-validation) below for the validation harness.
 
 ## Installation
 
@@ -278,6 +281,34 @@ If you don't have a sample clip handy, generate one with ffmpeg:
 ffmpeg -y -f lavfi -i testsrc=duration=10:size=1280x720:rate=30 \
     -c:v libx264 -pix_fmt yuv420p sample.mp4
 ```
+
+## Profile S conformance validation
+
+v0.4.0 advertises ONVIF Profile S v1.3 device-side mandatory features. The compliance posture is verified at two levels:
+
+### `just e2e` — SOAP-level regression suite
+
+The `test/e2e` package drives a running simulator with [`use-go/onvif`](https://github.com/use-go/onvif) and exercises every Profile S mandatory operation (§7.1 auth — §7.13 metadata), the WS-BaseNotification pull-point + push event handlers, MJPEG advertising (`JPEG` instance count + resolutions), and the embedded RTSP playback path.
+
+```bash
+# Terminal 1 — start the simulator pointed at an H.264/H.265 mp4 (see Configuration)
+onvif-simulator serve
+
+# Terminal 2 — run the SOAP-level suite. ONVIF_HOST/USERNAME/PASSWORD override defaults.
+just e2e
+```
+
+The suite passes against the bundled `onvif-simulator.example.json` once `media_file_path` is set to an absolute path. CI runs it for every PR.
+
+### ONVIF Device Test Tool (DTT) — vendor-level conformance
+
+The [ONVIF Device Test Tool](https://www.onvif.org/profiles/conformance/device-test/) is the canonical conformance suite. It is Windows-only and is **not run automatically** — execute it locally before tagging a Profile S–claiming release:
+
+1. Start the simulator on the test machine (or a reachable host) with `onvif-simulator serve`. Make sure the configured `media_file_path` points at an H.264 (or H.265) mp4 — the JPEG output is synthesised on the fly from the same source.
+2. In DTT, **Add Device** by IP, run **Discover** if WS-Discovery is reachable, and select the **Profile S** test pool.
+3. Capture the DTT log into `doc/conformance/dtt-v0.4.0.log` (or attach to the release notes). Profile S–mandatory test cases must all return `Passed`; investigate any `Failed`/`Skipped` row before a release.
+
+Test machine specifics, expected runtime, and known limitations live in [`doc/conformance/README.md`](doc/conformance/README.md) (created on first run).
 
 ## Development
 
