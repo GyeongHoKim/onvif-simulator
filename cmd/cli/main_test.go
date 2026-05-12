@@ -54,7 +54,14 @@ func TestPrintUsageWritesAllCommands(t *testing.T) {
 	var buf bytes.Buffer
 	printUsage(&buf)
 	out := buf.String()
-	for _, want := range []string{"serve", "tui", "config show", "config validate", "version", "event motion", "event sync"} {
+	for _, want := range []string{
+		"serve", "tui", "config show", "config validate", "version",
+		"event motion", "event sync",
+		// Profile S compliance banner — Surface in --help is mandated by
+		// GYE-78 so operators see the conformance claim before any other
+		// detail.
+		"ONVIF Profile S v1.3 compliant",
+	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("usage missing %q. Got:\n%s", want, out)
 		}
@@ -71,6 +78,11 @@ func TestPrintVersionMentionsRPICam(t *testing.T) {
 	// Default build is not rpicam-tagged; the line must say "disabled".
 	if !strings.Contains(out, "rpicam: disabled") {
 		t.Fatalf("expected rpicam: disabled on default build, got: %s", out)
+	}
+	// GYE-78 — the version subcommand declares the Profile S level so
+	// operators can grep for it in CI logs.
+	if !strings.Contains(out, "profile-s: v1.3 (compliant)") {
+		t.Fatalf("version output missing Profile S line: %s", out)
 	}
 }
 

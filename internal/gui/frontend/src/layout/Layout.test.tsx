@@ -80,4 +80,9 @@ describe("Layout", () => {
       screen.getByRole("heading", { level: 1, name: /events/i })
     ).toBeInTheDocument()
   })
+
+  it("footer surfaces the ONVIF Profile S compliance claim", () => {
+    renderLayout()
+    expect(screen.getByText(/ONVIF Profile S v1\.3 compliant/i)).toBeInTheDocument()
+  })
 })
