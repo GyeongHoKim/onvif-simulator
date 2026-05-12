@@ -203,6 +203,10 @@ type EventsConfig struct {
 	// MaxPullPoints is the maximum number of concurrent pull-point
 	// subscriptions. 0 means no limit is advertised (defaults to 10).
 	MaxPullPoints int `json:"max_pull_points,omitempty"`
+	// MaxNotificationProducers is the maximum number of concurrent
+	// WS-BaseNotification push subscriptions (per ONVIF Core §9.3.2 / §9.5).
+	// Independent of MaxPullPoints. 0 disables push subscriptions entirely.
+	MaxNotificationProducers int `json:"max_notification_producers,omitempty"`
 	// SubscriptionTimeout is the default duration used when a
 	// CreatePullPointSubscription request omits InitialTerminationTime.
 	// Accepts Go durations (e.g. "1h", "30m") or ISO 8601 PT durations
@@ -1126,8 +1130,9 @@ func Default() Config {
 		// and JSON consumers expect the field to always be an array.
 		Media: MediaConfig{Profiles: []ProfileConfig{}},
 		Events: EventsConfig{
-			MaxPullPoints:       defaultMaxPullPoints,
-			SubscriptionTimeout: "1h",
+			MaxPullPoints:            defaultMaxPullPoints,
+			MaxNotificationProducers: defaultMaxNotificationProducers,
+			SubscriptionTimeout:      "1h",
 			Topics: []TopicConfig{
 				{Name: "tns1:VideoSource/MotionAlarm", Enabled: true},
 				{Name: "tns1:VideoSource/ImageTooBlurry", Enabled: true},
@@ -1140,7 +1145,10 @@ func Default() Config {
 	}
 }
 
-const defaultMaxPullPoints = 10
+const (
+	defaultMaxPullPoints            = 10
+	defaultMaxNotificationProducers = 10
+)
 
 // EnsureExists writes Default() to p when p does not yet exist, creating
 // the parent directory as needed. Returns true if it created the file.
