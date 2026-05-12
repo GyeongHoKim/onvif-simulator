@@ -91,6 +91,8 @@ func run(args []string) error {
 
 func printUsage(w io.Writer) {
 	lines := []string{
+		"onvif-simulator — ONVIF Profile S v1.3 compliant device simulator",
+		"",
 		"usage: onvif-simulator <command> [args]",
 		"commands:",
 		"  serve                          run simulator + loopback control server (default)",
@@ -118,6 +120,7 @@ func printVersion(w io.Writer) {
 		"  commit: " + version.Commit,
 		"  built:  " + version.Date,
 		"  rpicam: " + rpicam,
+		"  profile-s: v1.3 (compliant)",
 	}
 	_, _ = io.WriteString(w, strings.Join(lines, "\n")+"\n") //nolint:errcheck // version output is best-effort.
 }

@@ -298,7 +298,7 @@ func (m *rootModel) renderStatusBar() string {
 }
 
 func (m *rootModel) renderHelp() string {
-	common := "tab/shift+tab: switch · 1-6: jump · ?: help · q: quit"
+	common := "tab/shift+tab: switch · 1-6: jump · ?: help · q: quit · ONVIF Profile S v1.3"
 	return styleHelpBar.Render(common + " · " + m.screens[m.active].Help())
 }
 

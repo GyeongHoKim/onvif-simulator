@@ -166,7 +166,7 @@ export function Layout() {
         >
           {discovery}
         </span>
-        <span className="ml-auto">onvif-simulator</span>
+        <span className="ml-auto">onvif-simulator · ONVIF Profile S v1.3 compliant</span>
       </footer>
     </div>
   )

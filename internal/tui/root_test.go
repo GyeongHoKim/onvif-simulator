@@ -353,6 +353,20 @@ func TestRootModel_ViewAfterWindowSize(t *testing.T) {
 	}
 }
 
+func TestRootModel_HelpBarSurfacesProfileSClaim(t *testing.T) {
+	// GYE-78 — Profile S compliance must surface in every interactive
+	// frontend. The TUI threads the claim through the bottom help strip
+	// so it appears on every screen.
+	sim := newMockSim()
+	root := newRootModel(sim)
+	root.Update(tea.WindowSizeMsg{Width: 160, Height: 40})
+
+	v := root.View()
+	if !strings.Contains(v, "ONVIF Profile S v1.3") {
+		t.Fatalf("expected help bar to mention ONVIF Profile S v1.3, got: %q", v)
+	}
+}
+
 func TestRootModel_EventAndMutationMsgRouted(_ *testing.T) {
 	sim := newMockSim()
 	root := newRootModel(sim)
