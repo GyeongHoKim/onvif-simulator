@@ -113,7 +113,7 @@ case "${GOOS}_${GOARCH}" in
         ;;
 esac
 
-EXPECTED_SHA="$(awk -v key="${GOOS}_${GOARCH}" '$2 == key { print $1 }' "$SHA_FILE")"
+EXPECTED_SHA="$(awk -v key="${GOOS}_${GOARCH}" '$1 !~ /^#/ && $2 == key { print $1 }' "$SHA_FILE")"
 if [ -z "$EXPECTED_SHA" ]; then
     echo "no SHA-256 entry for ${GOOS}_${GOARCH} in $SHA_FILE" >&2
     echo "  pin one before re-running:" >&2
