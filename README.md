@@ -45,7 +45,7 @@ Download the installer for your platform from the [Releases](https://github.com/
 
 | Platform | File |
 |----------|------|
-| Windows  | `onvif-simulator-gui-windows-amd64.exe` |
+| Windows  | `onvif-simulator-gui-amd64-installer.exe` |
 | macOS    | `onvif-simulator-gui-darwin-amd64.dmg` |
 | Linux    | `onvif-simulator-gui-linux-amd64.AppImage` |
 
@@ -169,7 +169,7 @@ Interactive terminal UI for managing:
   - trigger motion detection
 
 ```bash
-onvif-simulator
+onvif-simulator tui
 ```
 
 ### GUI Mode
@@ -322,13 +322,15 @@ mise install
 
 This installs Go 1.26.2, golangci-lint 2.11.4, and Node.js 24.15.0 (needed for GUI via Wails).
 
-On **Windows**, `just rpicam-fetch`, `just ffmpeg-fetch`, and the `cli-rpi-*` recipes call `bash` to run scripts under `scripts/`. Install [Git for Windows](https://git-scm.com/download/win) (Git Bash), [WSL](https://learn.microsoft.com/en-us/windows/wsl/install), [MSYS2](https://www.msys2.org/), or another distribution that puts `bash` on your `PATH`, then confirm with `bash --version`.
+On **Windows**, `just rpicam-fetch`, `just ffmpeg-fetch`, and the `cli-rpi-*` recipes run the PowerShell ports under `scripts/` (`fetch-mtxrpicam.ps1`, `fetch-ffmpeg.ps1`) via `pwsh`. Install [PowerShell 7+](https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-windows) and make sure `pwsh` is on your `PATH`, then confirm with `pwsh -Version`.
 
 For GUI development, also install the [Wails CLI](https://wails.io/docs/gettingstarted/installation):
 
 ```bash
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 ```
+
+This matches the version pinned in the release workflow.
 
 ### Setup
 
@@ -360,7 +362,7 @@ The legacy `Makefile` is a thin deprecation wrapper that simply forwards every t
 | `just setup` | Install git hooks and commitlint (run once after cloning) |
 | `just cli` | Build the CLI/TUI binary |
 | `just gui` | Build the GUI binary (requires Wails) |
-| `just format` | Run `go fmt` across all packages |
+| `just format` | Run `golangci-lint fmt` across all packages |
 | `just lint` | Run golangci-lint |
 | `just clean` | Remove build artifacts |
 
