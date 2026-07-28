@@ -153,7 +153,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	writeSOAP(w, respPayload)
 }
 
-func (h *Handler) writeAuthFault(w http.ResponseWriter, authErr error) {
+func (*Handler) writeAuthFault(w http.ResponseWriter, authErr error) {
 	status := http.StatusUnauthorized
 	subcode := ""
 	var challenge *auth.ChallengeError
@@ -171,7 +171,7 @@ func (h *Handler) writeAuthFault(w http.ResponseWriter, authErr error) {
 	writeFault(w, status, faultCodeSender, subcode, authErr.Error())
 }
 
-//nolint:cyclop // dispatch is a straightforward operation router
+//nolint:cyclop,gocyclo // dispatch is a straightforward operation router
 func (h *Handler) dispatch(ctx context.Context, operation string, payload []byte) ([]byte, error) {
 	switch operation {
 	case "GetServiceCapabilities":
@@ -221,14 +221,8 @@ func (h *Handler) handleGetServiceCapabilities(ctx context.Context) ([]byte, err
 		return nil, err
 	}
 	return xml.Marshal(getServiceCapabilitiesResponse{
-		XMLNS: PTZNamespace,
-		Capabilities: ptzCapabilitiesEnvelope{
-			EFlip:                       caps.EFlip,
-			Reverse:                     caps.Reverse,
-			GetCompatibleConfigurations: caps.GetCompatibleConfigurations,
-			MoveStatus:                  caps.MoveStatus,
-			StatusPosition:              caps.StatusPosition,
-		},
+		XMLNS:        PTZNamespace,
+		Capabilities: ptzCapabilitiesEnvelope(caps),
 	})
 }
 
@@ -253,7 +247,7 @@ func (h *Handler) handleGetNode(ctx context.Context, payload []byte) ([]byte, er
 		NodeToken string `xml:"NodeToken"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode GetNode: %v", errDecodePayload, err)
+		return nil, fmt.Errorf("%w: decode GetNode: %w", errDecodePayload, err)
 	}
 	node, err := h.provider.GetNode(ctx, req.NodeToken)
 	if err != nil {
@@ -292,7 +286,7 @@ func (h *Handler) handleGetConfiguration(ctx context.Context, payload []byte) ([
 		PTZConfigurationToken string `xml:"PTZConfigurationToken"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode GetConfiguration: %v", errDecodePayload, err)
+		return nil, fmt.Errorf("%w: decode GetConfiguration: %w", errDecodePayload, err)
 	}
 	cfg, err := h.provider.GetConfiguration(ctx, req.PTZConfigurationToken)
 	if err != nil {
@@ -315,7 +309,7 @@ func (h *Handler) handleGetConfigurationOptions(ctx context.Context, payload []b
 		ConfigurationToken string `xml:"ConfigurationToken"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode GetConfigurationOptions: %v", errDecodePayload, err)
+		return nil, fmt.Errorf("%w: decode GetConfigurationOptions: %w", errDecodePayload, err)
 	}
 	opts, err := h.provider.GetConfigurationOptions(ctx, req.ConfigurationToken)
 	if err != nil {
@@ -357,7 +351,7 @@ func (h *Handler) handleGetStatus(ctx context.Context, payload []byte) ([]byte, 
 		ProfileToken string `xml:"ProfileToken"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode GetStatus: %v", errDecodePayload, err)
+		return nil, fmt.Errorf("%w: decode GetStatus: %w", errDecodePayload, err)
 	}
 	st, err := h.provider.GetStatus(ctx, req.ProfileToken)
 	if err != nil {
@@ -383,7 +377,7 @@ func (h *Handler) handleContinuousMove(ctx context.Context, payload []byte) ([]b
 		Timeout      *string       `xml:"Timeout"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode ContinuousMove: %v", errDecodePayload, err)
+		return nil, fmt.Errorf("%w: decode ContinuousMove: %w", errDecodePayload, err)
 	}
 	vel := envelopeToSpeed(&req.Velocity)
 	if err := h.provider.ContinuousMove(ctx, req.ProfileToken, vel, req.Timeout); err != nil {
@@ -392,46 +386,55 @@ func (h *Handler) handleContinuousMove(ctx context.Context, payload []byte) ([]b
 	return xml.Marshal(continuousMoveResponse{XMLNS: PTZNamespace})
 }
 
-func (h *Handler) handleAbsoluteMove(ctx context.Context, payload []byte) ([]byte, error) {
-	var req struct {
-		ProfileToken string         `xml:"ProfileToken"`
-		Position     vectorEnvelope `xml:"Position"`
-		Speed        *speedEnvelope `xml:"Speed"`
+// parseSpeed converts a speed envelope to a Speed pointer, returning nil for nil input.
+func parseSpeed(env *speedEnvelope) *Speed {
+	if env == nil {
+		return nil
 	}
+	s := envelopeToSpeed(env)
+	return &s
+}
+
+// moveRequest is the common XML structure for AbsoluteMove and RelativeMove.
+type moveRequest struct {
+	ProfileToken string         `xml:"ProfileToken"`
+	Position     vectorEnvelope `xml:"Position"`
+	Translation  vectorEnvelope `xml:"Translation"`
+	Speed        *speedEnvelope `xml:"Speed"`
+}
+
+// handlePositionMove handles both AbsoluteMove and RelativeMove by extracting
+// the common parsing and dispatch logic.
+func handlePositionMove(
+	ctx context.Context,
+	payload []byte,
+	op string,
+	isTranslation bool,
+	callFn func(ctx context.Context, token string, vec Vector, spd *Speed) error,
+	resp any,
+) ([]byte, error) {
+	var req moveRequest
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode AbsoluteMove: %v", errDecodePayload, err)
+		return nil, fmt.Errorf("%w: decode %s: %w", errDecodePayload, op, err)
 	}
-	pos := envelopeToVector(&req.Position)
-	var spd *Speed
-	if req.Speed != nil {
-		s := envelopeToSpeed(req.Speed)
-		spd = &s
+	vecEnv := &req.Position
+	if isTranslation {
+		vecEnv = &req.Translation
 	}
-	if err := h.provider.AbsoluteMove(ctx, req.ProfileToken, pos, spd); err != nil {
+	if err := callFn(ctx, req.ProfileToken, envelopeToVector(vecEnv), parseSpeed(req.Speed)); err != nil {
 		return nil, err
 	}
-	return xml.Marshal(absoluteMoveResponse{XMLNS: PTZNamespace})
+	return xml.Marshal(resp)
+}
+
+func (h *Handler) handleAbsoluteMove(ctx context.Context, payload []byte) ([]byte, error) {
+	return handlePositionMove(ctx, payload, "AbsoluteMove", false,
+		h.provider.AbsoluteMove, absoluteMoveResponse{XMLNS: PTZNamespace})
 }
 
 func (h *Handler) handleRelativeMove(ctx context.Context, payload []byte) ([]byte, error) {
-	var req struct {
-		ProfileToken string         `xml:"ProfileToken"`
-		Translation  vectorEnvelope `xml:"Translation"`
-		Speed        *speedEnvelope `xml:"Speed"`
-	}
-	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode RelativeMove: %v", errDecodePayload, err)
-	}
-	trans := envelopeToVector(&req.Translation)
-	var spd *Speed
-	if req.Speed != nil {
-		s := envelopeToSpeed(req.Speed)
-		spd = &s
-	}
-	if err := h.provider.RelativeMove(ctx, req.ProfileToken, trans, spd); err != nil {
-		return nil, err
-	}
-	return xml.Marshal(relativeMoveResponse{XMLNS: PTZNamespace})
+	return handlePositionMove(ctx, payload, "RelativeMove", true,
+		h.provider.RelativeMove, relativeMoveResponse{XMLNS: PTZNamespace})
 }
 
 func (h *Handler) handleStop(ctx context.Context, payload []byte) ([]byte, error) {
@@ -441,7 +444,7 @@ func (h *Handler) handleStop(ctx context.Context, payload []byte) ([]byte, error
 		Zoom         *bool  `xml:"Zoom"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode Stop: %v", errDecodePayload, err)
+		return nil, fmt.Errorf("%w: decode Stop: %w", errDecodePayload, err)
 	}
 	if err := h.provider.Stop(ctx, req.ProfileToken, req.PanTilt, req.Zoom); err != nil {
 		return nil, err
@@ -454,7 +457,7 @@ func (h *Handler) handleGetPresets(ctx context.Context, payload []byte) ([]byte,
 		ProfileToken string `xml:"ProfileToken"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode GetPresets: %v", errDecodePayload, err)
+		return nil, fmt.Errorf("%w: decode GetPresets: %w", errDecodePayload, err)
 	}
 	presets, err := h.provider.GetPresets(ctx, req.ProfileToken)
 	if err != nil {
@@ -482,7 +485,7 @@ func (h *Handler) handleSetPreset(ctx context.Context, payload []byte) ([]byte, 
 		PresetToken  *string `xml:"PresetToken"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode SetPreset: %v", errDecodePayload, err)
+		return nil, fmt.Errorf("%w: decode SetPreset: %w", errDecodePayload, err)
 	}
 	token, err := h.provider.SetPreset(ctx, req.ProfileToken, req.PresetName, req.PresetToken)
 	if err != nil {
@@ -500,7 +503,7 @@ func (h *Handler) handleRemovePreset(ctx context.Context, payload []byte) ([]byt
 		PresetToken  string `xml:"PresetToken"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode RemovePreset: %v", errDecodePayload, err)
+		return nil, fmt.Errorf("%w: decode RemovePreset: %w", errDecodePayload, err)
 	}
 	if err := h.provider.RemovePreset(ctx, req.ProfileToken, req.PresetToken); err != nil {
 		return nil, err
@@ -515,14 +518,9 @@ func (h *Handler) handleGotoPreset(ctx context.Context, payload []byte) ([]byte,
 		Speed        *speedEnvelope `xml:"Speed"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode GotoPreset: %v", errDecodePayload, err)
+		return nil, fmt.Errorf("%w: decode GotoPreset: %w", errDecodePayload, err)
 	}
-	var spd *Speed
-	if req.Speed != nil {
-		s := envelopeToSpeed(req.Speed)
-		spd = &s
-	}
-	if err := h.provider.GotoPreset(ctx, req.ProfileToken, req.PresetToken, spd); err != nil {
+	if err := h.provider.GotoPreset(ctx, req.ProfileToken, req.PresetToken, parseSpeed(req.Speed)); err != nil {
 		return nil, err
 	}
 	return xml.Marshal(gotoPresetResponse{XMLNS: PTZNamespace})
@@ -534,14 +532,9 @@ func (h *Handler) handleGotoHomePosition(ctx context.Context, payload []byte) ([
 		Speed        *speedEnvelope `xml:"Speed"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode GotoHomePosition: %v", errDecodePayload, err)
+		return nil, fmt.Errorf("%w: decode GotoHomePosition: %w", errDecodePayload, err)
 	}
-	var spd *Speed
-	if req.Speed != nil {
-		s := envelopeToSpeed(req.Speed)
-		spd = &s
-	}
-	if err := h.provider.GotoHomePosition(ctx, req.ProfileToken, spd); err != nil {
+	if err := h.provider.GotoHomePosition(ctx, req.ProfileToken, parseSpeed(req.Speed)); err != nil {
 		return nil, err
 	}
 	return xml.Marshal(gotoHomePositionResponse{XMLNS: PTZNamespace})
@@ -552,7 +545,7 @@ func (h *Handler) handleSetHomePosition(ctx context.Context, payload []byte) ([]
 		ProfileToken string `xml:"ProfileToken"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode SetHomePosition: %v", errDecodePayload, err)
+		return nil, fmt.Errorf("%w: decode SetHomePosition: %w", errDecodePayload, err)
 	}
 	if err := h.provider.SetHomePosition(ctx, req.ProfileToken); err != nil {
 		return nil, err

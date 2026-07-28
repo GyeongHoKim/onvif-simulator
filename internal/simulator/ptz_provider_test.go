@@ -14,7 +14,8 @@ func TestEPTZState_GetStatus_InitialState(t *testing.T) {
 		t.Fatal("initial position should not be nil")
 	}
 	if status.Position.PanTilt.X != 0 || status.Position.PanTilt.Y != 0 {
-		t.Fatalf("initial pan/tilt should be (0,0), got (%f,%f)", status.Position.PanTilt.X, status.Position.PanTilt.Y)
+		t.Fatalf("initial pan/tilt should be (0,0), got (%f,%f)",
+			status.Position.PanTilt.X, status.Position.PanTilt.Y)
 	}
 	if status.Position.Zoom.X != 0 {
 		t.Fatalf("initial zoom should be 0, got %f", status.Position.Zoom.X)
@@ -102,6 +103,7 @@ func TestEPTZState_ContinuousMove(t *testing.T) {
 }
 
 func TestEPTZState_Stop(t *testing.T) {
+	t.Helper()
 	st := newEPTZState()
 	pt := true
 	zm := true
@@ -297,8 +299,9 @@ func TestPTZProvider_Presets(t *testing.T) {
 		t.Fatalf("want 1 preset, got %d", len(presets))
 	}
 
-	if err := prov.RemovePreset(ctx, "main", token); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	removeErr := prov.RemovePreset(ctx, "main", token)
+	if removeErr != nil {
+		t.Fatalf("unexpected error: %v", removeErr)
 	}
 	presets, err = prov.GetPresets(ctx, "main")
 	if err != nil {
@@ -321,34 +324,40 @@ func TestPTZProvider_Move(t *testing.T) {
 	}, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	status, _ := prov.GetStatus(ctx, "main")
+	status, err := prov.GetStatus(ctx, "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if status.Position.PanTilt.X != 0.5 {
 		t.Fatalf("want pan=0.5, got %f", status.Position.PanTilt.X)
 	}
 
 	// Relative move
-	if err := prov.RelativeMove(ctx, "main", ptzsvc.Vector{
+	if relErr := prov.RelativeMove(ctx, "main", ptzsvc.Vector{
 		PanTilt: &ptzsvc.PanTilt{X: 0.1, Y: 0.1},
-	}, nil); err != nil {
+	}, nil); relErr != nil {
+		t.Fatalf("unexpected error: %v", relErr)
+	}
+	status, err = prov.GetStatus(ctx, "main")
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	status, _ = prov.GetStatus(ctx, "main")
 	if status.Position.PanTilt.X != 0.6 {
 		t.Fatalf("want pan=0.6, got %f", status.Position.PanTilt.X)
 	}
 
 	// Continuous move
-	if err := prov.ContinuousMove(ctx, "main", ptzsvc.Speed{
+	if contErr := prov.ContinuousMove(ctx, "main", ptzsvc.Speed{
 		PanTilt: &ptzsvc.PanTilt{X: 0.1, Y: 0.1},
-	}, nil); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	}, nil); contErr != nil {
+		t.Fatalf("unexpected error: %v", contErr)
 	}
 
 	// Stop
 	pt := true
 	zm := true
-	if err := prov.Stop(ctx, "main", &pt, &zm); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if stopErr := prov.Stop(ctx, "main", &pt, &zm); stopErr != nil {
+		t.Fatalf("unexpected error: %v", stopErr)
 	}
 }
 
@@ -357,18 +366,27 @@ func TestPTZProvider_GotoPreset(t *testing.T) {
 	prov := newPTZProvider(sim)
 	ctx := context.Background()
 
-	prov.AbsoluteMove(ctx, "main", ptzsvc.Vector{
+	if err := prov.AbsoluteMove(ctx, "main", ptzsvc.Vector{
 		PanTilt: &ptzsvc.PanTilt{X: 0.8, Y: 0.8},
-	}, nil)
-	prov.SetPreset(ctx, "main", strPtr("Corner"), nil)
-	prov.AbsoluteMove(ctx, "main", ptzsvc.Vector{
+	}, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := prov.SetPreset(ctx, "main", strPtr("Corner"), nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := prov.AbsoluteMove(ctx, "main", ptzsvc.Vector{
 		PanTilt: &ptzsvc.PanTilt{X: 0, Y: 0},
-	}, nil)
+	}, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if err := prov.GotoPreset(ctx, "main", "preset_1", nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	status, _ := prov.GetStatus(ctx, "main")
+	status, err := prov.GetStatus(ctx, "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if status.Position.PanTilt.X != 0.8 {
 		t.Fatalf("want pan=0.8, got %f", status.Position.PanTilt.X)
 	}
@@ -379,18 +397,27 @@ func TestPTZProvider_GotoHomePosition(t *testing.T) {
 	prov := newPTZProvider(sim)
 	ctx := context.Background()
 
-	prov.AbsoluteMove(ctx, "main", ptzsvc.Vector{
+	if err := prov.AbsoluteMove(ctx, "main", ptzsvc.Vector{
 		PanTilt: &ptzsvc.PanTilt{X: 0.5, Y: 0.5},
-	}, nil)
-	prov.SetHomePosition(ctx, "main")
-	prov.AbsoluteMove(ctx, "main", ptzsvc.Vector{
+	}, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := prov.SetHomePosition(ctx, "main"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := prov.AbsoluteMove(ctx, "main", ptzsvc.Vector{
 		PanTilt: &ptzsvc.PanTilt{X: 0, Y: 0},
-	}, nil)
+	}, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if err := prov.GotoHomePosition(ctx, "main", nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	status, _ := prov.GetStatus(ctx, "main")
+	status, err := prov.GetStatus(ctx, "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if status.Position.PanTilt.X != 0.5 {
 		t.Fatalf("want pan=0.5, got %f", status.Position.PanTilt.X)
 	}

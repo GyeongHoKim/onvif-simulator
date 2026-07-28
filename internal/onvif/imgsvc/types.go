@@ -99,7 +99,7 @@ type Preset struct {
 type Provider interface {
 	ServiceCapabilities(ctx context.Context) (ServiceCapabilities, error)
 	GetImagingSettings(ctx context.Context, videoSourceToken string) (Settings, error)
-	SetImagingSettings(ctx context.Context, videoSourceToken string, settings Settings, forcePersistence *bool) error
+	SetImagingSettings(ctx context.Context, videoSourceToken string, settings *Settings, forcePersistence *bool) error
 	GetOptions(ctx context.Context, videoSourceToken string) (Options, error)
 	GetStatus(ctx context.Context, videoSourceToken string) (Status, error)
 	GetPresets(ctx context.Context, videoSourceToken string) ([]Preset, error)
@@ -115,6 +115,7 @@ type AuthHook interface {
 // AuthFunc is a function adapter for AuthHook.
 type AuthFunc func(ctx context.Context, operation string, r *http.Request) error
 
+// Authorize delegates to the underlying function.
 func (f AuthFunc) Authorize(ctx context.Context, operation string, r *http.Request) error {
 	return f(ctx, operation, r)
 }

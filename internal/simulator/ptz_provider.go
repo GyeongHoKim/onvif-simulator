@@ -10,9 +10,9 @@ import (
 )
 
 const (
-	defaultPTZNodeToken    = "ePTZ_node"
+	defaultPTZNodeToken    = "ePTZ_node" //nolint:gosec // PTZ node identifier, not a credential
 	defaultPTZNodeName     = "ePTZ Digital Node"
-	defaultPTZConfigToken  = "ePTZ_config"
+	defaultPTZConfigToken  = "ePTZ_config" //nolint:gosec // PTZ config identifier, not a credential
 	defaultPTZConfigName   = "ePTZ Configuration"
 	defaultPTZHomeToken    = "ePTZ_home"
 	defaultPTZProfileToken = "profile_main" // fallback when no profile specified
@@ -69,16 +69,21 @@ func (s *ePTZState) getStatus() ptzsvc.Status {
 	}
 }
 
+// applyDelta applies a pan/tilt/zoom delta to the current position, clamping to valid ranges.
+func (s *ePTZState) applyDelta(panTilt *ptzsvc.PanTilt, zoom *ptzsvc.Zoom) {
+	if panTilt != nil {
+		s.position.PanTilt.X = clamp(s.position.PanTilt.X+panTilt.X, ptzMinPan, ptzMaxPan)
+		s.position.PanTilt.Y = clamp(s.position.PanTilt.Y+panTilt.Y, ptzMinTilt, ptzMaxTilt)
+	}
+	if zoom != nil {
+		s.position.Zoom.X = clamp(s.position.Zoom.X+zoom.X, ptzMinZoom, ptzMaxZoom)
+	}
+}
+
 func (s *ePTZState) continuousMove(vel ptzsvc.Speed) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if vel.PanTilt != nil {
-		s.position.PanTilt.X = clamp(s.position.PanTilt.X+vel.PanTilt.X, ptzMinPan, ptzMaxPan)
-		s.position.PanTilt.Y = clamp(s.position.PanTilt.Y+vel.PanTilt.Y, ptzMinTilt, ptzMaxTilt)
-	}
-	if vel.Zoom != nil {
-		s.position.Zoom.X = clamp(s.position.Zoom.X+vel.Zoom.X, ptzMinZoom, ptzMaxZoom)
-	}
+	s.applyDelta(vel.PanTilt, vel.Zoom)
 }
 
 func (s *ePTZState) absoluteMove(pos ptzsvc.Vector) {
@@ -96,13 +101,7 @@ func (s *ePTZState) absoluteMove(pos ptzsvc.Vector) {
 func (s *ePTZState) relativeMove(trans ptzsvc.Vector) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if trans.PanTilt != nil {
-		s.position.PanTilt.X = clamp(s.position.PanTilt.X+trans.PanTilt.X, ptzMinPan, ptzMaxPan)
-		s.position.PanTilt.Y = clamp(s.position.PanTilt.Y+trans.PanTilt.Y, ptzMinTilt, ptzMaxTilt)
-	}
-	if trans.Zoom != nil {
-		s.position.Zoom.X = clamp(s.position.Zoom.X+trans.Zoom.X, ptzMinZoom, ptzMaxZoom)
-	}
+	s.applyDelta(trans.PanTilt, trans.Zoom)
 }
 
 func (s *ePTZState) stop(panTilt, zoom *bool) {
@@ -114,10 +113,11 @@ func (s *ePTZState) stop(panTilt, zoom *bool) {
 	_ = zoom
 }
 
-func (s *ePTZState) setPreset(name *string, token *string) string {
+func (s *ePTZState) setPreset(name, token *string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	tok := ""
+
+	var tok string
 	if token != nil && *token != "" {
 		tok = *token
 	} else {
@@ -199,12 +199,12 @@ func copyVector(v *ptzsvc.Vector) ptzsvc.Vector {
 	return out
 }
 
-func clamp(v, min, max float64) float64 {
-	if v < min {
-		return min
+func clamp(v, lo, hi float64) float64 { //nolint:unparam // general-purpose helper
+	if v < lo {
+		return lo
 	}
-	if v > max {
-		return max
+	if v > hi {
+		return hi
 	}
 	return v
 }
@@ -238,7 +238,7 @@ func (p *ptzProvider) stateForProfile(profileToken string) *ePTZState {
 	return st
 }
 
-func (p *ptzProvider) ServiceCapabilities(_ context.Context) (ptzsvc.ServiceCapabilities, error) {
+func (*ptzProvider) ServiceCapabilities(_ context.Context) (ptzsvc.ServiceCapabilities, error) {
 	return ptzsvc.ServiceCapabilities{
 		EFlip:          false,
 		Reverse:        false,
@@ -247,7 +247,7 @@ func (p *ptzProvider) ServiceCapabilities(_ context.Context) (ptzsvc.ServiceCapa
 	}, nil
 }
 
-func (p *ptzProvider) GetNodes(_ context.Context) ([]ptzsvc.PTZNode, error) {
+func (*ptzProvider) GetNodes(_ context.Context) ([]ptzsvc.PTZNode, error) {
 	return []ptzsvc.PTZNode{{
 		Token: defaultPTZNodeToken,
 		Name:  defaultPTZNodeName,
@@ -269,11 +269,14 @@ func (p *ptzProvider) GetNode(_ context.Context, nodeToken string) (ptzsvc.PTZNo
 	if nodeToken != defaultPTZNodeToken {
 		return ptzsvc.PTZNode{}, fmt.Errorf("%w: node %s", ptzsvc.ErrInvalidArgs, nodeToken)
 	}
-	nodes, _ := p.GetNodes(nil)
+	nodes, err := p.GetNodes(context.Background())
+	if err != nil {
+		return ptzsvc.PTZNode{}, err
+	}
 	return nodes[0], nil
 }
 
-func (p *ptzProvider) GetConfigurations(_ context.Context) ([]ptzsvc.PTZConfiguration, error) {
+func (*ptzProvider) GetConfigurations(_ context.Context) ([]ptzsvc.PTZConfiguration, error) {
 	return []ptzsvc.PTZConfiguration{{
 		Token:                                  defaultPTZConfigToken,
 		Name:                                   defaultPTZConfigName,
@@ -288,15 +291,23 @@ func (p *ptzProvider) GetConfigurations(_ context.Context) ([]ptzsvc.PTZConfigur
 	}}, nil
 }
 
-func (p *ptzProvider) GetConfiguration(_ context.Context, configToken string) (ptzsvc.PTZConfiguration, error) {
+func (p *ptzProvider) GetConfiguration(
+	_ context.Context, configToken string,
+) (ptzsvc.PTZConfiguration, error) {
 	if configToken != defaultPTZConfigToken {
-		return ptzsvc.PTZConfiguration{}, fmt.Errorf("%w: config %s", ptzsvc.ErrInvalidArgs, configToken)
+		return ptzsvc.PTZConfiguration{},
+			fmt.Errorf("%w: config %s", ptzsvc.ErrInvalidArgs, configToken)
 	}
-	cfgs, _ := p.GetConfigurations(nil)
+	cfgs, err := p.GetConfigurations(context.Background())
+	if err != nil {
+		return ptzsvc.PTZConfiguration{}, err
+	}
 	return cfgs[0], nil
 }
 
-func (p *ptzProvider) GetConfigurationOptions(_ context.Context, _ string) (ptzsvc.ConfigurationOptions, error) {
+func (*ptzProvider) GetConfigurationOptions(
+	_ context.Context, _ string,
+) (ptzsvc.ConfigurationOptions, error) {
 	return ptzsvc.ConfigurationOptions{
 		PanTiltPositionSpaceRange: []ptzsvc.SpaceRange{{
 			URI:    "http://www.onvif.org/ver10/tptz/PositionSpace",
@@ -333,17 +344,23 @@ func (p *ptzProvider) GetStatus(_ context.Context, profileToken string) (ptzsvc.
 	return p.stateForProfile(profileToken).getStatus(), nil
 }
 
-func (p *ptzProvider) ContinuousMove(_ context.Context, profileToken string, velocity ptzsvc.Speed, _ *string) error {
+func (p *ptzProvider) ContinuousMove(
+	_ context.Context, profileToken string, velocity ptzsvc.Speed, _ *string,
+) error {
 	p.stateForProfile(profileToken).continuousMove(velocity)
 	return nil
 }
 
-func (p *ptzProvider) AbsoluteMove(_ context.Context, profileToken string, position ptzsvc.Vector, _ *ptzsvc.Speed) error {
+func (p *ptzProvider) AbsoluteMove(
+	_ context.Context, profileToken string, position ptzsvc.Vector, _ *ptzsvc.Speed,
+) error {
 	p.stateForProfile(profileToken).absoluteMove(position)
 	return nil
 }
 
-func (p *ptzProvider) RelativeMove(_ context.Context, profileToken string, translation ptzsvc.Vector, _ *ptzsvc.Speed) error {
+func (p *ptzProvider) RelativeMove(
+	_ context.Context, profileToken string, translation ptzsvc.Vector, _ *ptzsvc.Speed,
+) error {
 	p.stateForProfile(profileToken).relativeMove(translation)
 	return nil
 }
@@ -357,19 +374,27 @@ func (p *ptzProvider) GetPresets(_ context.Context, profileToken string) ([]ptzs
 	return p.stateForProfile(profileToken).getPresets(), nil
 }
 
-func (p *ptzProvider) SetPreset(_ context.Context, profileToken string, name, token *string) (string, error) {
+func (p *ptzProvider) SetPreset(
+	_ context.Context, profileToken string, name, token *string,
+) (string, error) {
 	return p.stateForProfile(profileToken).setPreset(name, token), nil
 }
 
-func (p *ptzProvider) RemovePreset(_ context.Context, profileToken string, presetToken string) error {
+func (p *ptzProvider) RemovePreset(
+	_ context.Context, profileToken, presetToken string,
+) error {
 	return p.stateForProfile(profileToken).removePreset(presetToken)
 }
 
-func (p *ptzProvider) GotoPreset(_ context.Context, profileToken string, presetToken string, _ *ptzsvc.Speed) error {
+func (p *ptzProvider) GotoPreset(
+	_ context.Context, profileToken, presetToken string, _ *ptzsvc.Speed,
+) error {
 	return p.stateForProfile(profileToken).gotoPreset(presetToken)
 }
 
-func (p *ptzProvider) GotoHomePosition(_ context.Context, profileToken string, _ *ptzsvc.Speed) error {
+func (p *ptzProvider) GotoHomePosition(
+	_ context.Context, profileToken string, _ *ptzsvc.Speed,
+) error {
 	p.stateForProfile(profileToken).gotoHomePosition()
 	return nil
 }

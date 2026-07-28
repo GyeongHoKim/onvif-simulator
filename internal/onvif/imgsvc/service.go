@@ -150,7 +150,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	writeSOAP(w, respPayload)
 }
 
-func (h *Handler) writeAuthFault(w http.ResponseWriter, authErr error) {
+func (*Handler) writeAuthFault(w http.ResponseWriter, authErr error) {
 	status := http.StatusUnauthorized
 	subcode := ""
 	var challenge *auth.ChallengeError
@@ -168,7 +168,6 @@ func (h *Handler) writeAuthFault(w http.ResponseWriter, authErr error) {
 	writeFault(w, status, faultCodeSender, subcode, authErr.Error())
 }
 
-//nolint:cyclop // dispatch is a straightforward operation router
 func (h *Handler) dispatch(ctx context.Context, operation string, payload []byte) ([]byte, error) {
 	switch operation {
 	case "GetServiceCapabilities":
@@ -200,10 +199,8 @@ func (h *Handler) handleGetServiceCapabilities(ctx context.Context) ([]byte, err
 		return nil, err
 	}
 	return xml.Marshal(getServiceCapabilitiesResponse{
-		XMLNS: ImagingNamespace,
-		Capabilities: imgCapabilitiesEnvelope{
-			ImageStabilization: caps.ImageStabilization,
-		},
+		XMLNS:        ImagingNamespace,
+		Capabilities: imgCapabilitiesEnvelope(caps),
 	})
 }
 
@@ -212,7 +209,7 @@ func (h *Handler) handleGetImagingSettings(ctx context.Context, payload []byte) 
 		VideoSourceToken string `xml:"VideoSourceToken"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode GetImagingSettings: %v", errDecodePayload, err)
+		return nil, fmt.Errorf("%w: decode GetImagingSettings: %w", errDecodePayload, err)
 	}
 	settings, err := h.provider.GetImagingSettings(ctx, req.VideoSourceToken)
 	if err != nil {
@@ -232,10 +229,10 @@ func (h *Handler) handleSetImagingSettings(ctx context.Context, payload []byte) 
 		ForcePersistence *bool                   `xml:"ForcePersistence"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode SetImagingSettings: %v", errDecodePayload, err)
+		return nil, fmt.Errorf("%w: decode SetImagingSettings: %w", errDecodePayload, err)
 	}
 	settings := envelopeToSettings(&req.ImagingSettings)
-	if err := h.provider.SetImagingSettings(ctx, req.VideoSourceToken, settings, req.ForcePersistence); err != nil {
+	if err := h.provider.SetImagingSettings(ctx, req.VideoSourceToken, &settings, req.ForcePersistence); err != nil {
 		return nil, err
 	}
 	return xml.Marshal(setImagingSettingsResponse{XMLNS: ImagingNamespace})
@@ -246,7 +243,7 @@ func (h *Handler) handleGetOptions(ctx context.Context, payload []byte) ([]byte,
 		VideoSourceToken string `xml:"VideoSourceToken"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode GetOptions: %v", errDecodePayload, err)
+		return nil, fmt.Errorf("%w: decode GetOptions: %w", errDecodePayload, err)
 	}
 	opts, err := h.provider.GetOptions(ctx, req.VideoSourceToken)
 	if err != nil {
@@ -275,7 +272,7 @@ func (h *Handler) handleGetStatus(ctx context.Context, payload []byte) ([]byte, 
 		VideoSourceToken string `xml:"VideoSourceToken"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode GetStatus: %v", errDecodePayload, err)
+		return nil, fmt.Errorf("%w: decode GetStatus: %w", errDecodePayload, err)
 	}
 	status, err := h.provider.GetStatus(ctx, req.VideoSourceToken)
 	if err != nil {
@@ -299,7 +296,7 @@ func (h *Handler) handleGetPresets(ctx context.Context, payload []byte) ([]byte,
 		VideoSourceToken string `xml:"VideoSourceToken"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode GetPresets: %v", errDecodePayload, err)
+		return nil, fmt.Errorf("%w: decode GetPresets: %w", errDecodePayload, err)
 	}
 	presets, err := h.provider.GetPresets(ctx, req.VideoSourceToken)
 	if err != nil {
@@ -324,7 +321,7 @@ func (h *Handler) handleGetCurrentPreset(ctx context.Context, payload []byte) ([
 		VideoSourceToken string `xml:"VideoSourceToken"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode GetCurrentPreset: %v", errDecodePayload, err)
+		return nil, fmt.Errorf("%w: decode GetCurrentPreset: %w", errDecodePayload, err)
 	}
 	preset, err := h.provider.GetCurrentPreset(ctx, req.VideoSourceToken)
 	if err != nil {
@@ -349,7 +346,7 @@ func (h *Handler) handleSetCurrentPreset(ctx context.Context, payload []byte) ([
 		PresetToken      string `xml:"PresetToken"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
-		return nil, fmt.Errorf("%w: decode SetCurrentPreset: %v", errDecodePayload, err)
+		return nil, fmt.Errorf("%w: decode SetCurrentPreset: %w", errDecodePayload, err)
 	}
 	if err := h.provider.SetCurrentPreset(ctx, req.VideoSourceToken, req.PresetToken); err != nil {
 		return nil, err

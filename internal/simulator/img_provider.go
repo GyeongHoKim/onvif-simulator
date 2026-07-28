@@ -8,7 +8,8 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/imgsvc"
 )
 
-// default imaging parameter ranges
+var imgDefaultMode = "AUTO"
+
 var (
 	defaultBrightnessRange = imgsvc.FloatRange{Min: 0.0, Max: 1.0}
 	defaultContrastRange   = imgsvc.FloatRange{Min: 0.0, Max: 1.0}
@@ -40,10 +41,10 @@ func (s *imagingState) getSettings(vst string) imgsvc.Settings {
 	return defaultImagingSettings()
 }
 
-func (s *imagingState) setSettings(vst string, settings imgsvc.Settings) {
+func (s *imagingState) setSettings(vst string, settings *imgsvc.Settings) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.settings[vst] = &settings
+	s.settings[vst] = settings
 }
 
 func (s *imagingState) getPresets(vst string) []imgsvc.Preset {
@@ -59,9 +60,9 @@ func (s *imagingState) getCurrentPreset(vst string) *imgsvc.Preset {
 	if !ok {
 		return nil
 	}
-	for _, p := range s.presets[vst] {
-		if p.Token == token {
-			return &p
+	for i := range s.presets[vst] {
+		if s.presets[vst][i].Token == token {
+			return &s.presets[vst][i]
 		}
 	}
 	return nil
@@ -70,8 +71,8 @@ func (s *imagingState) getCurrentPreset(vst string) *imgsvc.Preset {
 func (s *imagingState) setCurrentPreset(vst, token string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, p := range s.presets[vst] {
-		if p.Token == token {
+	for i := range s.presets[vst] {
+		if s.presets[vst][i].Token == token {
 			s.current[vst] = token
 			return nil
 		}
@@ -83,10 +84,10 @@ func defaultImagingSettings() imgsvc.Settings {
 	brightness := 0.5
 	contrast := 0.5
 	sharpness := 0.5
-	expMode := "AUTO"
-	wbMode := "AUTO"
-	irFilter := "AUTO"
-	focusMode := "AUTO"
+	expMode := imgDefaultMode
+	wbMode := imgDefaultMode
+	irFilter := imgDefaultMode
+	focusMode := imgDefaultMode
 	return imgsvc.Settings{
 		Brightness:       &brightness,
 		Contrast:         &contrast,
@@ -121,10 +122,10 @@ func (p *imgProvider) registerDefaultPresets() {
 		{Token: "preset_indoor", Name: "Indoor", Type: "Indoor"},
 	}
 	cfg := p.sim.snapshotConfig()
-	for _, prof := range cfg.Media.Profiles {
-		vst := prof.VideoSourceToken
+	for i := range cfg.Media.Profiles {
+		vst := cfg.Media.Profiles[i].VideoSourceToken
 		if vst == "" {
-			vst = prof.Token
+			vst = cfg.Media.Profiles[i].Token
 		}
 		p.state.mu.Lock()
 		p.state.presets[vst] = presets
@@ -132,20 +133,24 @@ func (p *imgProvider) registerDefaultPresets() {
 	}
 }
 
-func (p *imgProvider) ServiceCapabilities(_ context.Context) (imgsvc.ServiceCapabilities, error) {
+func (*imgProvider) ServiceCapabilities(_ context.Context) (imgsvc.ServiceCapabilities, error) {
 	return imgsvc.ServiceCapabilities{ImageStabilization: false}, nil
 }
 
-func (p *imgProvider) GetImagingSettings(_ context.Context, videoSourceToken string) (imgsvc.Settings, error) {
+func (p *imgProvider) GetImagingSettings(
+	_ context.Context, videoSourceToken string,
+) (imgsvc.Settings, error) {
 	return p.state.getSettings(videoSourceToken), nil
 }
 
-func (p *imgProvider) SetImagingSettings(_ context.Context, videoSourceToken string, settings imgsvc.Settings, _ *bool) error {
+func (p *imgProvider) SetImagingSettings(
+	_ context.Context, videoSourceToken string, settings *imgsvc.Settings, _ *bool,
+) error {
 	p.state.setSettings(videoSourceToken, settings)
 	return nil
 }
 
-func (p *imgProvider) GetOptions(_ context.Context, _ string) (imgsvc.Options, error) {
+func (*imgProvider) GetOptions(_ context.Context, _ string) (imgsvc.Options, error) {
 	return imgsvc.Options{
 		Brightness:            defaultBrightnessRange,
 		Contrast:              defaultContrastRange,
@@ -160,7 +165,7 @@ func (p *imgProvider) GetOptions(_ context.Context, _ string) (imgsvc.Options, e
 	}, nil
 }
 
-func (p *imgProvider) GetStatus(_ context.Context, _ string) (imgsvc.Status, error) {
+func (*imgProvider) GetStatus(_ context.Context, _ string) (imgsvc.Status, error) {
 	return imgsvc.Status{
 		FocusStatus: &imgsvc.FocusStatus{
 			Position: "IDLE",
@@ -168,14 +173,20 @@ func (p *imgProvider) GetStatus(_ context.Context, _ string) (imgsvc.Status, err
 	}, nil
 }
 
-func (p *imgProvider) GetPresets(_ context.Context, videoSourceToken string) ([]imgsvc.Preset, error) {
+func (p *imgProvider) GetPresets(
+	_ context.Context, videoSourceToken string,
+) ([]imgsvc.Preset, error) {
 	return p.state.getPresets(videoSourceToken), nil
 }
 
-func (p *imgProvider) GetCurrentPreset(_ context.Context, videoSourceToken string) (*imgsvc.Preset, error) {
+func (p *imgProvider) GetCurrentPreset(
+	_ context.Context, videoSourceToken string,
+) (*imgsvc.Preset, error) {
 	return p.state.getCurrentPreset(videoSourceToken), nil
 }
 
-func (p *imgProvider) SetCurrentPreset(_ context.Context, videoSourceToken string, presetToken string) error {
+func (p *imgProvider) SetCurrentPreset(
+	_ context.Context, videoSourceToken, presetToken string,
+) error {
 	return p.state.setCurrentPreset(videoSourceToken, presetToken)
 }

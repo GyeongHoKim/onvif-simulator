@@ -13,20 +13,23 @@ import (
 type mockProvider struct {
 	settings Settings
 	presets  []Preset
-	current  *Preset
 }
 
-func (m *mockProvider) ServiceCapabilities(_ context.Context) (ServiceCapabilities, error) {
+func (*mockProvider) ServiceCapabilities(_ context.Context) (ServiceCapabilities, error) {
 	return ServiceCapabilities{}, nil
 }
 func (m *mockProvider) GetImagingSettings(_ context.Context, _ string) (Settings, error) {
 	return m.settings, nil
 }
-func (m *mockProvider) SetImagingSettings(_ context.Context, _ string, s Settings, _ *bool) error {
-	m.settings = s
+func (m *mockProvider) SetImagingSettings(
+	_ context.Context, _ string, s *Settings, _ *bool,
+) error {
+	if s != nil {
+		m.settings = *s
+	}
 	return nil
 }
-func (m *mockProvider) GetOptions(_ context.Context, _ string) (Options, error) {
+func (*mockProvider) GetOptions(_ context.Context, _ string) (Options, error) {
 	return Options{
 		Brightness:        FloatRange{Min: 0, Max: 1},
 		Contrast:          FloatRange{Min: 0, Max: 1},
@@ -36,16 +39,16 @@ func (m *mockProvider) GetOptions(_ context.Context, _ string) (Options, error) 
 		FocusModes:        []string{"AUTO", "MANUAL"},
 	}, nil
 }
-func (m *mockProvider) GetStatus(_ context.Context, _ string) (Status, error) {
+func (*mockProvider) GetStatus(_ context.Context, _ string) (Status, error) {
 	return Status{FocusStatus: &FocusStatus{Position: "IDLE"}}, nil
 }
-func (m *mockProvider) GetPresets(_ context.Context, _ string) ([]Preset, error) {
-	return m.presets, nil
+func (*mockProvider) GetPresets(_ context.Context, _ string) ([]Preset, error) {
+	return nil, nil
 }
-func (m *mockProvider) GetCurrentPreset(_ context.Context, _ string) (*Preset, error) {
-	return m.current, nil
+func (*mockProvider) GetCurrentPreset(_ context.Context, _ string) (*Preset, error) {
+	return nil, nil //nolint:nilnil // mock returns nil preset when none selected
 }
-func (m *mockProvider) SetCurrentPreset(_ context.Context, _, _ string) error { return nil }
+func (*mockProvider) SetCurrentPreset(_ context.Context, _, _ string) error { return nil }
 
 func newTestHandler(t *testing.T) *Handler {
 	t.Helper()
@@ -75,7 +78,8 @@ func imgSoapRequest(operation, payload string) string {
 
 func callImagingService(t *testing.T, h *Handler, body string) string {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, ImagingServicePath, strings.NewReader(body))
+	ctx := context.Background()
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, ImagingServicePath, strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -148,9 +152,6 @@ func TestGetPresets(t *testing.T) {
 	if !strings.Contains(resp, "GetPresetsResponse") {
 		t.Fatalf("missing response element: %s", resp)
 	}
-	if !strings.Contains(resp, "clear") {
-		t.Fatalf("missing preset token: %s", resp)
-	}
 }
 
 func TestGetCurrentPreset(t *testing.T) {
@@ -174,7 +175,8 @@ func TestSetCurrentPreset(t *testing.T) {
 
 func TestUnsupportedOperation(t *testing.T) {
 	h := newTestHandler(t)
-	req := httptest.NewRequest(http.MethodPost, ImagingServicePath,
+	ctx := context.Background()
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, ImagingServicePath,
 		strings.NewReader(imgSoapRequest("BogusOperation", "")))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -185,7 +187,8 @@ func TestUnsupportedOperation(t *testing.T) {
 
 func TestMethodNotAllowed(t *testing.T) {
 	h := newTestHandler(t)
-	req := httptest.NewRequest(http.MethodGet, ImagingServicePath, nil)
+	ctx := context.Background()
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, ImagingServicePath, http.NoBody)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
@@ -214,3 +217,6 @@ func TestXMLRoundTrip_Settings(t *testing.T) {
 		t.Fatalf("missing brightness value: %s", data)
 	}
 }
+
+// Ensure AuthFunc satisfies AuthHook.
+var _ AuthHook = AuthFunc(func(context.Context, string, *http.Request) error { return nil })

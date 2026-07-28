@@ -22,7 +22,7 @@ func TestImagingState_SetSettings(t *testing.T) {
 	st := newImagingState()
 	brightness := 0.8
 	settings := imgsvc.Settings{Brightness: &brightness}
-	st.setSettings("vs1", settings)
+	st.setSettings("vs1", &settings)
 	got := st.getSettings("vs1")
 	if got.Brightness == nil || *got.Brightness != 0.8 {
 		t.Fatalf("want brightness=0.8, got %v", got.Brightness)
@@ -81,10 +81,13 @@ func TestImagingProvider_SetSettings(t *testing.T) {
 	prov := newImagingProvider(sim)
 	brightness := 0.9
 	settings := imgsvc.Settings{Brightness: &brightness}
-	if err := prov.SetImagingSettings(context.Background(), "vs1", settings, nil); err != nil {
+	if err := prov.SetImagingSettings(context.Background(), "vs1", &settings, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	got, _ := prov.GetImagingSettings(context.Background(), "vs1")
+	got, err := prov.GetImagingSettings(context.Background(), "vs1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if got.Brightness == nil || *got.Brightness != 0.9 {
 		t.Fatalf("want brightness=0.9, got %v", got.Brightness)
 	}
@@ -146,8 +149,9 @@ func TestImagingProvider_Presets(t *testing.T) {
 		t.Fatal("expected nil current preset initially")
 	}
 
-	if err := prov.SetCurrentPreset(ctx, "vs1", presets[0].Token); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	setErr := prov.SetCurrentPreset(ctx, "vs1", presets[0].Token)
+	if setErr != nil {
+		t.Fatalf("unexpected error: %v", setErr)
 	}
 	current, err = prov.GetCurrentPreset(ctx, "vs1")
 	if err != nil {

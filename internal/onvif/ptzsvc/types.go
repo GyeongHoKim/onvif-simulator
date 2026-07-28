@@ -198,6 +198,7 @@ type AuthHook interface {
 // AuthFunc is a function adapter for AuthHook.
 type AuthFunc func(ctx context.Context, operation string, r *http.Request) error
 
+// Authorize delegates to the underlying function.
 func (f AuthFunc) Authorize(ctx context.Context, operation string, r *http.Request) error {
 	return f(ctx, operation, r)
 }
