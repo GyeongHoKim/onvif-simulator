@@ -19,9 +19,9 @@ const (
 
 // Sentinel errors returned by Provider implementations.
 var (
-	ErrInvalidArgs      = errors.New("imgsvc: invalid argument value")
-	ErrSourceNotFound   = errors.New("imgsvc: video source not found")
-	ErrPresetNotFound   = errors.New("imgsvc: imaging preset not found")
+	ErrInvalidArgs    = errors.New("imgsvc: invalid argument value")
+	ErrSourceNotFound = errors.New("imgsvc: video source not found")
+	ErrPresetNotFound = errors.New("imgsvc: imaging preset not found")
 )
 
 // ---------- Service Capabilities ----------
@@ -38,15 +38,15 @@ type Settings struct {
 	Brightness            *float64
 	Contrast              *float64
 	Sharpness             *float64
-	ExposureMode          *string  // "AUTO" | "MANUAL"
-	ExposurePriority      *string  // "LowNoise" | "FrameRate"
-	WhiteBalanceMode      *string  // "AUTO" | "MANUAL"
-	IrCutFilter           *string  // "ON" | "OFF" | "AUTO"
-	BacklightCompMode     *string  // "OFF" | "ON"
+	ExposureMode          *string // "AUTO" | "MANUAL"
+	ExposurePriority      *string // "LowNoise" | "FrameRate"
+	WhiteBalanceMode      *string // "AUTO" | "MANUAL"
+	IrCutFilter           *string // "ON" | "OFF" | "AUTO"
+	BacklightCompMode     *string // "OFF" | "ON"
 	BacklightCompLevel    *float64
-	WideDynamicRangeMode  *string  // "OFF" | "ON"
+	WideDynamicRangeMode  *string // "OFF" | "ON"
 	WideDynamicRangeLevel *float64
-	FocusMode             *string  // "AUTO" | "MANUAL"
+	FocusMode             *string // "AUTO" | "MANUAL"
 }
 
 // ---------- Imaging Options ----------

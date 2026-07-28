@@ -11,11 +11,11 @@ import (
 
 // mockProvider implements Provider for unit tests.
 type mockProvider struct {
-	status       Status
-	presets      []Preset
-	nodes        []PTZNode
+	status         Status
+	presets        []Preset
+	nodes          []PTZNode
 	configurations []PTZConfiguration
-	capabilities ServiceCapabilities
+	capabilities   ServiceCapabilities
 }
 
 func (m *mockProvider) ServiceCapabilities(_ context.Context) (ServiceCapabilities, error) {

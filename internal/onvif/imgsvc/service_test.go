@@ -28,12 +28,12 @@ func (m *mockProvider) SetImagingSettings(_ context.Context, _ string, s Setting
 }
 func (m *mockProvider) GetOptions(_ context.Context, _ string) (Options, error) {
 	return Options{
-		Brightness:       FloatRange{Min: 0, Max: 1},
-		Contrast:         FloatRange{Min: 0, Max: 1},
-		Sharpness:        FloatRange{Min: 0, Max: 1},
-		ExposureModes:    []string{"AUTO", "MANUAL"},
+		Brightness:        FloatRange{Min: 0, Max: 1},
+		Contrast:          FloatRange{Min: 0, Max: 1},
+		Sharpness:         FloatRange{Min: 0, Max: 1},
+		ExposureModes:     []string{"AUTO", "MANUAL"},
 		WhiteBalanceModes: []string{"AUTO", "MANUAL"},
-		FocusModes:       []string{"AUTO", "MANUAL"},
+		FocusModes:        []string{"AUTO", "MANUAL"},
 	}, nil
 }
 func (m *mockProvider) GetStatus(_ context.Context, _ string) (Status, error) {

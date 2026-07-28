@@ -219,17 +219,17 @@ func (h *Handler) handleGetImagingSettings(ctx context.Context, payload []byte) 
 		return nil, err
 	}
 	return xml.Marshal(getImagingSettingsResponse{
-		XMLNS: ImagingNamespace,
-		XMLNSTT: SchemaNamespace,
+		XMLNS:           ImagingNamespace,
+		XMLNSTT:         SchemaNamespace,
 		ImagingSettings: settingsToEnvelope(&settings),
 	})
 }
 
 func (h *Handler) handleSetImagingSettings(ctx context.Context, payload []byte) ([]byte, error) {
 	var req struct {
-		VideoSourceToken  string                 `xml:"VideoSourceToken"`
-		ImagingSettings   imagingSettingsEnvelope `xml:"ImagingSettings"`
-		ForcePersistence  *bool                  `xml:"ForcePersistence"`
+		VideoSourceToken string                  `xml:"VideoSourceToken"`
+		ImagingSettings  imagingSettingsEnvelope `xml:"ImagingSettings"`
+		ForcePersistence *bool                   `xml:"ForcePersistence"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
 		return nil, fmt.Errorf("%w: decode SetImagingSettings: %v", errDecodePayload, err)
@@ -253,19 +253,19 @@ func (h *Handler) handleGetOptions(ctx context.Context, payload []byte) ([]byte,
 		return nil, err
 	}
 	return xml.Marshal(getOptionsResponse{
-		XMLNS: ImagingNamespace,
+		XMLNS:   ImagingNamespace,
 		XMLNSTT: SchemaNamespace,
 		ImagingOptions: imagingOptionsEnvelope{
-			Brightness: floatRangeEnv{Min: opts.Brightness.Min, Max: opts.Brightness.Max},
-			Contrast:   floatRangeEnv{Min: opts.Contrast.Min, Max: opts.Contrast.Max},
-			Sharpness:  floatRangeEnv{Min: opts.Sharpness.Min, Max: opts.Sharpness.Max},
-			ExposureModes: stringListEnv{Items: opts.ExposureModes},
-			ExposurePriorities: stringListEnv{Items: opts.ExposurePriorities},
-			WhiteBalanceModes: stringListEnv{Items: opts.WhiteBalanceModes},
-			IrCutFilterModes: stringListEnv{Items: opts.IrCutFilterModes},
-			BacklightCompModes: stringListEnv{Items: opts.BacklightCompModes},
+			Brightness:            floatRangeEnv{Min: opts.Brightness.Min, Max: opts.Brightness.Max},
+			Contrast:              floatRangeEnv{Min: opts.Contrast.Min, Max: opts.Contrast.Max},
+			Sharpness:             floatRangeEnv{Min: opts.Sharpness.Min, Max: opts.Sharpness.Max},
+			ExposureModes:         stringListEnv{Items: opts.ExposureModes},
+			ExposurePriorities:    stringListEnv{Items: opts.ExposurePriorities},
+			WhiteBalanceModes:     stringListEnv{Items: opts.WhiteBalanceModes},
+			IrCutFilterModes:      stringListEnv{Items: opts.IrCutFilterModes},
+			BacklightCompModes:    stringListEnv{Items: opts.BacklightCompModes},
 			WideDynamicRangeModes: stringListEnv{Items: opts.WideDynamicRangeModes},
-			FocusModes: stringListEnv{Items: opts.FocusModes},
+			FocusModes:            stringListEnv{Items: opts.FocusModes},
 		},
 	})
 }
@@ -282,7 +282,7 @@ func (h *Handler) handleGetStatus(ctx context.Context, payload []byte) ([]byte, 
 		return nil, err
 	}
 	resp := getStatusResponse{
-		XMLNS: ImagingNamespace,
+		XMLNS:   ImagingNamespace,
 		XMLNSTT: SchemaNamespace,
 	}
 	if status.FocusStatus != nil {

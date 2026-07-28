@@ -28,11 +28,11 @@ const (
 
 // ServiceCapabilities is the GetServiceCapabilities response payload.
 type ServiceCapabilities struct {
-	EFlip                        bool
-	Reverse                      bool
-	GetCompatibleConfigurations  bool
-	MoveStatus                   bool
-	StatusPosition               bool
+	EFlip                       bool
+	Reverse                     bool
+	GetCompatibleConfigurations bool
+	MoveStatus                  bool
+	StatusPosition              bool
 }
 
 // ---------- PTZ Node ----------
@@ -47,7 +47,7 @@ type PTZNode struct {
 
 // Space defines a PTZ coordinate space with its range.
 type Space struct {
-	URI  string
+	URI    string
 	XRange *IntRange
 	YRange *IntRange
 }
@@ -63,17 +63,17 @@ type IntRange struct {
 // PTZConfiguration binds a PTZ node to a media profile and defines
 // default coordinate spaces and speed settings.
 type PTZConfiguration struct {
-	Token    string
-	Name     string
-	UseCount int
+	Token     string
+	Name      string
+	UseCount  int
 	NodeToken string
 
-	DefaultAbsolutePantTiltPositionSpace     string
-	DefaultAbsoluteZoomPositionSpace          string
-	DefaultRelativePanTiltTranslationSpace    string
-	DefaultRelativeZoomTranslationSpace       string
-	DefaultContinuousPanTiltVelocitySpace     string
-	DefaultContinuousZoomVelocitySpace        string
+	DefaultAbsolutePantTiltPositionSpace   string
+	DefaultAbsoluteZoomPositionSpace       string
+	DefaultRelativePanTiltTranslationSpace string
+	DefaultRelativeZoomTranslationSpace    string
+	DefaultContinuousPanTiltVelocitySpace  string
+	DefaultContinuousZoomVelocitySpace     string
 
 	PanTiltLimits *PanTiltLimits
 	ZoomLimits    *ZoomLimits
@@ -158,7 +158,7 @@ type ConfigurationOptions struct {
 
 // SpaceRange describes the valid range for a specific space.
 type SpaceRange struct {
-	URI   string
+	URI    string
 	XRange IntRange
 	YRange IntRange
 }

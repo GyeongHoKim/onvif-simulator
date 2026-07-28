@@ -42,4 +42,4 @@ internal/rpicamera/mtxrpicam_64/*
 # ffmpeg / ffmpeg.exe alongside the placeholder. Verified against
 # scripts/ffmpeg.sha256.
 internal/ffmpeg/binaries/*/ffmpeg
-internal/ffmpeg/binaries/*/ffmpeg.exe
+internal/ffmpeg/binaries/*/ffmpeg.execli

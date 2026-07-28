@@ -5,9 +5,9 @@ import "encoding/xml"
 // Response envelopes for each Imaging operation.
 
 type getServiceCapabilitiesResponse struct {
-	XMLName      xml.Name                    `xml:"GetServiceCapabilitiesResponse"`
-	XMLNS        string                      `xml:"xmlns,attr"`
-	Capabilities imgCapabilitiesEnvelope     `xml:"timg:Capabilities"`
+	XMLName      xml.Name                `xml:"GetServiceCapabilitiesResponse"`
+	XMLNS        string                  `xml:"xmlns,attr"`
+	Capabilities imgCapabilitiesEnvelope `xml:"timg:Capabilities"`
 }
 
 type imgCapabilitiesEnvelope struct {
@@ -17,22 +17,22 @@ type imgCapabilitiesEnvelope struct {
 // ---------- Imaging Settings envelopes ----------
 
 type getImagingSettingsResponse struct {
-	XMLName            xml.Name                `xml:"GetImagingSettingsResponse"`
-	XMLNS              string                  `xml:"xmlns,attr"`
-	XMLNSTT            string                  `xml:"xmlns:tt,attr"`
-	ImagingSettings    imagingSettingsEnvelope `xml:"timg:ImagingSettings"`
+	XMLName         xml.Name                `xml:"GetImagingSettingsResponse"`
+	XMLNS           string                  `xml:"xmlns,attr"`
+	XMLNSTT         string                  `xml:"xmlns:tt,attr"`
+	ImagingSettings imagingSettingsEnvelope `xml:"timg:ImagingSettings"`
 }
 
 type imagingSettingsEnvelope struct {
-	Brightness            *brightnessVal `xml:"tt:Brightness,omitempty"`
-	Contrast              *contrastVal `xml:"tt:Contrast,omitempty"`
-	Sharpness             *sharpnessVal `xml:"tt:Sharpness,omitempty"`
-	Exposure              *exposureEnv `xml:"tt:Exposure,omitempty"`
-	WhiteBalance          *whiteBalanceEnv `xml:"tt:WhiteBalance,omitempty"`
-	IrCutFilter           *irCutFilterVal `xml:"tt:IrCutFilter,omitempty"`
-	BacklightCompensation *backlightCompEnv `xml:"tt:BacklightCompensation,omitempty"`
+	Brightness            *brightnessVal       `xml:"tt:Brightness,omitempty"`
+	Contrast              *contrastVal         `xml:"tt:Contrast,omitempty"`
+	Sharpness             *sharpnessVal        `xml:"tt:Sharpness,omitempty"`
+	Exposure              *exposureEnv         `xml:"tt:Exposure,omitempty"`
+	WhiteBalance          *whiteBalanceEnv     `xml:"tt:WhiteBalance,omitempty"`
+	IrCutFilter           *irCutFilterVal      `xml:"tt:IrCutFilter,omitempty"`
+	BacklightCompensation *backlightCompEnv    `xml:"tt:BacklightCompensation,omitempty"`
 	WideDynamicRange      *wideDynamicRangeEnv `xml:"tt:WideDynamicRange,omitempty"`
-	Focus                 *focusSettingsEnv `xml:"tt:Focus,omitempty"`
+	Focus                 *focusSettingsEnv    `xml:"tt:Focus,omitempty"`
 }
 
 type brightnessVal struct {
@@ -56,7 +56,7 @@ type irCutFilterVal struct {
 }
 
 type exposureEnv struct {
-	Mode   string `xml:"tt:Mode"`
+	Mode     string `xml:"tt:Mode"`
 	Priority string `xml:"tt:Priority,omitempty"`
 }
 
@@ -86,10 +86,10 @@ type setImagingSettingsResponse struct {
 // ---------- Imaging Options envelopes ----------
 
 type getOptionsResponse struct {
-	XMLName        xml.Name                `xml:"GetOptionsResponse"`
-	XMLNS          string                  `xml:"xmlns,attr"`
-	XMLNSTT        string                  `xml:"xmlns:tt,attr"`
-	ImagingOptions imagingOptionsEnvelope  `xml:"timg:ImagingOptions"`
+	XMLName        xml.Name               `xml:"GetOptionsResponse"`
+	XMLNS          string                 `xml:"xmlns,attr"`
+	XMLNSTT        string                 `xml:"xmlns:tt,attr"`
+	ImagingOptions imagingOptionsEnvelope `xml:"timg:ImagingOptions"`
 }
 
 type imagingOptionsEnvelope struct {
@@ -117,9 +117,9 @@ type stringListEnv struct {
 // ---------- Imaging Status envelopes ----------
 
 type getStatusResponse struct {
-	XMLName xml.Name             `xml:"GetStatusResponse"`
-	XMLNS   string               `xml:"xmlns,attr"`
-	XMLNSTT string               `xml:"xmlns:tt,attr"`
+	XMLName xml.Name              `xml:"GetStatusResponse"`
+	XMLNS   string                `xml:"xmlns,attr"`
+	XMLNSTT string                `xml:"xmlns:tt,attr"`
 	Status  imagingStatusEnvelope `xml:"timg:Status"`
 }
 
@@ -135,9 +135,9 @@ type focusStatusEnv struct {
 // ---------- Imaging Preset envelopes ----------
 
 type getPresetsResponse struct {
-	XMLName xml.Name              `xml:"GetPresetsResponse"`
-	XMLNS   string                `xml:"xmlns,attr"`
-	Presets []imagingPresetEnv    `xml:"timg:Preset"`
+	XMLName xml.Name           `xml:"GetPresetsResponse"`
+	XMLNS   string             `xml:"xmlns,attr"`
+	Presets []imagingPresetEnv `xml:"timg:Preset"`
 }
 
 type imagingPresetEnv struct {
@@ -147,9 +147,9 @@ type imagingPresetEnv struct {
 }
 
 type getCurrentPresetResponse struct {
-	XMLName xml.Name              `xml:"GetCurrentPresetResponse"`
-	XMLNS   string                `xml:"xmlns,attr"`
-	Preset  *imagingPresetEnv     `xml:"timg:Preset,omitempty"`
+	XMLName xml.Name          `xml:"GetCurrentPresetResponse"`
+	XMLNS   string            `xml:"xmlns,attr"`
+	Preset  *imagingPresetEnv `xml:"timg:Preset,omitempty"`
 }
 
 type setCurrentPresetResponse struct {

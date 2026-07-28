@@ -5,9 +5,9 @@ import "encoding/xml"
 // Response envelopes for each PTZ operation.
 
 type getServiceCapabilitiesResponse struct {
-	XMLName      xml.Name                  `xml:"GetServiceCapabilitiesResponse"`
-	XMLNS        string                    `xml:"xmlns,attr"`
-	Capabilities ptzCapabilitiesEnvelope   `xml:"tptz:Capabilities"`
+	XMLName      xml.Name                `xml:"GetServiceCapabilitiesResponse"`
+	XMLNS        string                  `xml:"xmlns,attr"`
+	Capabilities ptzCapabilitiesEnvelope `xml:"tptz:Capabilities"`
 }
 
 type ptzCapabilitiesEnvelope struct {
@@ -21,17 +21,17 @@ type ptzCapabilitiesEnvelope struct {
 // ---------- Node envelopes ----------
 
 type getNodesResponse struct {
-	XMLName xml.Name           `xml:"GetNodesResponse"`
-	XMLNS   string             `xml:"xmlns,attr"`
-	XMLNSTT string             `xml:"xmlns:tt,attr"`
-	Nodes   []ptzNodeEnvelope  `xml:"tptz:PTZNode"`
+	XMLName xml.Name          `xml:"GetNodesResponse"`
+	XMLNS   string            `xml:"xmlns,attr"`
+	XMLNSTT string            `xml:"xmlns:tt,attr"`
+	Nodes   []ptzNodeEnvelope `xml:"tptz:PTZNode"`
 }
 
 type getNodeResponse struct {
-	XMLName xml.Name          `xml:"GetNodeResponse"`
-	XMLNS   string            `xml:"xmlns,attr"`
-	XMLNSTT string            `xml:"xmlns:tt,attr"`
-	Node    ptzNodeEnvelope   `xml:"tptz:PTZNode"`
+	XMLName xml.Name        `xml:"GetNodeResponse"`
+	XMLNS   string          `xml:"xmlns,attr"`
+	XMLNSTT string          `xml:"xmlns:tt,attr"`
+	Node    ptzNodeEnvelope `xml:"tptz:PTZNode"`
 }
 
 type ptzNodeEnvelope struct {
@@ -49,24 +49,24 @@ type getConfigurationsResponse struct {
 }
 
 type getConfigurationResponse struct {
-	XMLName       xml.Name                  `xml:"GetConfigurationResponse"`
-	XMLNS         string                    `xml:"xmlns,attr"`
-	XMLNSTT       string                    `xml:"xmlns:tt,attr"`
-	Configuration ptzConfigurationEnvelope  `xml:"tptz:PTZConfiguration"`
+	XMLName       xml.Name                 `xml:"GetConfigurationResponse"`
+	XMLNS         string                   `xml:"xmlns,attr"`
+	XMLNSTT       string                   `xml:"xmlns:tt,attr"`
+	Configuration ptzConfigurationEnvelope `xml:"tptz:PTZConfiguration"`
 }
 
 type ptzConfigurationEnvelope struct {
-	Token      string `xml:"token,attr"`
-	Name       string `xml:"tt:Name"`
-	UseCount   int    `xml:"tt:UseCount"`
-	NodeToken  string `xml:"tt:NodeToken"`
+	Token     string `xml:"token,attr"`
+	Name      string `xml:"tt:Name"`
+	UseCount  int    `xml:"tt:UseCount"`
+	NodeToken string `xml:"tt:NodeToken"`
 }
 
 type getConfigurationOptionsResponse struct {
-	XMLName xml.Name                    `xml:"GetConfigurationOptionsResponse"`
-	XMLNS   string                      `xml:"xmlns,attr"`
-	XMLNSTT string                      `xml:"xmlns:tt,attr"`
-	Options ptzConfigurationOptionsEnv  `xml:"tptz:PTZConfigurationOptions"`
+	XMLName xml.Name                   `xml:"GetConfigurationOptionsResponse"`
+	XMLNS   string                     `xml:"xmlns,attr"`
+	XMLNSTT string                     `xml:"xmlns:tt,attr"`
+	Options ptzConfigurationOptionsEnv `xml:"tptz:PTZConfigurationOptions"`
 }
 
 type ptzConfigurationOptionsEnv struct {
@@ -76,7 +76,7 @@ type ptzConfigurationOptionsEnv struct {
 }
 
 type spaceRangeEnv struct {
-	URI   string     `xml:"tt:URI"`
+	URI    string      `xml:"tt:URI"`
 	XRange intRangeEnv `xml:"tt:XRange"`
 	YRange intRangeEnv `xml:"tt:YRange"`
 }
@@ -89,15 +89,15 @@ type intRangeEnv struct {
 // ---------- Status envelopes ----------
 
 type getStatusResponse struct {
-	XMLName xml.Name        `xml:"GetStatusResponse"`
-	XMLNS   string          `xml:"xmlns,attr"`
-	XMLNSTT string          `xml:"xmlns:tt,attr"`
-	Status  statusEnvelope  `xml:"tptz:PTZStatus"`
+	XMLName xml.Name       `xml:"GetStatusResponse"`
+	XMLNS   string         `xml:"xmlns,attr"`
+	XMLNSTT string         `xml:"xmlns:tt,attr"`
+	Status  statusEnvelope `xml:"tptz:PTZStatus"`
 }
 
 type statusEnvelope struct {
-	Position   *vectorEnvelope  `xml:"tt:Position"`
-	MoveStatus moveStatusEnv    `xml:"tt:MoveStatus"`
+	Position   *vectorEnvelope `xml:"tt:Position"`
+	MoveStatus moveStatusEnv   `xml:"tt:MoveStatus"`
 }
 
 type moveStatusEnv struct {
@@ -126,10 +126,10 @@ type zoomEnv struct {
 // ---------- Preset envelopes ----------
 
 type getPresetsResponse struct {
-	XMLName  xml.Name           `xml:"GetPresetsResponse"`
-	XMLNS    string             `xml:"xmlns,attr"`
-	XMLNSTT  string             `xml:"xmlns:tt,attr"`
-	Presets  []presetEnvelope   `xml:"tptz:Preset"`
+	XMLName xml.Name         `xml:"GetPresetsResponse"`
+	XMLNS   string           `xml:"xmlns,attr"`
+	XMLNSTT string           `xml:"xmlns:tt,attr"`
+	Presets []presetEnvelope `xml:"tptz:Preset"`
 }
 
 type presetEnvelope struct {
@@ -139,9 +139,9 @@ type presetEnvelope struct {
 }
 
 type setPresetResponse struct {
-	XMLName      xml.Name `xml:"SetPresetResponse"`
-	XMLNS        string   `xml:"xmlns,attr"`
-	PresetToken  string   `xml:"tptz:PresetToken"`
+	XMLName     xml.Name `xml:"SetPresetResponse"`
+	XMLNS       string   `xml:"xmlns,attr"`
+	PresetToken string   `xml:"tptz:PresetToken"`
 }
 
 type removePresetResponse struct {

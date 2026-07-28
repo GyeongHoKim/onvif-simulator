@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	soapNamespace = "http://www.w3.org/2003/05/soap-envelope"
+	soapNamespace   = "http://www.w3.org/2003/05/soap-envelope"
 	maxSOAPBodySize = 10 << 20
 
 	faultCodeSender   = "Sender"
@@ -223,11 +223,11 @@ func (h *Handler) handleGetServiceCapabilities(ctx context.Context) ([]byte, err
 	return xml.Marshal(getServiceCapabilitiesResponse{
 		XMLNS: PTZNamespace,
 		Capabilities: ptzCapabilitiesEnvelope{
-			EFlip:                        caps.EFlip,
-			Reverse:                      caps.Reverse,
-			GetCompatibleConfigurations:  caps.GetCompatibleConfigurations,
-			MoveStatus:                   caps.MoveStatus,
-			StatusPosition:               caps.StatusPosition,
+			EFlip:                       caps.EFlip,
+			Reverse:                     caps.Reverse,
+			GetCompatibleConfigurations: caps.GetCompatibleConfigurations,
+			MoveStatus:                  caps.MoveStatus,
+			StatusPosition:              caps.StatusPosition,
 		},
 	})
 }
@@ -299,7 +299,7 @@ func (h *Handler) handleGetConfiguration(ctx context.Context, payload []byte) ([
 		return nil, err
 	}
 	return xml.Marshal(getConfigurationResponse{
-		XMLNS: PTZNamespace,
+		XMLNS:   PTZNamespace,
 		XMLNSTT: SchemaNamespace,
 		Configuration: ptzConfigurationEnvelope{
 			Token:     cfg.Token,
@@ -325,7 +325,7 @@ func (h *Handler) handleGetConfigurationOptions(ctx context.Context, payload []b
 	ptRanges := make([]spaceRangeEnv, len(opts.PanTiltPositionSpaceRange))
 	for i, r := range opts.PanTiltPositionSpaceRange {
 		ptRanges[i] = spaceRangeEnv{
-			URI:   r.URI,
+			URI:    r.URI,
 			XRange: intRangeEnv{Min: r.XRange.Min, Max: r.XRange.Max},
 			YRange: intRangeEnv{Min: r.YRange.Min, Max: r.YRange.Max},
 		}
@@ -333,13 +333,13 @@ func (h *Handler) handleGetConfigurationOptions(ctx context.Context, payload []b
 	zRanges := make([]spaceRangeEnv, len(opts.ZoomPositionSpaceRange))
 	for i, r := range opts.ZoomPositionSpaceRange {
 		zRanges[i] = spaceRangeEnv{
-			URI:   r.URI,
+			URI:    r.URI,
 			XRange: intRangeEnv{Min: r.XRange.Min, Max: r.XRange.Max},
 		}
 	}
 
 	return xml.Marshal(getConfigurationOptionsResponse{
-		XMLNS: PTZNamespace,
+		XMLNS:   PTZNamespace,
 		XMLNSTT: SchemaNamespace,
 		Options: ptzConfigurationOptionsEnv{
 			PanTiltPositionSpaceRange: ptRanges,
@@ -367,7 +367,7 @@ func (h *Handler) handleGetStatus(ctx context.Context, payload []byte) ([]byte, 
 		XMLNS:   PTZNamespace,
 		XMLNSTT: SchemaNamespace,
 		Status: statusEnvelope{
-			Position:   vectorToEnvelope(st.Position),
+			Position: vectorToEnvelope(st.Position),
 			MoveStatus: moveStatusEnv{
 				PanTilt: st.MoveStatus.PanTilt,
 				Zoom:    st.MoveStatus.Zoom,
@@ -378,9 +378,9 @@ func (h *Handler) handleGetStatus(ctx context.Context, payload []byte) ([]byte, 
 
 func (h *Handler) handleContinuousMove(ctx context.Context, payload []byte) ([]byte, error) {
 	var req struct {
-		ProfileToken string         `xml:"ProfileToken"`
-		Velocity     speedEnvelope  `xml:"Velocity"`
-		Timeout      *string        `xml:"Timeout"`
+		ProfileToken string        `xml:"ProfileToken"`
+		Velocity     speedEnvelope `xml:"Velocity"`
+		Timeout      *string       `xml:"Timeout"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
 		return nil, fmt.Errorf("%w: decode ContinuousMove: %v", errDecodePayload, err)
@@ -394,9 +394,9 @@ func (h *Handler) handleContinuousMove(ctx context.Context, payload []byte) ([]b
 
 func (h *Handler) handleAbsoluteMove(ctx context.Context, payload []byte) ([]byte, error) {
 	var req struct {
-		ProfileToken string          `xml:"ProfileToken"`
-		Position     vectorEnvelope  `xml:"Position"`
-		Speed        *speedEnvelope  `xml:"Speed"`
+		ProfileToken string         `xml:"ProfileToken"`
+		Position     vectorEnvelope `xml:"Position"`
+		Speed        *speedEnvelope `xml:"Speed"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
 		return nil, fmt.Errorf("%w: decode AbsoluteMove: %v", errDecodePayload, err)
@@ -415,9 +415,9 @@ func (h *Handler) handleAbsoluteMove(ctx context.Context, payload []byte) ([]byt
 
 func (h *Handler) handleRelativeMove(ctx context.Context, payload []byte) ([]byte, error) {
 	var req struct {
-		ProfileToken  string          `xml:"ProfileToken"`
-		Translation   vectorEnvelope  `xml:"Translation"`
-		Speed         *speedEnvelope  `xml:"Speed"`
+		ProfileToken string         `xml:"ProfileToken"`
+		Translation  vectorEnvelope `xml:"Translation"`
+		Speed        *speedEnvelope `xml:"Speed"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
 		return nil, fmt.Errorf("%w: decode RelativeMove: %v", errDecodePayload, err)
@@ -436,9 +436,9 @@ func (h *Handler) handleRelativeMove(ctx context.Context, payload []byte) ([]byt
 
 func (h *Handler) handleStop(ctx context.Context, payload []byte) ([]byte, error) {
 	var req struct {
-		ProfileToken string  `xml:"ProfileToken"`
-		PanTilt      *bool   `xml:"PanTilt"`
-		Zoom         *bool   `xml:"Zoom"`
+		ProfileToken string `xml:"ProfileToken"`
+		PanTilt      *bool  `xml:"PanTilt"`
+		Zoom         *bool  `xml:"Zoom"`
 	}
 	if err := xml.Unmarshal(payload, &req); err != nil {
 		return nil, fmt.Errorf("%w: decode Stop: %v", errDecodePayload, err)
@@ -653,8 +653,8 @@ func parseOperation(data []byte) (payload []byte, operation string, err error) {
 }
 
 type soapEnvelope struct {
-	XMLNS   string   `xml:"xmlns,attr"`
-	Body    soapBody `xml:"Body"`
+	XMLNS string   `xml:"xmlns,attr"`
+	Body  soapBody `xml:"Body"`
 }
 
 type soapBody struct {
