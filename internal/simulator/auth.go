@@ -132,3 +132,7 @@ func (s *Simulator) eventAuthHook(ctx context.Context, operation string, r *http
 func (s *Simulator) ptzAuthHook(ctx context.Context, operation string, r *http.Request) error {
 	return s.authorize(ctx, operation, r, auth.PTZOperationClass(operation))
 }
+
+func (s *Simulator) imgAuthHook(ctx context.Context, operation string, r *http.Request) error {
+	return s.authorize(ctx, operation, r, auth.ImagingOperationClass(operation))
+}
