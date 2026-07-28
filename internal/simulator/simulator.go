@@ -24,6 +24,7 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/devicesvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/eventsvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/mediasvc"
+	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/ptzsvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/rtsp"
 )
 
@@ -156,8 +157,10 @@ type Simulator struct {
 	broker     *event.Broker
 	deviceProv *deviceProvider
 	mediaProv  *mediaProvider
+	ptzProv    *ptzProvider
 	devHandler *devicesvc.Handler
 	medHandler *mediasvc.Handler
+	ptzHandler *ptzsvc.Handler
 	evtHandler *eventsvc.EventServiceHandler
 	subHandler *eventsvc.SubscriptionManagerHandler
 
@@ -256,6 +259,7 @@ func New(opts Options) (*Simulator, error) {
 
 	sim.deviceProv = newDeviceProvider(sim)
 	sim.mediaProv = newMediaProvider(sim)
+	sim.ptzProv = newPTZProvider(sim)
 
 	if err := sim.rebuildAuthChain(&cfg); err != nil {
 		return nil, fmt.Errorf("simulator: build auth chain: %w", err)
@@ -269,6 +273,10 @@ func New(opts Options) (*Simulator, error) {
 	sim.medHandler = mediasvc.NewHandler(sim.mediaProv,
 		mediasvc.WithAuthHook(mediasvc.AuthFunc(sim.mediaAuthHook)),
 		mediasvc.WithLogger(root.With("component", "media")),
+	)
+	sim.ptzHandler = ptzsvc.NewHandler(sim.ptzProv,
+		ptzsvc.WithAuthHook(ptzsvc.AuthFunc(sim.ptzAuthHook)),
+		ptzsvc.WithLogger(root.With("component", "ptz")),
 	)
 	sim.evtHandler = eventsvc.NewEventServiceHandler(broker,
 		eventsvc.WithEventAuthHook(eventsvc.AuthFunc(sim.eventAuthHook)),

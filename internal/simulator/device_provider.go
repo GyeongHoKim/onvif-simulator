@@ -11,6 +11,7 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/devicesvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/eventsvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/mediasvc"
+	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/ptzsvc"
 )
 
 // deviceProvider implements devicesvc.Provider against the simulator config.
@@ -45,6 +46,11 @@ func (p *deviceProvider) Services(_ context.Context, _ bool) ([]devicesvc.Servic
 		{
 			Namespace: mediasvc.MediaNamespace,
 			XAddr:     base + mediasvc.MediaServicePath,
+			Version:   devicesvc.Version{Major: 2, Minor: 40},
+		},
+		{
+			Namespace: ptzsvc.PTZNamespace,
+			XAddr:     base + ptzsvc.PTZServicePath,
 			Version:   devicesvc.Version{Major: 2, Minor: 40},
 		},
 		{
@@ -89,6 +95,7 @@ func (p *deviceProvider) GetCapabilities(_ context.Context, _ string) (devicesvc
 			},
 		},
 		Media:  devicesvc.ServiceCapability{XAddr: base + mediasvc.MediaServicePath},
+		PTZ:    devicesvc.ServiceCapability{XAddr: base + ptzsvc.PTZServicePath},
 		Events: devicesvc.ServiceCapability{XAddr: base + eventsvc.EventServicePath},
 	}, nil
 }
