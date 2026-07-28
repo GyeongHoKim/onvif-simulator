@@ -16,6 +16,7 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/devicesvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/eventsvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/imgsvc"
+	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/media2svc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/mediasvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/ptzsvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/rpicamera"
@@ -92,6 +93,7 @@ func buildHTTPServer(s *Simulator) *http.Server {
 	mux := http.NewServeMux()
 	mux.Handle(devicesvc.DeviceServicePath, obs.RequestMiddleware(s.devHandler, httpLogger))
 	mux.Handle(mediasvc.MediaServicePath, obs.RequestMiddleware(s.medHandler, httpLogger))
+	mux.Handle(media2svc.Media2ServicePath, obs.RequestMiddleware(s.media2Handler, httpLogger))
 	mux.Handle(ptzsvc.PTZServicePath, obs.RequestMiddleware(s.ptzHandler, httpLogger))
 	mux.Handle(imgsvc.ImagingServicePath, obs.RequestMiddleware(s.imgHandler, httpLogger))
 	mux.Handle(eventsvc.EventServicePath, obs.RequestMiddleware(s.evtHandler, httpLogger))

@@ -24,6 +24,7 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/devicesvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/eventsvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/imgsvc"
+	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/media2svc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/mediasvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/ptzsvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/rtsp"
@@ -153,19 +154,21 @@ type Simulator struct {
 	derivedMJPEGProfiles []config.ProfileConfig
 
 	// Core components. Immutable after New.
-	store      *auth.MutableUserStore
-	controller *auth.Controller
-	broker     *event.Broker
-	deviceProv *deviceProvider
-	mediaProv  *mediaProvider
-	ptzProv    *ptzProvider
-	imgProv    *imgProvider
-	devHandler *devicesvc.Handler
-	medHandler *mediasvc.Handler
-	ptzHandler *ptzsvc.Handler
-	imgHandler *imgsvc.Handler
-	evtHandler *eventsvc.EventServiceHandler
-	subHandler *eventsvc.SubscriptionManagerHandler
+	store         *auth.MutableUserStore
+	controller    *auth.Controller
+	broker        *event.Broker
+	deviceProv    *deviceProvider
+	mediaProv     *mediaProvider
+	media2Prov    *media2Provider
+	ptzProv       *ptzProvider
+	imgProv       *imgProvider
+	devHandler    *devicesvc.Handler
+	medHandler    *mediasvc.Handler
+	media2Handler *media2svc.Handler
+	ptzHandler    *ptzsvc.Handler
+	imgHandler    *imgsvc.Handler
+	evtHandler    *eventsvc.EventServiceHandler
+	subHandler    *eventsvc.SubscriptionManagerHandler
 
 	// Authentication chain. Rebuilt when auth config changes.
 	authMu      sync.RWMutex
@@ -262,6 +265,7 @@ func New(opts Options) (*Simulator, error) {
 
 	sim.deviceProv = newDeviceProvider(sim)
 	sim.mediaProv = newMediaProvider(sim)
+	sim.media2Prov = newMedia2Provider(sim)
 	sim.ptzProv = newPTZProvider(sim)
 	sim.imgProv = newImagingProvider(sim)
 
@@ -277,6 +281,10 @@ func New(opts Options) (*Simulator, error) {
 	sim.medHandler = mediasvc.NewHandler(sim.mediaProv,
 		mediasvc.WithAuthHook(mediasvc.AuthFunc(sim.mediaAuthHook)),
 		mediasvc.WithLogger(root.With("component", "media")),
+	)
+	sim.media2Handler = media2svc.NewHandler(sim.media2Prov,
+		media2svc.WithAuthHook(media2svc.AuthFunc(sim.media2AuthHook)),
+		media2svc.WithLogger(root.With("component", "media2")),
 	)
 	sim.ptzHandler = ptzsvc.NewHandler(sim.ptzProv,
 		ptzsvc.WithAuthHook(ptzsvc.AuthFunc(sim.ptzAuthHook)),

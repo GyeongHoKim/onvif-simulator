@@ -279,6 +279,7 @@ func (s *Handler) dispatch(ctx context.Context, operation string, payload []byte
 					},
 				},
 				Media:   serviceCapabilityEnvelope{XAddr: caps.Media.XAddr},
+				Media2:  serviceCapabilityEnvelope{XAddr: caps.Media2.XAddr},
 				Events:  serviceCapabilityEnvelope{XAddr: caps.Events.XAddr},
 				PTZ:     serviceCapabilityEnvelope{XAddr: caps.PTZ.XAddr},
 				Imaging: serviceCapabilityEnvelope{XAddr: caps.Imaging.XAddr},
@@ -935,6 +936,7 @@ type getCapabilitiesResponse struct {
 type capabilitiesEnvelope struct {
 	Device  deviceCapabilityEnvelope  `xml:"Device,omitempty"`
 	Media   serviceCapabilityEnvelope `xml:"Media,omitempty"`
+	Media2  serviceCapabilityEnvelope `xml:"Media2,omitempty"`
 	Events  serviceCapabilityEnvelope `xml:"Events,omitempty"`
 	PTZ     serviceCapabilityEnvelope `xml:"PTZ,omitempty"`
 	Imaging serviceCapabilityEnvelope `xml:"Imaging,omitempty"`

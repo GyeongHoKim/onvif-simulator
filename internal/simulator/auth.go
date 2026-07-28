@@ -125,6 +125,11 @@ func (s *Simulator) mediaAuthHook(ctx context.Context, operation string, r *http
 	return s.authorize(ctx, operation, r, auth.MediaOperationClass(operation))
 }
 
+func (s *Simulator) media2AuthHook(ctx context.Context, operation string, r *http.Request) error {
+	// Media2 operations use the same access classes as Media1 for now.
+	return s.authorize(ctx, operation, r, auth.MediaOperationClass(operation))
+}
+
 func (s *Simulator) eventAuthHook(ctx context.Context, operation string, r *http.Request) error {
 	return s.authorize(ctx, operation, r, auth.EventOperationClass(operation))
 }

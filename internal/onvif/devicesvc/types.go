@@ -114,6 +114,7 @@ type ServiceCapability struct {
 type CapabilitySet struct {
 	Device  DeviceCapability
 	Media   ServiceCapability
+	Media2  ServiceCapability
 	Events  ServiceCapability
 	PTZ     ServiceCapability
 	Imaging ServiceCapability

@@ -11,6 +11,7 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/devicesvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/eventsvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/imgsvc"
+	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/media2svc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/mediasvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/ptzsvc"
 )
@@ -47,6 +48,11 @@ func (p *deviceProvider) Services(_ context.Context, _ bool) ([]devicesvc.Servic
 		{
 			Namespace: mediasvc.MediaNamespace,
 			XAddr:     base + mediasvc.MediaServicePath,
+			Version:   devicesvc.Version{Major: 2, Minor: 40},
+		},
+		{
+			Namespace: media2svc.Media2Namespace,
+			XAddr:     base + media2svc.Media2ServicePath,
 			Version:   devicesvc.Version{Major: 2, Minor: 40},
 		},
 		{
@@ -101,6 +107,7 @@ func (p *deviceProvider) GetCapabilities(_ context.Context, _ string) (devicesvc
 			},
 		},
 		Media:   devicesvc.ServiceCapability{XAddr: base + mediasvc.MediaServicePath},
+		Media2:  devicesvc.ServiceCapability{XAddr: base + media2svc.Media2ServicePath},
 		PTZ:     devicesvc.ServiceCapability{XAddr: base + ptzsvc.PTZServicePath},
 		Imaging: devicesvc.ServiceCapability{XAddr: base + imgsvc.ImagingServicePath},
 		Events:  devicesvc.ServiceCapability{XAddr: base + eventsvc.EventServicePath},

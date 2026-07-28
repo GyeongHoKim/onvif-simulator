@@ -27,7 +27,7 @@ func TestDeviceProviderReadsConfig(t *testing.T) {
 	}
 
 	svcs, err := dp.Services(ctx, false)
-	if err != nil || len(svcs) != 5 {
+	if err != nil || len(svcs) != 6 {
 		t.Fatalf("Services: %v %d", err, len(svcs))
 	}
 
