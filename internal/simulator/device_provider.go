@@ -55,6 +55,11 @@ func (p *deviceProvider) Services(_ context.Context, _ bool) ([]devicesvc.Servic
 			Version:   devicesvc.Version{Major: 2, Minor: 40},
 		},
 		{
+			Namespace: imgsvc.ImagingNamespace,
+			XAddr:     base + imgsvc.ImagingServicePath,
+			Version:   devicesvc.Version{Major: 2, Minor: 40},
+		},
+		{
 			Namespace: eventsvc.EventsNamespace,
 			XAddr:     base + eventsvc.EventServicePath,
 			Version:   devicesvc.Version{Major: 2, Minor: 40},
@@ -95,10 +100,10 @@ func (p *deviceProvider) GetCapabilities(_ context.Context, _ string) (devicesvc
 				HTTPDigest:    true,
 			},
 		},
-		Media:  devicesvc.ServiceCapability{XAddr: base + mediasvc.MediaServicePath},
-		PTZ:      devicesvc.ServiceCapability{XAddr: base + ptzsvc.PTZServicePath},
-		Imaging:  devicesvc.ServiceCapability{XAddr: base + imgsvc.ImagingServicePath},
-		Events:   devicesvc.ServiceCapability{XAddr: base + eventsvc.EventServicePath},
+		Media:   devicesvc.ServiceCapability{XAddr: base + mediasvc.MediaServicePath},
+		PTZ:     devicesvc.ServiceCapability{XAddr: base + ptzsvc.PTZServicePath},
+		Imaging: devicesvc.ServiceCapability{XAddr: base + imgsvc.ImagingServicePath},
+		Events:  devicesvc.ServiceCapability{XAddr: base + eventsvc.EventServicePath},
 	}, nil
 }
 

@@ -117,24 +117,24 @@ func (s *ePTZState) stop(panTilt, zoom *bool) {
 func (s *ePTZState) setPreset(name *string, token *string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	t := ""
+	tok := ""
 	if token != nil && *token != "" {
-		t = *token
+		tok = *token
 	} else {
-		t = "preset_" + strconv.Itoa(s.nextID)
+		tok = "preset_" + strconv.Itoa(s.nextID)
 		s.nextID++
 	}
-	n := t
+	n := tok
 	if name != nil && *name != "" {
 		n = *name
 	}
 	pos := copyVector(&s.position)
-	s.presets[t] = ptzPreset{
-		token:    t,
+	s.presets[tok] = ptzPreset{
+		token:    tok,
 		name:     n,
 		position: &pos,
 	}
-	return t
+	return tok
 }
 
 func (s *ePTZState) removePreset(token string) error {
@@ -240,9 +240,9 @@ func (p *ptzProvider) stateForProfile(profileToken string) *ePTZState {
 
 func (p *ptzProvider) ServiceCapabilities(_ context.Context) (ptzsvc.ServiceCapabilities, error) {
 	return ptzsvc.ServiceCapabilities{
-		EFlip:       false,
-		Reverse:     false,
-		MoveStatus:  true,
+		EFlip:          false,
+		Reverse:        false,
+		MoveStatus:     true,
 		StatusPosition: true,
 	}, nil
 }
@@ -253,12 +253,12 @@ func (p *ptzProvider) GetNodes(_ context.Context) ([]ptzsvc.PTZNode, error) {
 		Name:  defaultPTZNodeName,
 		SupportedPTZSpaces: map[string]ptzsvc.Space{
 			"pan_tilt": {
-				URI: "http://www.onvif.org/ver10/tptz/PositionSpace",
+				URI:    "http://www.onvif.org/ver10/tptz/PositionSpace",
 				XRange: &ptzsvc.IntRange{Min: ptzMinPan, Max: ptzMaxPan},
 				YRange: &ptzsvc.IntRange{Min: ptzMinTilt, Max: ptzMaxTilt},
 			},
 			"zoom": {
-				URI: "http://www.onvif.org/ver10/tptz/PositionSpace",
+				URI:    "http://www.onvif.org/ver10/tptz/PositionSpace",
 				XRange: &ptzsvc.IntRange{Min: ptzMinZoom, Max: ptzMaxZoom},
 			},
 		},
@@ -275,12 +275,12 @@ func (p *ptzProvider) GetNode(_ context.Context, nodeToken string) (ptzsvc.PTZNo
 
 func (p *ptzProvider) GetConfigurations(_ context.Context) ([]ptzsvc.PTZConfiguration, error) {
 	return []ptzsvc.PTZConfiguration{{
-		Token:    defaultPTZConfigToken,
-		Name:     defaultPTZConfigName,
-		UseCount: 1,
-		NodeToken: defaultPTZNodeToken,
-		DefaultAbsolutePantTiltPositionSpace: "http://www.onvif.org/ver10/tptz/PositionSpace",
-		DefaultAbsoluteZoomPositionSpace:     "http://www.onvif.org/ver10/tptz/PositionSpace",
+		Token:                                  defaultPTZConfigToken,
+		Name:                                   defaultPTZConfigName,
+		UseCount:                               1,
+		NodeToken:                              defaultPTZNodeToken,
+		DefaultAbsolutePantTiltPositionSpace:   "http://www.onvif.org/ver10/tptz/PositionSpace",
+		DefaultAbsoluteZoomPositionSpace:       "http://www.onvif.org/ver10/tptz/PositionSpace",
 		DefaultRelativePanTiltTranslationSpace: "http://www.onvif.org/ver10/tptz/TranslationSpace",
 		DefaultRelativeZoomTranslationSpace:    "http://www.onvif.org/ver10/tptz/TranslationSpace",
 		DefaultContinuousPanTiltVelocitySpace:  "http://www.onvif.org/ver10/tptz/VelocitySpace",
@@ -299,30 +299,30 @@ func (p *ptzProvider) GetConfiguration(_ context.Context, configToken string) (p
 func (p *ptzProvider) GetConfigurationOptions(_ context.Context, _ string) (ptzsvc.ConfigurationOptions, error) {
 	return ptzsvc.ConfigurationOptions{
 		PanTiltPositionSpaceRange: []ptzsvc.SpaceRange{{
-			URI:   "http://www.onvif.org/ver10/tptz/PositionSpace",
+			URI:    "http://www.onvif.org/ver10/tptz/PositionSpace",
 			XRange: ptzsvc.IntRange{Min: ptzMinPan, Max: ptzMaxPan},
 			YRange: ptzsvc.IntRange{Min: ptzMinTilt, Max: ptzMaxTilt},
 		}},
 		ZoomPositionSpaceRange: []ptzsvc.SpaceRange{{
-			URI:   "http://www.onvif.org/ver10/tptz/PositionSpace",
+			URI:    "http://www.onvif.org/ver10/tptz/PositionSpace",
 			XRange: ptzsvc.IntRange{Min: ptzMinZoom, Max: ptzMaxZoom},
 		}},
 		PanTiltTranslationSpaceRange: []ptzsvc.SpaceRange{{
-			URI:   "http://www.onvif.org/ver10/tptz/TranslationSpace",
+			URI:    "http://www.onvif.org/ver10/tptz/TranslationSpace",
 			XRange: ptzsvc.IntRange{Min: ptzMinPan, Max: ptzMaxPan},
 			YRange: ptzsvc.IntRange{Min: ptzMinTilt, Max: ptzMaxTilt},
 		}},
 		ZoomTranslationSpaceRange: []ptzsvc.SpaceRange{{
-			URI:   "http://www.onvif.org/ver10/tptz/TranslationSpace",
+			URI:    "http://www.onvif.org/ver10/tptz/TranslationSpace",
 			XRange: ptzsvc.IntRange{Min: ptzMinZoom, Max: ptzMaxZoom},
 		}},
 		PanTiltVelocitySpaceRange: []ptzsvc.SpaceRange{{
-			URI:   "http://www.onvif.org/ver10/tptz/VelocitySpace",
+			URI:    "http://www.onvif.org/ver10/tptz/VelocitySpace",
 			XRange: ptzsvc.IntRange{Min: ptzMinPan, Max: ptzMaxPan},
 			YRange: ptzsvc.IntRange{Min: ptzMinTilt, Max: ptzMaxTilt},
 		}},
 		ZoomVelocitySpaceRange: []ptzsvc.SpaceRange{{
-			URI:   "http://www.onvif.org/ver10/tptz/VelocitySpace",
+			URI:    "http://www.onvif.org/ver10/tptz/VelocitySpace",
 			XRange: ptzsvc.IntRange{Min: ptzMinZoom, Max: ptzMaxZoom},
 		}},
 		PTZTimeout: ptzsvc.IntRange{Min: 5, Max: 300},
