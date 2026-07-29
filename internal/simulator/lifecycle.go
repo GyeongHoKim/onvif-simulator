@@ -13,6 +13,7 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
 	"github.com/GyeongHoKim/onvif-simulator/internal/ffmpeg"
 	"github.com/GyeongHoKim/onvif-simulator/internal/obs"
+	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/deviceiosvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/devicesvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/eventsvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/imgsvc"
@@ -96,6 +97,7 @@ func buildHTTPServer(s *Simulator) *http.Server {
 	mux.Handle(media2svc.Media2ServicePath, obs.RequestMiddleware(s.media2Handler, httpLogger))
 	mux.Handle(ptzsvc.PTZServicePath, obs.RequestMiddleware(s.ptzHandler, httpLogger))
 	mux.Handle(imgsvc.ImagingServicePath, obs.RequestMiddleware(s.imgHandler, httpLogger))
+	mux.Handle(deviceiosvc.DeviceIOServicePath, obs.RequestMiddleware(s.deviceIOHandler, httpLogger))
 	mux.Handle(eventsvc.EventServicePath, obs.RequestMiddleware(s.evtHandler, httpLogger))
 	mux.Handle(eventsvc.SubscriptionManagerPath, obs.RequestMiddleware(s.subHandler, httpLogger))
 	return &http.Server{

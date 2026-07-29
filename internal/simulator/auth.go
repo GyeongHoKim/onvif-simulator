@@ -141,3 +141,8 @@ func (s *Simulator) ptzAuthHook(ctx context.Context, operation string, r *http.R
 func (s *Simulator) imgAuthHook(ctx context.Context, operation string, r *http.Request) error {
 	return s.authorize(ctx, operation, r, auth.ImagingOperationClass(operation))
 }
+
+func (s *Simulator) deviceIOAuthHook(ctx context.Context, operation string, r *http.Request) error {
+	// DeviceIO operations use ReadSystem access class for now.
+	return s.authorize(ctx, operation, r, auth.ClassReadSystem)
+}

@@ -112,12 +112,13 @@ type ServiceCapability struct {
 
 // CapabilitySet is the GetCapabilities result set.
 type CapabilitySet struct {
-	Device  DeviceCapability
-	Media   ServiceCapability
-	Media2  ServiceCapability
-	Events  ServiceCapability
-	PTZ     ServiceCapability
-	Imaging ServiceCapability
+	Device   DeviceCapability
+	Media    ServiceCapability
+	Media2   ServiceCapability
+	Events   ServiceCapability
+	PTZ      ServiceCapability
+	Imaging  ServiceCapability
+	DeviceIO ServiceCapability
 }
 
 // DiscoveryInfo is returned by GetDiscoveryMode and consumed by SetDiscoveryMode.

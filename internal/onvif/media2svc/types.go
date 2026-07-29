@@ -58,6 +58,56 @@ type Profile struct {
 	MetadataConfigurationToken       string
 }
 
+// ---------- Metadata Configuration ----------
+
+// MetadataConfiguration describes metadata streaming settings.
+type MetadataConfiguration struct {
+	Token            string
+	Name             string
+	UseCount         int
+	IncludePTZStatus bool
+	IncludeAnalytics bool
+	IncludeEvents    bool
+}
+
+// MetadataConfigurationOptions returns valid metadata configuration options.
+type MetadataConfigurationOptions struct {
+	PTZStatusFilter bool
+	AnalyticsFilter bool
+	EventFilter     bool
+}
+
+// ---------- OSD Configuration ----------
+
+// OSDConfiguration describes an on-screen display overlay.
+type OSDConfiguration struct {
+	Token      string
+	Type       string // "Text" | "Image" | "Plain"
+	Position   string // "UpperLeft" | "UpperRight" | "LowerLeft" | "LowerRight" | "Custom"
+	TextString *OSDText
+	Image      *OSDImage
+}
+
+// OSDText describes text to display on OSD.
+type OSDText struct {
+	Type       string // "Plain" | "Date" | "Time" | "DateTime"
+	PlainText  string
+	DateFormat string
+	TimeFormat string
+}
+
+// OSDImage describes an image to display on OSD.
+type OSDImage struct {
+	URI string
+}
+
+// OSDConfigurationOptions describes valid OSD settings.
+type OSDConfigurationOptions struct {
+	Types       []string
+	Positions   []string
+	TextFormats []string
+}
+
 // ---------- Video Source Configuration ----------
 
 // VideoSourceConfiguration describes a video source input.
@@ -169,6 +219,16 @@ type Provider interface {
 	SetVideoEncoderConfiguration(ctx context.Context, token string, config *VideoEncoderConfiguration) error
 	StreamURI(ctx context.Context, profileToken, protocol string) (string, error)
 	SnapshotURI(ctx context.Context, profileToken string) (string, error)
+	// Metadata Configuration
+	MetadataConfigurations(ctx context.Context) ([]MetadataConfiguration, error)
+	MetadataConfiguration(ctx context.Context, token string) (MetadataConfiguration, error)
+	MetadataConfigurationOptions(ctx context.Context, token string) (MetadataConfigurationOptions, error)
+	// OSD Configuration
+	OSDConfigurations(ctx context.Context) ([]OSDConfiguration, error)
+	OSDConfiguration(ctx context.Context, token string) (OSDConfiguration, error)
+	CreateOSD(ctx context.Context, config OSDConfiguration) (string, error)
+	DeleteOSD(ctx context.Context, token string) error
+	OSDConfigurationOptions(ctx context.Context) (OSDConfigurationOptions, error)
 }
 
 // AuthHook authorizes a Media2 operation.

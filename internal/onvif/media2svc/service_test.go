@@ -14,6 +14,8 @@ type mockProvider struct {
 	videoEncoderConfigs []VideoEncoderConfiguration
 	streamURIs          map[string]string
 	capabilities        ServiceCapabilities
+	metadataConfigs     []MetadataConfiguration
+	osdConfigs          []OSDConfiguration
 }
 
 func (m *mockProvider) ServiceCapabilities(_ context.Context) (ServiceCapabilities, error) {
@@ -70,6 +72,46 @@ func (m *mockProvider) StreamURI(_ context.Context, profileToken, _ string) (str
 
 func (*mockProvider) SnapshotURI(_ context.Context, profileToken string) (string, error) {
 	return "http://localhost:8080/snapshot/" + profileToken, nil
+}
+
+func (m *mockProvider) MetadataConfigurations(_ context.Context) ([]MetadataConfiguration, error) {
+	return m.metadataConfigs, nil
+}
+
+func (*mockProvider) MetadataConfiguration(_ context.Context, _ string) (MetadataConfiguration, error) {
+	return MetadataConfiguration{}, nil
+}
+
+func (*mockProvider) MetadataConfigurationOptions(_ context.Context, _ string) (MetadataConfigurationOptions, error) {
+	return MetadataConfigurationOptions{
+		PTZStatusFilter: true,
+		AnalyticsFilter: true,
+		EventFilter:     true,
+	}, nil
+}
+
+func (m *mockProvider) OSDConfigurations(_ context.Context) ([]OSDConfiguration, error) {
+	return m.osdConfigs, nil
+}
+
+func (*mockProvider) OSDConfiguration(_ context.Context, _ string) (OSDConfiguration, error) {
+	return OSDConfiguration{}, nil
+}
+
+func (*mockProvider) CreateOSD(_ context.Context, _ OSDConfiguration) (string, error) {
+	return "osd_1", nil
+}
+
+func (*mockProvider) DeleteOSD(_ context.Context, _ string) error {
+	return nil
+}
+
+func (*mockProvider) OSDConfigurationOptions(_ context.Context) (OSDConfigurationOptions, error) {
+	return OSDConfigurationOptions{
+		Types:       []string{"Text", "Image", "Plain"},
+		Positions:   []string{"UpperLeft", "UpperRight", "LowerLeft", "LowerRight"},
+		TextFormats: []string{"Plain", "Date", "Time", "DateTime"},
+	}, nil
 }
 
 func newTestHandler(t *testing.T) *Handler {

@@ -21,6 +21,7 @@ import (
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
 	"github.com/GyeongHoKim/onvif-simulator/internal/event"
 	"github.com/GyeongHoKim/onvif-simulator/internal/obs"
+	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/deviceiosvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/devicesvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/eventsvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/imgsvc"
@@ -154,21 +155,23 @@ type Simulator struct {
 	derivedMJPEGProfiles []config.ProfileConfig
 
 	// Core components. Immutable after New.
-	store         *auth.MutableUserStore
-	controller    *auth.Controller
-	broker        *event.Broker
-	deviceProv    *deviceProvider
-	mediaProv     *mediaProvider
-	media2Prov    *media2Provider
-	ptzProv       *ptzProvider
-	imgProv       *imgProvider
-	devHandler    *devicesvc.Handler
-	medHandler    *mediasvc.Handler
-	media2Handler *media2svc.Handler
-	ptzHandler    *ptzsvc.Handler
-	imgHandler    *imgsvc.Handler
-	evtHandler    *eventsvc.EventServiceHandler
-	subHandler    *eventsvc.SubscriptionManagerHandler
+	store           *auth.MutableUserStore
+	controller      *auth.Controller
+	broker          *event.Broker
+	deviceProv      *deviceProvider
+	mediaProv       *mediaProvider
+	media2Prov      *media2Provider
+	ptzProv         *ptzProvider
+	imgProv         *imgProvider
+	deviceIOProv    *deviceIOProvider
+	devHandler      *devicesvc.Handler
+	medHandler      *mediasvc.Handler
+	media2Handler   *media2svc.Handler
+	ptzHandler      *ptzsvc.Handler
+	imgHandler      *imgsvc.Handler
+	deviceIOHandler *deviceiosvc.Handler
+	evtHandler      *eventsvc.EventServiceHandler
+	subHandler      *eventsvc.SubscriptionManagerHandler
 
 	// Authentication chain. Rebuilt when auth config changes.
 	authMu      sync.RWMutex
@@ -268,6 +271,7 @@ func New(opts Options) (*Simulator, error) {
 	sim.media2Prov = newMedia2Provider(sim)
 	sim.ptzProv = newPTZProvider(sim)
 	sim.imgProv = newImagingProvider(sim)
+	sim.deviceIOProv = newDeviceIOProvider(sim)
 
 	if err := sim.rebuildAuthChain(&cfg); err != nil {
 		return nil, fmt.Errorf("simulator: build auth chain: %w", err)
@@ -293,6 +297,10 @@ func New(opts Options) (*Simulator, error) {
 	sim.imgHandler = imgsvc.NewHandler(sim.imgProv,
 		imgsvc.WithAuthHook(imgsvc.AuthFunc(sim.imgAuthHook)),
 		imgsvc.WithLogger(root.With("component", "imaging")),
+	)
+	sim.deviceIOHandler = deviceiosvc.NewHandler(sim.deviceIOProv,
+		deviceiosvc.WithAuthHook(deviceiosvc.AuthFunc(sim.deviceIOAuthHook)),
+		deviceiosvc.WithLogger(root.With("component", "deviceio")),
 	)
 	sim.evtHandler = eventsvc.NewEventServiceHandler(broker,
 		eventsvc.WithEventAuthHook(eventsvc.AuthFunc(sim.eventAuthHook)),

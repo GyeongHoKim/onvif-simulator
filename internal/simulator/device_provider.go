@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/GyeongHoKim/onvif-simulator/internal/config"
+	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/deviceiosvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/devicesvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/eventsvc"
 	"github.com/GyeongHoKim/onvif-simulator/internal/onvif/imgsvc"
@@ -106,11 +107,12 @@ func (p *deviceProvider) GetCapabilities(_ context.Context, _ string) (devicesvc
 				HTTPDigest:    true,
 			},
 		},
-		Media:   devicesvc.ServiceCapability{XAddr: base + mediasvc.MediaServicePath},
-		Media2:  devicesvc.ServiceCapability{XAddr: base + media2svc.Media2ServicePath},
-		PTZ:     devicesvc.ServiceCapability{XAddr: base + ptzsvc.PTZServicePath},
-		Imaging: devicesvc.ServiceCapability{XAddr: base + imgsvc.ImagingServicePath},
-		Events:  devicesvc.ServiceCapability{XAddr: base + eventsvc.EventServicePath},
+		Media:    devicesvc.ServiceCapability{XAddr: base + mediasvc.MediaServicePath},
+		Media2:   devicesvc.ServiceCapability{XAddr: base + media2svc.Media2ServicePath},
+		PTZ:      devicesvc.ServiceCapability{XAddr: base + ptzsvc.PTZServicePath},
+		Imaging:  devicesvc.ServiceCapability{XAddr: base + imgsvc.ImagingServicePath},
+		DeviceIO: devicesvc.ServiceCapability{XAddr: base + deviceiosvc.DeviceIOServicePath},
+		Events:   devicesvc.ServiceCapability{XAddr: base + eventsvc.EventServicePath},
 	}, nil
 }
 

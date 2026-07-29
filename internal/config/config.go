@@ -1120,6 +1120,7 @@ func Default() Config {
 			Firmware:     "0.1.0",
 			Scopes: []string{
 				"onvif://www.onvif.org/Profile/Streaming",
+				"onvif://www.onvif.org/Profile/T",
 				"onvif://www.onvif.org/name/simulator",
 				"onvif://www.onvif.org/hardware/virtual",
 			},

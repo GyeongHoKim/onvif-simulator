@@ -158,3 +158,75 @@ func (p *media2Provider) SnapshotURI(_ context.Context, profileToken string) (st
 	port := cfg.Network.HTTPPort
 	return "http://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/snapshot/" + profileToken, nil
 }
+
+func (p *media2Provider) MetadataConfigurations(_ context.Context) ([]media2svc.MetadataConfiguration, error) {
+	cfg := p.sim.snapshotConfig()
+	out := make([]media2svc.MetadataConfiguration, 0, len(cfg.Media.Profiles))
+	for i := range cfg.Media.Profiles {
+		prof := &cfg.Media.Profiles[i]
+		out = append(out, media2svc.MetadataConfiguration{
+			Token:            prof.Token + "_metadata",
+			Name:             prof.Name + "_metadata",
+			UseCount:         1,
+			IncludePTZStatus: true,
+			IncludeAnalytics: true,
+			IncludeEvents:    true,
+		})
+	}
+	return out, nil
+}
+
+func (*media2Provider) MetadataConfiguration(_ context.Context, _ string) (media2svc.MetadataConfiguration, error) {
+	return media2svc.MetadataConfiguration{
+		Token:            "metadata_default",
+		Name:             "DefaultMetadata",
+		UseCount:         1,
+		IncludePTZStatus: true,
+		IncludeAnalytics: true,
+		IncludeEvents:    true,
+	}, nil
+}
+
+func (*media2Provider) MetadataConfigurationOptions(
+	_ context.Context, _ string,
+) (media2svc.MetadataConfigurationOptions, error) {
+	return media2svc.MetadataConfigurationOptions{
+		PTZStatusFilter: true,
+		AnalyticsFilter: true,
+		EventFilter:     true,
+	}, nil
+}
+
+func (*media2Provider) OSDConfigurations(_ context.Context) ([]media2svc.OSDConfiguration, error) {
+	return []media2svc.OSDConfiguration{
+		{
+			Token:    "osd_1",
+			Type:     "Text",
+			Position: "UpperLeft",
+			TextString: &media2svc.OSDText{
+				Type:      "Plain",
+				PlainText: "CAM 01",
+			},
+		},
+	}, nil
+}
+
+func (*media2Provider) OSDConfiguration(_ context.Context, _ string) (media2svc.OSDConfiguration, error) {
+	return media2svc.OSDConfiguration{}, nil
+}
+
+func (*media2Provider) CreateOSD(_ context.Context, _ media2svc.OSDConfiguration) (string, error) {
+	return "osd_1", nil
+}
+
+func (*media2Provider) DeleteOSD(_ context.Context, _ string) error {
+	return nil
+}
+
+func (*media2Provider) OSDConfigurationOptions(_ context.Context) (media2svc.OSDConfigurationOptions, error) {
+	return media2svc.OSDConfigurationOptions{
+		Types:       []string{"Text", "Image", "Plain"},
+		Positions:   []string{"UpperLeft", "UpperRight", "LowerLeft", "LowerRight"},
+		TextFormats: []string{"Plain", "Date", "Time", "DateTime"},
+	}, nil
+}
